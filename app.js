@@ -22,9 +22,14 @@ const validateSignup = (req, res, next) => {
     });
   }
   
-  // Basic email validation
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRegex.test(email)) {
+  // Basic email validation using a safer approach
+  // Check for @ symbol and basic structure without complex regex
+  if (typeof email !== 'string' || !email.includes('@') || email.indexOf('@') === 0 || email.indexOf('@') === email.length - 1) {
+    return res.status(400).json({ error: 'Invalid email format' });
+  }
+  
+  const parts = email.split('@');
+  if (parts.length !== 2 || parts[0].length === 0 || parts[1].length === 0 || !parts[1].includes('.')) {
     return res.status(400).json({ error: 'Invalid email format' });
   }
   
