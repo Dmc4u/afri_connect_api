@@ -1,0 +1,52 @@
+const express = require("express");
+const userRouter = require("./user");
+const listingRouter = require("./listing");
+const membershipRouter = require("./membership");
+const forumRouter = require("./forum");
+const searchRouter = require("./search");
+const apiRouter = require("./api");
+const adminRouter = require("./admin");
+const analyticsRouter = require("./analytics");
+const migrationRouter = require("./migration");
+const paypalRouter = require("./paypal");
+const checkoutRouter = require("./checkout");
+const messagingRouter = require("./messaging");
+const contactThreadRouter = require("./contactThread");
+const contactRouter = require("./contact");
+const advertisingRouter = require("./advertising");
+const leadsRouter = require("./leads");
+const verificationRouter = require("./verification");
+const pricingRouter = require("./pricing");
+const featuredRouter = require("./featured");
+const reviewsRouter = require("./reviews");
+const { NotFoundError } = require("../utils/errors");
+
+const router = express.Router();
+
+router.use("/users", userRouter);
+router.use("/listings", listingRouter);
+router.use("/membership", membershipRouter);
+router.use("/forum", forumRouter);
+router.use("/search", searchRouter);
+router.use("/api", apiRouter);
+router.use("/admin", adminRouter);
+router.use("/analytics", analyticsRouter);
+router.use("/migration", migrationRouter);
+router.use("/paypal", paypalRouter);
+router.use("/checkout", checkoutRouter);
+router.use("/messages", messagingRouter);
+router.use("/contact-threads", contactThreadRouter);
+router.use("/contact", contactRouter);
+router.use("/advertising", advertisingRouter);
+router.use("/leads", leadsRouter);
+router.use("/verification", verificationRouter);
+router.use("/", pricingRouter);
+router.use("/featured", featuredRouter);
+router.use("/reviews", reviewsRouter);
+
+// Handle non-existent routes
+router.use((req, res, next) => {
+  next(new NotFoundError("Requested resource not found"));
+});
+
+module.exports = router;

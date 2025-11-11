@@ -1,20 +1,58 @@
 {
   "name": "afri_connect_api",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Backend API for AfriOnet application",
+  "main": "app.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "lint": "eslint .",
+    "dev": "nodemon app.js",
+    "start": "node app.js",
+    "format": "prettier --write ."
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Dmc4u/afri_connect_api.git"
   },
   "keywords": [],
-  "author": "",
+  "author": "Moses Ademola Aina",
   "license": "ISC",
   "bugs": {
     "url": "https://github.com/Dmc4u/afri_connect_api/issues"
   },
-  "homepage": "https://github.com/Dmc4u/afri_connect_api#readme"
+  "homepage": "https://github.com/Dmc4u/afri_connect_api#readme",
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "celebrate": "^15.0.3",
+    "cloudinary": "^1.41.3",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.1.0",
+    "express-validator": "^7.3.0",
+    "express-winston": "^4.2.0",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.19.1",
+    "multer": "^2.0.2",
+    "multer-storage-cloudinary": "^4.0.0",
+    "node-fetch": "^3.3.2",
+    "nodemailer": "^7.0.10",
+    "socket.io": "^4.7.2",
+    "uuid": "^13.0.0",
+    "validator": "^13.15.15",
+    "winston": "^3.18.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.37.0",
+    "eslint": "^8.57.1",
+    "eslint-config-airbnb": "^19.0.4",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-node": "^11.1.0",
+    "eslint-plugin-prettier": "^5.5.4",
+    "eslint-plugin-react": "^7.37.5",
+    "globals": "^16.4.0",
+    "nodemon": "^3.1.10",
+    "prettier": "^3.6.2"
+  }
 }
