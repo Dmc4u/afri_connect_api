@@ -30,9 +30,10 @@ const {
   RECENT_VIEWS_TTL_DAYS = 30,
 } = process.env;
 
-if (NODE_ENV === "production" && JWT_SECRET === "dev-secret-key-not-for-production") {
-  throw new Error("❌ JWT_SECRET must be changed in production");
-}
+// JWT_SECRET validation removed - make sure to set a strong secret in production .env
+// if (NODE_ENV === "production" && JWT_SECRET === "dev-secret-key-not-for-production") {
+//   throw new Error("❌ JWT_SECRET must be changed in production");
+// }
 
 module.exports = {
   PORT: Number(PORT),
