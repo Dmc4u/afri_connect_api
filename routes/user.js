@@ -39,6 +39,12 @@ router.patch(
   uploadProfile.single("photo"),
   updateUserPhoto
 );
+router.post(
+  "/me/photo",
+  requireProfileCustomization,
+  uploadProfile.single("photo"),
+  updateUserPhoto
+);
 router.delete("/me/photo", requireProfileCustomization, deleteUserPhoto);
 
 // Pro-tier specific routes
