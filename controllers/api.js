@@ -37,7 +37,7 @@ const generateApiKey = async (req, res, next) => {
     // Set rate limits based on tier
     const rateLimits = {
       Premium: { requests: 1000, window: 3600 }, // 1000 requests per hour
-      Pro: { requests: 5000, window: 3600 }, // 5000 requests per hour
+      Pro: { requests: 4000, window: 3600 }, // 4000 requests per hour
       admin: { requests: 10000, window: 3600 }, // 10000 requests per hour
     };
 

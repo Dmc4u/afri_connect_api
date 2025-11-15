@@ -16,19 +16,24 @@ function md5Hex(input) {
 
 /**
  * Verify classic return signature.
- * Expects one of the following param sets (case-insensitive):
- * - { HASH, order_number, total } (legacy 2CO)
- * - { signature, orderNumber, total } (alias)
+ * 2Checkout uses different signature formats:
+ * - For Purchase API (Checkout): key parameter (MD5 hash)
+ * - Legacy format: HASH = MD5(secretWord + sellerId + orderNumber + total)
  */
 function verifyReturnSignature(params = {}) {
   const secretWord = cfg.TWOCHECKOUT_SECRET_WORD || "";
   const sellerId = cfg.TWOCHECKOUT_SELLER_ID || "";
   if (!secretWord || !sellerId) return false;
 
-  // Normalize fields
-  const signature = params.HASH || params.hash || params.signature || params.SIGNATURE || "";
+  // Get signature - could be 'key' (new) or 'HASH' (legacy)
+  const signature = params.key || params.KEY || params.HASH || params.hash || params.signature || params.SIGNATURE || "";
+
+  // Get order identifiers
   const orderNumber =
-    params.order_number || params.orderNumber || params.ORDERNUMBER || params.ORDER_NUMBER || "";
+    params.order_number || params.orderNumber || params.ORDERNUMBER || params.ORDER_NUMBER ||
+    params.sale_id || params.SALE_ID || "";
+
+  // Get total/amount
   const total = String(
     params.total || params.total_amount || params.amount || params.TOTAL || params.TOTALAMOUNT || 0
   );

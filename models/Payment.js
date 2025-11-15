@@ -12,12 +12,10 @@ const paymentSchema = new mongoose.Schema(
       type: String,
       required: true,
       unique: true,
-      index: true,
     },
     paypalOrderId: {
       type: String,
       sparse: true,
-      index: true,
     },
     paypalPaymentId: {
       type: String,
@@ -215,8 +213,8 @@ const paymentSchema = new mongoose.Schema(
 
 // Indexes for efficient queries
 paymentSchema.index({ user: 1, status: 1, createdAt: -1 });
-paymentSchema.index({ orderId: 1 }, { unique: true });
-paymentSchema.index({ paypalOrderId: 1 }, { sparse: true });
+// orderId already indexed via unique: true
+// paypalOrderId already indexed via sparse: true
 paymentSchema.index({ status: 1, createdAt: -1 });
 paymentSchema.index({ isActive: 1, expirationDate: 1 });
 paymentSchema.index({ "tierUpgrade.to": 1, status: 1 });

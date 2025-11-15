@@ -17,7 +17,6 @@ const apiKeySchema = new mongoose.Schema(
       type: String,
       required: true,
       unique: true,
-      index: true,
     },
     permissions: [
       {
@@ -74,7 +73,7 @@ const apiKeySchema = new mongoose.Schema(
 
 // Index for efficient queries
 apiKeySchema.index({ user: 1, isActive: 1 });
-apiKeySchema.index({ keyValue: 1 }, { unique: true });
+// keyValue already indexed via unique: true in schema definition
 apiKeySchema.index({ expiresAt: 1 }, { sparse: true });
 
 // Pre-save middleware

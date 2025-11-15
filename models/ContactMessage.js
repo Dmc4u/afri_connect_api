@@ -19,7 +19,7 @@ const ContactMessageSchema = new mongoose.Schema(
       type: String,
       required: true,
       minlength: 10,
-      maxlength: 5000,
+      maxlength: 4000,
     },
 
     // Business/Listing information
@@ -69,7 +69,7 @@ const ContactMessageSchema = new mongoose.Schema(
         content: {
           type: String,
           required: true,
-          maxlength: 5000,
+          maxlength: 4000,
         },
         createdAt: {
           type: Date,

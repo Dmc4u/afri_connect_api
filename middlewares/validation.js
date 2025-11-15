@@ -273,9 +273,9 @@ module.exports.validateForumPost = celebrate({
       "string.max": 'The maximum length of the "title" field is 200',
       "string.empty": 'The "title" field must be filled in',
     }),
-    content: Joi.string().required().min(10).max(5000).messages({
+    content: Joi.string().required().min(10).max(4000).messages({
       "string.min": 'The minimum length of the "content" field is 10',
-      "string.max": 'The maximum length of the "content" field is 5000',
+      "string.max": 'The maximum length of the "content" field is 4000',
       "string.empty": 'The "content" field must be filled in',
     }),
     category: Joi.string().required().messages({

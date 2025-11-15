@@ -27,9 +27,9 @@ router.post(
         'string.max': 'Subject must not exceed 200 characters',
         'string.empty': 'Subject is required',
       }),
-      message: Joi.string().required().min(10).max(5000).messages({
+      message: Joi.string().required().min(10).max(4000).messages({
         'string.min': 'Message must be at least 10 characters',
-        'string.max': 'Message must not exceed 5000 characters',
+        'string.max': 'Message must not exceed 4000 characters',
         'string.empty': 'Message is required',
       }),
       recaptchaToken: Joi.string().allow(null, '').optional(), // Allow reCAPTCHA token

@@ -14,7 +14,7 @@ const auth = require("./middlewares/auth");
 const errorHandler = require("./middlewares/error-handler");
 const { requestLogger, errorLogger } = require("./middlewares/logger");
 const { logValidationErrors, validateSignup, validateSignin } = require("./middlewares/validation");
-const { PORT = 5000, MONGO_URL, PAYPAL_CLIENT_ID, PAYPAL_MODE } = require("./utils/config");
+const { PORT, MONGO_URL, PAYPAL_CLIENT_ID, PAYPAL_MODE } = require("./utils/config");
 const { createUser, login } = require("./controllers/user");
 const { initializeSocket } = require("./utils/socket");
 const PricingSettings = require("./models/PricingSettings");
@@ -24,10 +24,8 @@ const httpServer = createServer(app);
 const io = new IOServer(httpServer, {
   cors: {
     origin: [
-      "http://localhost:3000",
       "http://localhost:3001",
-      "http://localhost:3002",
-      "https://your-production-url.com",
+      "https://afrionet.com",
     ],
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     credentials: true,
@@ -81,9 +79,7 @@ app.use(express.urlencoded({ extended: true, verify: rawBodySaver }));
 app.use(
   cors({
     origin: [
-      "http://localhost:3000",
       "http://localhost:3001",
-      "http://localhost:3002",
       "https://your-production-url.com",
     ],
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],

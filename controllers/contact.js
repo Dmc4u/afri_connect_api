@@ -26,8 +26,8 @@ const sendSupportMessage = async (req, res, next) => {
       throw new BadRequestError('Message must be at least 10 characters');
     }
 
-    if (message.length > 5000) {
-      throw new BadRequestError('Message is too long (max 5000 characters)');
+    if (message.length > 4000) {
+      throw new BadRequestError('Message is too long (max 4000 characters)');
     }
 
     // Helper function to escape HTML

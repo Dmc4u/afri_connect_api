@@ -831,7 +831,7 @@ router.post(
         .required(),
       recipientType: Joi.string().valid("individual", "tier", "multiple", "all").required(),
       subject: Joi.string().trim().min(1).max(200).required(),
-      message: Joi.string().trim().min(1).max(5000).required(),
+      message: Joi.string().trim().min(1).max(4000).required(),
       priority: Joi.string().valid("low", "normal", "high").default("normal"),
     }),
   }),

@@ -149,8 +149,8 @@ exports.sendMessage = async (req, res, next) => {
       throw new BadRequestError("Message text is required");
     }
 
-    if (text.length > 5000) {
-      throw new BadRequestError("Message cannot exceed 5000 characters");
+    if (text.length > 4000) {
+      throw new BadRequestError("Message cannot exceed 4000 characters");
     }
 
     const conversation = await Conversation.findById(conversationId);
@@ -415,8 +415,8 @@ exports.editMessage = async (req, res, next) => {
       throw new BadRequestError("Message text is required");
     }
 
-    if (text.length > 5000) {
-      throw new BadRequestError("Message cannot exceed 5000 characters");
+    if (text.length > 4000) {
+      throw new BadRequestError("Message cannot exceed 4000 characters");
     }
 
     const message = await Message.findById(messageId);

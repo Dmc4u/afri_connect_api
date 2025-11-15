@@ -22,7 +22,7 @@ const createThreadValidation = celebrate({
   body: Joi.object().keys({
     senderName: Joi.string().trim().min(2).max(100).required(),
     senderEmail: Joi.string().email().required(),
-    message: Joi.string().trim().min(10).max(5000).required(),
+    message: Joi.string().trim().min(10).max(4000).required(),
     businessOwner: Joi.string().required(),
     listing: Joi.string().optional(),
   }),
@@ -30,7 +30,7 @@ const createThreadValidation = celebrate({
 
 const addReplyValidation = celebrate({
   body: Joi.object().keys({
-    content: Joi.string().trim().min(1).max(5000).required(),
+    content: Joi.string().trim().min(1).max(4000).required(),
   }),
 });
 

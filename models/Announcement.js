@@ -12,7 +12,7 @@ const announcementSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
-      maxlength: 5000,
+      maxlength: 4000,
     },
     sender: {
       type: mongoose.Schema.Types.ObjectId,

@@ -249,8 +249,8 @@ const addReply = async (req, res, next) => {
       throw new BadRequestError("Reply content is required");
     }
 
-    if (content.length > 5000) {
-      throw new BadRequestError("Reply cannot exceed 5000 characters");
+    if (content.length > 4000) {
+      throw new BadRequestError("Reply cannot exceed 4000 characters");
     }
 
     const thread = await ContactMessage.findById(threadId);

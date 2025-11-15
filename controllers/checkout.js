@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const Payment = require("../models/Payment");
 const TwoCheckoutTransaction = require("../models/TwoCheckoutTransaction");
+const User = require("../models/User");
 const cfg = require("../utils/config");
 const {
   buildCheckoutInit,
@@ -8,6 +9,35 @@ const {
   verifyReturnSignature,
 } = require("../utils/twocheckout");
 const { BadRequestError, UnauthorizedError, NotFoundError } = require("../utils/errors");
+
+/**
+ * Helper function to update user tier after successful payment
+ */
+async function updateUserTier(payment) {
+  if (!payment || !payment.user || !payment.tierUpgrade) {
+    return;
+  }
+
+  try {
+    const user = await User.findById(payment.user);
+    if (!user) {
+      console.error(`User not found for payment ${payment._id}`);
+      return;
+    }
+
+    // Update user's tier
+    user.tier = payment.tierUpgrade.to;
+
+    // Set membership dates
+    user.membershipStartDate = payment.activationDate || new Date();
+    user.membershipEndDate = payment.expirationDate;
+
+    await user.save();
+    console.log(`✅ Updated user ${user.email} tier to ${user.tier}`);
+  } catch (error) {
+    console.error(`Error updating user tier:`, error);
+  }
+}
 
 /**
  * POST /checkout/2co/initiate
@@ -156,6 +186,9 @@ exports.webhookTwoCo = async (req, res, next) => {
           // If activationDate not set, set and compute expiration via pre-save
           if (!payment.activationDate) payment.activationDate = new Date();
           await payment.save();
+
+          // Update user tier
+          await updateUserTier(payment);
         } else if (tx.status === "FAILED" || tx.status === "CANCELLED") {
           payment.status = "failed";
           await payment.save();
@@ -172,16 +205,19 @@ exports.webhookTwoCo = async (req, res, next) => {
 /**
  * GET /checkout/2co/return
  * Query/body comes from 2CO return URL. We'll attempt MD5 return signature verification.
+ * 2Checkout returns parameters like: key, order_number, total, cart_order_id, etc.
  */
 exports.returnTwoCo = async (req, res, next) => {
   try {
     const params = { ...req.query, ...req.body };
     const verified = verifyReturnSignature(params);
 
-    const merchantOrderId = params.merchantOrderId || params.merchant_order_id || params.ORDER_ID;
-    const orderNumber = params.orderNumber || params.order_number || params.SALE_ID;
+    // 2Checkout return parameter names
+    const merchantOrderId = params.cart_order_id || params.merchantOrderId || params.merchant_order_id || params.ORDER_ID;
+    const orderNumber = params.order_number || params.orderNumber || params.SALE_ID || params.sale_id;
     const total = Number(params.total || params.amount || 0);
-    const currency = params.currency || "USD";
+    const currency = params.currency || params.currency_code || "USD";
+    const key = params.key;  // 2Checkout transaction key
 
     // Update transaction for traceability
     const query = merchantOrderId ? { merchantOrderId } : { orderNumber };
@@ -192,7 +228,7 @@ exports.returnTwoCo = async (req, res, next) => {
         merchantOrderId,
         amount: Number.isNaN(total) ? undefined : total,
         currency,
-        signature: params.HASH || params.signature,
+        signature: params.key || params.HASH || params.signature,
         returnPayload: params,
         "verification.returnVerified": !!verified,
         "verification.verifiedAt": new Date(),
@@ -209,11 +245,15 @@ exports.returnTwoCo = async (req, res, next) => {
         payment.paymentDetails = {
           ...(payment.paymentDetails || {}),
           transactionId: orderNumber,
+          key: key,
         };
         payment.completedAt = new Date();
         payment.isActive = true;
         if (!payment.activationDate) payment.activationDate = new Date();
         await payment.save();
+
+        // Update user tier
+        await updateUserTier(payment);
       }
     }
 

@@ -31,7 +31,7 @@ const messageSchema = new mongoose.Schema(
       type: String,
       required: [true, "Message text is required"],
       trim: true,
-      maxlength: [5000, "Message cannot exceed 5000 characters"],
+      maxlength: [4000, "Message cannot exceed 4000 characters"],
     },
     // Optional attachments (URLs from Cloudinary)
     attachments: [
