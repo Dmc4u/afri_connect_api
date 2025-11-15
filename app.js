@@ -80,7 +80,8 @@ app.use(
   cors({
     origin: [
       "http://localhost:3001",
-      "https://your-production-url.com",
+      "https://afrionet.com",
+      "https://www.afrionet.com",
     ],
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
