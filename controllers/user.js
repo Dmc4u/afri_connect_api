@@ -149,7 +149,8 @@ const updateUserPhoto = (req, res, next) => {
     return next(new ForbiddenError("Profile photo customization requires Starter tier or higher"));
   }
 
-  const profilePhoto = req.file.path; // Cloudinary URL
+  // For local storage, construct the URL path
+  const profilePhoto = `/uploads/profiles/${req.file.filename}`;
 
   return User.findByIdAndUpdate(req.user._id, { profilePhoto }, { new: true, runValidators: true })
     .orFail(() => new NotFoundError("User not found"))
