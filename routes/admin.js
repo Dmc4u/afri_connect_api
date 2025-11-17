@@ -8,6 +8,7 @@ const ApiKey = require("../models/ApiKey");
 const ApiUsage = require("../models/ApiUsage");
 const ActivityLog = require("../models/ActivityLog");
 const Announcement = require("../models/Announcement");
+const MessageNotification = require("../models/MessageNotification");
 const { logActivity } = require("../utils/activityLogger");
 const { BadRequestError, NotFoundError, ForbiddenError } = require("../utils/errors");
 const auth = require("../middlewares/auth");
@@ -59,6 +60,15 @@ const updateListingValidation = celebrate({
       moderationNotes: Joi.string().max(500),
     })
     .min(1),
+});
+
+const rejectListingValidation = celebrate({
+  params: Joi.object().keys({
+    id: Joi.string().hex().length(24).required(),
+  }),
+  body: Joi.object().keys({
+    reason: Joi.string().max(500).optional(),
+  }),
 });
 
 const announcementIdValidation = celebrate({
@@ -601,6 +611,21 @@ router.patch("/listings/:id/approve", listingIdValidation, async (req, res, next
       details: { listingTitle: listing.title, ownerId: listing.owner._id },
     });
 
+    // Send notification to listing owner
+    await MessageNotification.create({
+      recipient: listing.owner._id,
+      type: 'listing_approved',
+      title: '✅ Listing Approved',
+      message: `Your listing "${listing.title}" has been approved and is now live on AfriOnet!`,
+      metadata: {
+        listingId: listing._id,
+        listingTitle: listing.title,
+        approvedBy: req.user.name,
+        approvedAt: new Date(),
+      },
+      read: false,
+    });
+
     res.json({
       success: true,
       message: "Listing approved successfully",
@@ -612,7 +637,7 @@ router.patch("/listings/:id/approve", listingIdValidation, async (req, res, next
 });
 
 // Reject listing
-router.patch("/listings/:id/reject", listingIdValidation, async (req, res, next) => {
+router.patch("/listings/:id/reject", rejectListingValidation, async (req, res, next) => {
   try {
     const listing = await Listing.findByIdAndUpdate(
       req.params.id,
@@ -635,6 +660,23 @@ router.patch("/listings/:id/reject", listingIdValidation, async (req, res, next)
       targetType: "listing",
       targetId: listing._id,
       details: { listingTitle: listing.title, ownerId: listing.owner._id },
+    });
+
+    // Send notification to listing owner
+    const reason = req.body.reason || 'Please review our listing guidelines and resubmit.';
+    await MessageNotification.create({
+      recipient: listing.owner._id,
+      type: 'listing_rejected',
+      title: '❌ Listing Requires Changes',
+      message: `Your listing "${listing.title}" needs revision. ${reason}`,
+      metadata: {
+        listingId: listing._id,
+        listingTitle: listing.title,
+        rejectedBy: req.user.name,
+        rejectedAt: new Date(),
+        reason: reason,
+      },
+      read: false,
     });
 
     res.json({
