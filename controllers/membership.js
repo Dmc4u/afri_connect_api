@@ -35,7 +35,7 @@ const getMembershipTiers = async (req, res, next) => {
       },
       {
         name: "Starter",
-        price: 1.0,
+        price: 3.0,
         currency: "USD",
         interval: "month",
         features: [
@@ -227,7 +227,7 @@ const upgradeMembership = async (req, res, next) => {
 
     // Authoritative tier pricing (do NOT trust any client-supplied amount)
     const tierPricing = {
-      Starter: { price: 1.0, currency: "USD" },
+      Starter: { price: 3.0, currency: "USD" },
       Premium: { price: 7.0, currency: "USD" },
       Pro: { price: 20.0, currency: "USD" },
     };

@@ -111,6 +111,23 @@ app.get("/paypal/client-id", (req, res) => {
   });
 });
 
+// Public exchange rates endpoint
+const exchangeRatesRouter = require("./routes/exchangeRates");
+app.use("/exchange-rates", exchangeRatesRouter);
+
+// Public endpoint to get unique user countries (for exchange rate display)
+app.get("/users/countries", async (req, res) => {
+  try {
+    const User = require("./models/User");
+    // Get distinct countries from users, excluding null/undefined
+    const countries = await User.distinct("country", { country: { $exists: true, $ne: null } });
+    res.json({ success: true, countries });
+  } catch (error) {
+    console.error("Error fetching user countries:", error);
+    res.status(500).json({ success: false, message: "Failed to fetch countries" });
+  }
+});
+
 // Routes (auth middleware applied per route as needed in individual route files)
 app.use("/", mainRouter);
 
