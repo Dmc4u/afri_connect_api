@@ -53,27 +53,47 @@ Expected output:
 ✅ Size is within limits (5.7% of threshold)
 ```
 
-### 5. Set Up Automated Daily Checks with Cron
+### 5. Set Up Automated Daily Checks
 
-Edit crontab:
+#### Option A: Manual Checks
+Run the script manually whenever needed:
 ```bash
-crontab -e
+cd /home/dmsesbiz2005/afri_connect_api
+node scripts/monitor-storage.js
 ```
 
-Add this line to run daily at midnight:
-```cron
-0 0 * * * /usr/bin/node /home/dmsesbiz2005/afri_connect_api/scripts/monitor-storage.js >> /home/dmsesbiz2005/afri_connect_api/logs/storage-monitor.log 2>&1
-```
+#### Option B: PM2 Scheduled Task (Recommended)
+Since your server uses PM2, you can schedule the monitoring script:
 
-Or run every 6 hours:
-```cron
-0 */6 * * * /usr/bin/node /home/dmsesbiz2005/afri_connect_api/scripts/monitor-storage.js >> /home/dmsesbiz2005/afri_connect_api/logs/storage-monitor.log 2>&1
-```
-
-Verify cron job:
+1. Install PM2 cron module:
 ```bash
-crontab -l
+pm2 install pm2-cron
 ```
+
+2. Start the monitoring with cron schedule:
+```bash
+cd /home/dmsesbiz2005/afri_connect_api
+pm2 start scripts/monitor-storage.js --name storage-monitor --cron "0 0 * * *" --no-autorestart
+pm2 save
+```
+
+This runs daily at midnight. To check different times:
+- Every 6 hours: `--cron "0 */6 * * *"`
+- Every day at 2 AM: `--cron "0 2 * * *"`
+- Twice daily (6 AM & 6 PM): `--cron "0 6,18 * * *"`
+
+3. View monitoring logs:
+```bash
+pm2 logs storage-monitor
+```
+
+4. Check status:
+```bash
+pm2 list
+```
+
+#### Option C: Systemd Timer (Advanced)
+If you prefer systemd over PM2 for monitoring, see advanced setup in docs.
 
 ## Configuration Options
 
