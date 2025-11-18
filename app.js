@@ -8,7 +8,7 @@ const { createServer } = require("http");
 const { Server: IOServer } = require("socket.io");
 const { errors } = require("celebrate");
 // Fixed: Added _id to sender populate in messaging controller
-const rateLimiter = require("./middlewares/rateLimiter");
+const { limiter: rateLimiter, strictLimiter } = require("./middlewares/rateLimiter");
 const mainRouter = require("./routes/index");
 const auth = require("./middlewares/auth");
 const errorHandler = require("./middlewares/error-handler");
@@ -124,10 +124,10 @@ app.use((req, res, next) => {
 // Request logging
 app.use(requestLogger);
 
-// Authentication routes (no auth middleware needed)
-app.post("/signup", validateSignup, createUser);
+// Authentication routes (no auth middleware needed) - with strict rate limiting
+app.post("/signup", strictLimiter, validateSignup, createUser);
 // Signin without reCAPTCHA
-app.post("/signin", validateSignin, login);
+app.post("/signin", strictLimiter, validateSignin, login);
 
 // Public PayPal client-id endpoint (no auth required)
 app.get("/paypal/client-id", (req, res) => {
