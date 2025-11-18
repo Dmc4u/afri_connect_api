@@ -231,6 +231,57 @@ router.post("/:id/add-url-media", auth, listingIdValidation, celebrate({
     next(error);
   }
 });
+router.patch("/:id/media/:mediaId", auth, celebrate({
+  params: Joi.object().keys({
+    id: Joi.string().hex().length(24).required(),
+    mediaId: Joi.string().hex().length(24).required(),
+  }),
+  body: Joi.object().keys({
+    name: Joi.string().trim().max(200).optional(),
+    description: Joi.string().trim().max(500).allow("").optional(),
+  }).min(1),
+}), async (req, res, next) => {
+  try {
+    const { id, mediaId } = req.params;
+    const { name, description } = req.body;
+
+    const Listing = require("../models/Listing");
+    const listing = await Listing.findById(id);
+
+    if (!listing) {
+      return res.status(404).json({ success: false, message: "Listing not found" });
+    }
+
+    // Check ownership
+    if (listing.owner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: "You can only update media on your own listings" });
+    }
+
+    // Find and update the media file
+    const mediaFile = listing.mediaFiles.id(mediaId);
+    if (!mediaFile) {
+      return res.status(404).json({ success: false, message: "Media file not found" });
+    }
+
+    if (name !== undefined) {
+      mediaFile.filename = name;
+      mediaFile.originalname = name;
+    }
+    if (description !== undefined) {
+      mediaFile.description = description;
+    }
+
+    await listing.save();
+
+    res.json({
+      success: true,
+      message: "Media info updated successfully",
+      mediaFiles: listing.mediaFiles,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 router.patch("/:id", auth, listingIdValidation, updateListingValidation, updateListing);
 router.delete("/:id/media/:mediaId", auth, mediaIdValidation, deleteListingMedia);
 router.delete("/:id", auth, listingIdValidation, deleteListing);
