@@ -903,10 +903,11 @@ router.post(
           .filter(Boolean)
           .map((id) => (id instanceof mongoose.Types.ObjectId ? id : new mongoose.Types.ObjectId(id)));
       } else if (recipientType === "tier") {
-        const tierUsers = await User.find({ tier: recipients.value }).select("_id");
+        const tierUsers = await User.find({ tier: recipients.value, role: { $ne: "admin" } }).select("_id");
         userIds = tierUsers.map((u) => u._id);
       } else if (recipientType === "all") {
-        const allUsers = await User.find().select("_id");
+        // Exclude admin users from recipient count (they can see via admin panel)
+        const allUsers = await User.find({ role: { $ne: "admin" } }).select("_id");
         userIds = allUsers.map((u) => u._id);
       }
 
@@ -933,6 +934,13 @@ router.post(
       });
 
       await announcement.save();
+
+      console.log(`[Announcement] Created:`, {
+        id: announcement._id,
+        type: announcement.recipients.type,
+        value: announcement.recipients.value,
+        recipientCount: userIds.length
+      });
 
       // Log activity
       await logActivity({

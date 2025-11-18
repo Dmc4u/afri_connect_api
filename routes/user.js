@@ -83,6 +83,8 @@ router.get("/announcements", async (req, res, next) => {
       ],
     };
 
+    console.log(`[Announcements] Fetching for user ${req.user.email} (tier: ${req.user.tier})`);
+
     const notDismissedFilter = {
       $and: [
         {
@@ -110,6 +112,8 @@ router.get("/announcements", async (req, res, next) => {
     const total = await Announcement.countDocuments({
       $and: [visibilityFilter, notDismissedFilter],
     });
+
+    console.log(`[Announcements] Found ${announcements.length} announcements for user ${req.user.email}`);
 
     res.json({
       success: true,
