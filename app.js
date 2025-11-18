@@ -77,11 +77,21 @@ function rawBodySaver(req, res, buf, encoding) {
 app.use(express.json({ verify: rawBodySaver }));
 app.use(express.urlencoded({ extended: true, verify: rawBodySaver }));
 
-// Configure helmet first with cross-origin policy
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" },
-  crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" }
-}));
+// Configure helmet with conditional CORP for uploads
+app.use((req, res, next) => {
+  if (req.path.startsWith('/uploads')) {
+    // Skip helmet CORP for uploads, set manually
+    helmet({
+      crossOriginResourcePolicy: false,
+      crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" }
+    })(req, res, next);
+  } else {
+    helmet({
+      crossOriginResourcePolicy: { policy: "cross-origin" },
+      crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" }
+    })(req, res, next);
+  }
+});
 
 app.use(
   cors({
