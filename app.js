@@ -77,21 +77,14 @@ function rawBodySaver(req, res, buf, encoding) {
 app.use(express.json({ verify: rawBodySaver }));
 app.use(express.urlencoded({ extended: true, verify: rawBodySaver }));
 
-// Configure helmet with conditional CORP for uploads
-app.use((req, res, next) => {
-  if (req.path.startsWith('/uploads')) {
-    // Skip helmet CORP for uploads, set manually
-    helmet({
-      crossOriginResourcePolicy: false,
-      crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" }
-    })(req, res, next);
-  } else {
-    helmet({
-      crossOriginResourcePolicy: { policy: "cross-origin" },
-      crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" }
-    })(req, res, next);
-  }
-});
+// Enable trust proxy for Cloudflare/Nginx
+app.set('trust proxy', 1);
+
+// Configure helmet WITHOUT Cross-Origin-Resource-Policy (we'll set it manually)
+app.use(helmet({
+  crossOriginResourcePolicy: false, // Disable to set manually per route
+  crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" }
+}));
 
 app.use(
   cors({
@@ -115,6 +108,14 @@ app.use("/uploads", (req, res, next) => {
   res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
   next();
 }, express.static(path.join(__dirname, "uploads")));
+
+// Set CORP for all other routes
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/uploads')) {
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  }
+  next();
+});
 
 // Request logging
 app.use(requestLogger);
