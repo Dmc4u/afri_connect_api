@@ -80,11 +80,11 @@ app.use(express.urlencoded({ extended: true, verify: rawBodySaver }));
 // Enable trust proxy for Cloudflare/Nginx
 app.set('trust proxy', 1);
 
-// Configure helmet WITHOUT Cross-Origin-Resource-Policy (we'll set it manually)
-app.use(helmet({
-  crossOriginResourcePolicy: false, // Disable to set manually per route
-  crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" }
-}));
+// DON'T use helmet - it overrides CORS headers
+// app.use(helmet({
+//   crossOriginResourcePolicy: false,
+//   crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" }
+// }));
 
 app.use(
   cors({
@@ -96,6 +96,7 @@ app.use(
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
+    exposedHeaders: ["Cross-Origin-Resource-Policy"]
   })
 );
 
@@ -109,11 +110,14 @@ app.use("/uploads", (req, res, next) => {
   next();
 }, express.static(path.join(__dirname, "uploads")));
 
-// Set CORP for all other routes
+// Set security headers manually (instead of helmet)
 app.use((req, res, next) => {
   if (!req.path.startsWith('/uploads')) {
     res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
   }
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  res.setHeader("X-XSS-Protection", "1; mode=block");
   next();
 });
 
