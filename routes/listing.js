@@ -185,6 +185,52 @@ router.get("/:id", listingIdValidation, getListingById);
 // Other protected routes
 router.post("/", auth, upload.array("mediaFiles", 10), createListingValidation, createListing);
 router.post("/:id/upload", auth, upload.single("file"), listingIdValidation, uploadMedia);
+router.post("/:id/add-url-media", auth, listingIdValidation, celebrate({
+  body: Joi.object().keys({
+    url: Joi.string().uri().required(),
+    type: Joi.string().valid("youtube", "image", "video").required(),
+    name: Joi.string().trim().max(200).default("Media"),
+    description: Joi.string().trim().max(500).allow("").optional(),
+  }),
+}), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { url, type, name, description } = req.body;
+
+    const Listing = require("../models/Listing");
+    const listing = await Listing.findById(id);
+
+    if (!listing) {
+      return res.status(404).json({ success: false, message: "Listing not found" });
+    }
+
+    // Check ownership
+    if (listing.owner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: "You can only add media to your own listings" });
+    }
+
+    // Add the URL-based media
+    listing.mediaFiles.push({
+      filename: name,
+      originalname: name,
+      mimetype: type === "youtube" ? "video/youtube" : type === "image" ? "image/url" : "video/url",
+      url,
+      type,
+      description: description || "",
+      uploadedAt: new Date(),
+    });
+
+    await listing.save();
+
+    res.json({
+      success: true,
+      message: "URL media added successfully",
+      mediaFiles: listing.mediaFiles,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 router.patch("/:id", auth, listingIdValidation, updateListingValidation, updateListing);
 router.delete("/:id/media/:mediaId", auth, mediaIdValidation, deleteListingMedia);
 router.delete("/:id", auth, listingIdValidation, deleteListing);
