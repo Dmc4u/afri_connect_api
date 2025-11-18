@@ -17,6 +17,7 @@ const activityLogSchema = new mongoose.Schema(
         "forum_post",
         "message_received",
         "contact_reply_sent",
+        "announcement_sent",
       ],
       required: true,
       index: true,
@@ -41,7 +42,7 @@ const activityLogSchema = new mongoose.Schema(
     },
     targetType: {
       type: String,
-      enum: ["user", "listing", "payment", "message", "forum_post", "api_key"],
+      enum: ["user", "listing", "payment", "message", "forum_post", "api_key", "announcement"],
       required: true,
     },
     targetId: mongoose.Schema.Types.ObjectId,

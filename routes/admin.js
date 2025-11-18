@@ -945,8 +945,12 @@ router.post(
       // Log activity
       await logActivity({
         userId: req.user._id,
-        type: "ANNOUNCEMENT_SENT",
-        targetType: "Announcement",
+        type: "announcement_sent",
+        description: `Sent announcement: ${subject}`,
+        userName: req.user.name || req.user.email,
+        userEmail: req.user.email,
+        action: "send",
+        targetType: "announcement",
         targetId: announcement._id,
         details: {
           subject,
