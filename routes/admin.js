@@ -611,20 +611,8 @@ router.patch("/listings/:id/approve", listingIdValidation, async (req, res, next
       details: { listingTitle: listing.title, ownerId: listing.owner._id },
     });
 
-    // Send notification to listing owner
-    await MessageNotification.create({
-      recipient: listing.owner._id,
-      type: 'listing_approved',
-      title: '✅ Listing Approved',
-      message: `Your listing "${listing.title}" has been approved and is now live on AfriOnet!`,
-      metadata: {
-        listingId: listing._id,
-        listingTitle: listing.title,
-        approvedBy: req.user.name,
-        approvedAt: new Date(),
-      },
-      read: false,
-    });
+    // TODO: Implement proper notification system for listing status changes
+    // MessageNotification is only for messaging system, not listing approvals
 
     res.json({
       success: true,
@@ -662,22 +650,8 @@ router.patch("/listings/:id/reject", rejectListingValidation, async (req, res, n
       details: { listingTitle: listing.title, ownerId: listing.owner._id },
     });
 
-    // Send notification to listing owner
-    const reason = req.body.reason || 'Please review our listing guidelines and resubmit.';
-    await MessageNotification.create({
-      recipient: listing.owner._id,
-      type: 'listing_rejected',
-      title: '❌ Listing Requires Changes',
-      message: `Your listing "${listing.title}" needs revision. ${reason}`,
-      metadata: {
-        listingId: listing._id,
-        listingTitle: listing.title,
-        rejectedBy: req.user.name,
-        rejectedAt: new Date(),
-        reason: reason,
-      },
-      read: false,
-    });
+    // TODO: Implement proper notification system for listing status changes
+    // MessageNotification is only for messaging system, not listing rejections
 
     res.json({
       success: true,
