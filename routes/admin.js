@@ -10,6 +10,7 @@ const ActivityLog = require("../models/ActivityLog");
 const Announcement = require("../models/Announcement");
 const MessageNotification = require("../models/MessageNotification");
 const { logActivity } = require("../utils/activityLogger");
+const { sendEmail, emailTemplates } = require("../utils/notifications");
 const { BadRequestError, NotFoundError, ForbiddenError } = require("../utils/errors");
 const auth = require("../middlewares/auth");
 
@@ -611,8 +612,10 @@ router.patch("/listings/:id/approve", listingIdValidation, async (req, res, next
       details: { listingTitle: listing.title, ownerId: listing.owner._id },
     });
 
-    // TODO: Implement proper notification system for listing status changes
-    // MessageNotification is only for messaging system, not listing approvals
+    // Send approval email notification to listing owner
+    const approvalEmail = emailTemplates.listingApproved(listing.owner, listing);
+    sendEmail(listing.owner.email, approvalEmail.subject, approvalEmail.html)
+      .catch(error => console.error('Failed to send approval email:', error));
 
     res.json({
       success: true,
@@ -650,8 +653,11 @@ router.patch("/listings/:id/reject", rejectListingValidation, async (req, res, n
       details: { listingTitle: listing.title, ownerId: listing.owner._id },
     });
 
-    // TODO: Implement proper notification system for listing status changes
-    // MessageNotification is only for messaging system, not listing rejections
+    // Send rejection email notification to listing owner
+    const reason = req.body.reason || 'Please review our listing guidelines and resubmit.';
+    const rejectionEmail = emailTemplates.listingRejected(listing.owner, listing, reason);
+    sendEmail(listing.owner.email, rejectionEmail.subject, rejectionEmail.html)
+      .catch(error => console.error('Failed to send rejection email:', error));
 
     res.json({
       success: true,

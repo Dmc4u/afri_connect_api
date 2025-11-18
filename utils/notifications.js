@@ -230,6 +230,43 @@ const emailTemplates = {
     `,
   }),
 
+  listingRejected: (user, listing, reason) => ({
+    subject: `Listing Requires Changes - ${APP_NAME}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background-color: #f8f9fa; padding: 20px; text-align: center;">
+          <h1 style="color: #333;">${APP_NAME}</h1>
+        </div>
+        <div style="padding: 20px;">
+          <h2>Your Listing Needs Revision</h2>
+          <p>Hello ${user.name},</p>
+          <p>Thank you for submitting your listing "<strong>${listing.title}</strong>" to ${APP_NAME}.</p>
+          <p>Unfortunately, your listing requires some changes before it can be approved and published.</p>
+          <div style="background-color: #fff3cd; padding: 15px; border-left: 4px solid #ffc107; margin: 20px 0;">
+            <h3 style="margin-top: 0; color: #856404;">Reason for Rejection:</h3>
+            <p style="color: #856404; margin: 0;">${reason || 'Please review our listing guidelines and ensure your listing meets all requirements.'}</p>
+          </div>
+          <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
+            <h3>What to do next:</h3>
+            <ul>
+              <li>Review the feedback above</li>
+              <li>Update your listing with the necessary changes</li>
+              <li>Resubmit for review</li>
+            </ul>
+          </div>
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${FRONTEND_URL}/profile" style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px;">Edit Your Listing</a>
+          </div>
+          <p>If you have any questions, please don't hesitate to contact our support team.</p>
+          <p>Best regards,<br>The ${APP_NAME} Team</p>
+        </div>
+        <div style="background-color: #f8f9fa; padding: 10px; text-align: center; font-size: 12px; color: #666;">
+          <p>&copy; 2025 ${APP_NAME}. All rights reserved.</p>
+        </div>
+      </div>
+    `,
+  }),
+
   newSavedSearchResults: (user, savedSearch, newListings) => ({
     subject: `New Results for "${savedSearch.name}" - ${APP_NAME}`,
     html: `
