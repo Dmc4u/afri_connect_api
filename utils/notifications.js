@@ -1,4 +1,5 @@
 const nodemailer = require("nodemailer");
+const geoip = require("geoip-lite");
 const {
   SMTP_HOST,
   SMTP_PORT,
@@ -75,6 +76,37 @@ const emailTemplates = {
           </div>
           <p>This link will expire in 1 hour for security reasons.</p>
           <p>If you didn't request this password reset, please ignore this email or contact our support team if you have concerns.</p>
+          <p>Best regards,<br>The ${APP_NAME} Team</p>
+        </div>
+        <div style="background-color: #f8f9fa; padding: 10px; text-align: center; font-size: 12px; color: #666;">
+          <p>&copy; 2025 ${APP_NAME}. All rights reserved.</p>
+        </div>
+      </div>
+    `,
+  }),
+
+  loginNotification: (user, loginDetails) => ({
+    subject: `New Login to Your ${APP_NAME} Account`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background-color: #f8f9fa; padding: 20px; text-align: center;">
+          <h1 style="color: #333;">${APP_NAME}</h1>
+        </div>
+        <div style="padding: 20px;">
+          <h2>New Login Notification</h2>
+          <p>Hey ${user.name},</p>
+          <p>We noticed that you just logged into your account <strong>${user.email}</strong>.</p>
+          <p>Here are some details for the login:</p>
+          <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
+            <p style="margin: 5px 0;"><strong>Date:</strong> ${loginDetails.date}</p>
+            <p style="margin: 5px 0;"><strong>IP:</strong> ${loginDetails.ip}</p>
+            <p style="margin: 5px 0;"><strong>Time:</strong> ${loginDetails.time}</p>
+            <p style="margin: 5px 0;"><strong>Approximate Location:</strong> ${loginDetails.location}</p>
+            <p style="margin: 5px 0;"><strong>Device:</strong> ${loginDetails.device}</p>
+            ${loginDetails.network ? `<p style="margin: 5px 0;"><strong>Network:</strong> ${loginDetails.network}</p>` : ''}
+          </div>
+          <p>If this was you, you can ignore this mail.</p>
+          <p><strong>If this wasn't you</strong>, please <a href="${FRONTEND_URL}/contact" style="color: #dc3545; text-decoration: none;">contact us</a> immediately so we can protect your account.</p>
           <p>Best regards,<br>The ${APP_NAME} Team</p>
         </div>
         <div style="background-color: #f8f9fa; padding: 10px; text-align: center; font-size: 12px; color: #666;">
@@ -426,6 +458,51 @@ const utils = {
   generateUnsubscribeLink: (userId, notificationType) => {
     // This would typically use a signed token
     return `${FRONTEND_URL}/unsubscribe?user=${userId}&type=${notificationType}`;
+  },
+
+  // Extract login details from request
+  extractLoginDetails: (req) => {
+    const userAgent = req.get('user-agent') || '';
+    const ip = req.ip || req.connection.remoteAddress || 'Unknown';
+    const cleanIp = ip.replace('::ffff:', ''); // Clean IPv6 prefix
+    const now = new Date();
+
+    // Parse device info from user-agent
+    let device = 'Unknown Device';
+    if (userAgent.includes('iPhone')) {
+      const match = userAgent.match(/iPhone OS (\d+)_(\d+)/);
+      device = match ? `iPhone (iOS ${match[1]}.${match[2]})` : 'iPhone';
+    } else if (userAgent.includes('iPad')) {
+      device = 'iPad';
+    } else if (userAgent.includes('Android')) {
+      const match = userAgent.match(/Android (\d+(\.\d+)?)/);
+      device = match ? `Android ${match[1]}` : 'Android Device';
+    } else if (userAgent.includes('Windows')) {
+      device = 'Windows PC';
+    } else if (userAgent.includes('Macintosh')) {
+      device = 'Mac';
+    } else if (userAgent.includes('Linux')) {
+      device = 'Linux PC';
+    }
+
+    // Get geolocation from IP
+    let location = 'Unknown';
+    let network = null;
+    const geo = geoip.lookup(cleanIp);
+    if (geo) {
+      location = `${geo.city || 'Unknown City'}, ${geo.country || 'Unknown Country'}`;
+      // ISP info not available in geoip-lite free version
+    }
+
+    return {
+      date: now.toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' }),
+      time: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: 'numeric', hour12: true }),
+      ip: cleanIp,
+      location,
+      device,
+      network,
+      userAgent,
+    };
   },
 };
 

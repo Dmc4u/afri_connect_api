@@ -6,6 +6,7 @@ const { RECENT_VIEWS_MAX, RECENT_VIEWS_TTL_DAYS } = require("../utils/config");
 const Listing = require("../models/Listing");
 const { isAdminEmail } = require("../utils/adminCheck");
 const { logActivity } = require("../utils/activityLogger");
+const { emailTemplates, sendEmail, utils: notificationUtils } = require("../utils/notifications");
 const {
   BadRequestError,
   ConflictError,
@@ -100,6 +101,15 @@ const login = (req, res, next) => {
 
       const userObj = user.toObject();
       delete userObj.password;
+
+      // Extract login details and send notification email
+      const loginDetails = notificationUtils.extractLoginDetails(req);
+      const loginEmail = emailTemplates.loginNotification(user, loginDetails);
+
+      // Send login notification asynchronously (don't block login)
+      sendEmail(user.email, loginEmail.subject, loginEmail.html).catch((error) => {
+        console.error("Failed to send login notification:", error);
+      });
 
       return res.send({
         user: userObj,
