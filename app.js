@@ -76,6 +76,13 @@ function rawBodySaver(req, res, buf, encoding) {
 
 app.use(express.json({ verify: rawBodySaver }));
 app.use(express.urlencoded({ extended: true, verify: rawBodySaver }));
+
+// Configure helmet first with cross-origin policy
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" }
+}));
+
 app.use(
   cors({
     origin: [
@@ -89,22 +96,15 @@ app.use(
   })
 );
 
-// Additional CORS headers for static files (uploads)
+app.use(rateLimiter);
+
+// Serve static files from uploads directory with explicit CORS headers
 app.use("/uploads", (req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
   next();
-});
-
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" }
-}));
-app.use(rateLimiter);
-
-// Serve static files from uploads directory
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+}, express.static(path.join(__dirname, "uploads")));
 
 // Request logging
 app.use(requestLogger);
