@@ -8,6 +8,7 @@ const ApiKey = require("../models/ApiKey");
 const ApiUsage = require("../models/ApiUsage");
 const ActivityLog = require("../models/ActivityLog");
 const Announcement = require("../models/Announcement");
+const ForumPost = require("../models/ForumPost");
 const MessageNotification = require("../models/MessageNotification");
 const { logActivity } = require("../utils/activityLogger");
 const { sendEmail, emailTemplates } = require("../utils/notifications");
@@ -186,6 +187,28 @@ router.get("/stats", async (req, res, next) => {
       ? paymentsAggInRange.reduce((acc, c) => acc + (c.revenue || 0), 0)
       : 0;
 
+    // API Statistics (last 24 hours)
+    const last24Hours = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const [apiCalls24h, activeApiKeys, apiUsers] = await Promise.all([
+      ApiUsage.countDocuments({ timestamp: { $gte: last24Hours } }),
+      ApiKey.countDocuments({ isActive: true }),
+      ApiKey.distinct('user').then(users => users.length)
+    ]);
+
+    // Forum Statistics
+    const [totalPosts, totalReplies, activeDiscussions] = await Promise.all([
+      ForumPost.countDocuments({ status: 'active' }),
+      ForumPost.aggregate([
+        { $match: { status: 'active' } },
+        { $project: { replyCount: 1 } },
+        { $group: { _id: null, total: { $sum: '$replyCount' } } }
+      ]).then(r => (Array.isArray(r) && r[0] ? r[0].total : 0)),
+      ForumPost.countDocuments({
+        status: 'active',
+        updatedAt: { $gte: startDate } // Active in the selected range
+      })
+    ]);
+
     const statistics = {
       overview: {
         totalUsers,
@@ -206,6 +229,16 @@ router.get("/stats", async (req, res, next) => {
         tiers: tiersAgg,
         newTiers: newUsersByTierAgg,
         categories: categoriesAgg,
+      },
+      api: {
+        calls24h: apiCalls24h,
+        activeKeys: activeApiKeys,
+        users: apiUsers
+      },
+      forum: {
+        totalPosts,
+        totalReplies,
+        activeDiscussions
       },
       meta: { range },
     };
