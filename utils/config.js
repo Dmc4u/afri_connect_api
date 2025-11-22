@@ -17,14 +17,6 @@ const {
   PAYPAL_CLIENT_SECRET,
   PAYPAL_MODE = "sandbox", // default sandbox
 
-  // ✅ 2Checkout / Verifone (INS + ConvertPlus)
-  TWOCHECKOUT_SELLER_ID, // aka merchant/vendor code
-  TWOCHECKOUT_SECRET_WORD, // for return signature
-  TWOCHECKOUT_INS_SECRET, // for INS/Webhook HMAC
-  TWOCHECKOUT_SANDBOX = "true",
-  TWOCHECKOUT_RETURN_URL,
-  TWOCHECKOUT_WEBHOOK_URL,
-
   // ✅ Recent Views Settings
   RECENT_VIEWS_MAX = 10,
   RECENT_VIEWS_TTL_DAYS = 30,
@@ -55,14 +47,6 @@ module.exports = {
   PAYPAL_CLIENT_ID,
   PAYPAL_CLIENT_SECRET,
   PAYPAL_MODE,
-
-  // ✅ 2Checkout / Verifone Config
-  TWOCHECKOUT_SELLER_ID,
-  TWOCHECKOUT_SECRET_WORD,
-  TWOCHECKOUT_INS_SECRET,
-  TWOCHECKOUT_SANDBOX: String(TWOCHECKOUT_SANDBOX).toLowerCase() === "true",
-  TWOCHECKOUT_RETURN_URL,
-  TWOCHECKOUT_WEBHOOK_URL,
 
   // ✅ Recent Views
   RECENT_VIEWS_MAX: Number(RECENT_VIEWS_MAX) || 10,
