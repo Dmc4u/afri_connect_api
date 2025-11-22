@@ -282,6 +282,80 @@ router.patch("/:id/media/:mediaId", auth, celebrate({
     next(error);
   }
 });
+
+// Replace existing media file with a new one
+router.put("/:id/media/:mediaId/replace", auth, upload.single("file"), celebrate({
+  params: Joi.object().keys({
+    id: Joi.string().hex().length(24).required(),
+    mediaId: Joi.string().hex().length(24).required(),
+  }),
+}), async (req, res, next) => {
+  try {
+    const { id, mediaId } = req.params;
+    const path = require("path");
+    const fs = require("fs").promises;
+
+    const Listing = require("../models/Listing");
+    const listing = await Listing.findById(id);
+
+    if (!listing) {
+      return res.status(404).json({ success: false, message: "Listing not found" });
+    }
+
+    // Check ownership
+    if (listing.owner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: "You can only replace media on your own listings" });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: "No file uploaded" });
+    }
+
+    // Find the existing media file
+    const mediaFile = listing.mediaFiles.id(mediaId);
+    if (!mediaFile) {
+      return res.status(404).json({ success: false, message: "Media file not found" });
+    }
+
+    // Delete old file from disk if it exists and is not a URL-based media
+    if (mediaFile.filename && !mediaFile.url?.startsWith('http')) {
+      try {
+        const oldFilePath = path.join(__dirname, "..", "uploads", "listings", mediaFile.filename);
+        await fs.unlink(oldFilePath);
+        console.log(`Deleted old file: ${mediaFile.filename}`);
+      } catch (err) {
+        console.log("Old file not found on disk or already deleted:", err.message);
+      }
+    }
+
+    // Update media file with new file information
+    mediaFile.filename = req.file.filename;
+    mediaFile.originalname = req.file.originalname;
+    mediaFile.mimetype = req.file.mimetype;
+    mediaFile.size = req.file.size;
+    mediaFile.url = `/uploads/listings/${req.file.filename}`;
+    mediaFile.type = req.file.mimetype.startsWith("image/")
+      ? "image"
+      : req.file.mimetype.startsWith("video/")
+        ? "video"
+        : req.file.mimetype.startsWith("audio/")
+          ? "audio"
+          : "document";
+    mediaFile.uploadedAt = new Date();
+
+    await listing.save();
+
+    res.json({
+      success: true,
+      message: "Media replaced successfully",
+      mediaFile: mediaFile,
+      mediaFiles: listing.mediaFiles,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.patch("/:id", auth, listingIdValidation, updateListingValidation, updateListing);
 router.delete("/:id/media/:mediaId", auth, mediaIdValidation, deleteListingMedia);
 router.delete("/:id", auth, listingIdValidation, deleteListing);
