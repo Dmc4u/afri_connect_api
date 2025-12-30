@@ -32,10 +32,10 @@ router.post(
         'string.max': 'Message must not exceed 4000 characters',
         'string.empty': 'Message is required',
       }),
-      recaptchaToken: Joi.string().allow(null, '').optional(), // Allow reCAPTCHA token
+      recaptchaToken: Joi.string().allow(null, '').optional(),
     }),
   }),
-  // verifyRecaptcha, // Temporarily disabled for testing
+  verifyRecaptcha,
   sendSupportMessage
 );
 
