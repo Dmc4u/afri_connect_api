@@ -21,6 +21,7 @@ const reviewsRouter = require("./reviews");
 const liveTalentEventRouter = require("./liveTalentEvent");
 const adminLiveEventRouter = require("./adminLiveEvent");
 const talentShowcaseRouter = require("./talentShowcase");
+const proxyRouter = require("./proxy");
 const { NotFoundError } = require("../utils/errors");
 
 const router = express.Router();
@@ -49,6 +50,7 @@ router.use("/talent-showcase", talentShowcaseRouter);
 router.use("/", pricingRouter);
 router.use("/featured", featuredRouter);
 router.use("/reviews", reviewsRouter);
+router.use("/proxy", proxyRouter);
 
 // Handle non-existent routes
 router.use((req, res, next) => {
