@@ -61,10 +61,7 @@ exports.requestPlacement = async (req, res, next) => {
     if (String(listing.owner) !== String(req.user._id) && req.user.role !== 'admin') {
       throw new ForbiddenError("You can only schedule your own listing");
     }
-    // Only Talent category can be featured in Talent Showcase
-    if (listing.category !== 'Talent') {
-      throw new BadRequestError("Only listings with the 'Talent' category can be featured in the Talent Showcase");
-    }
+    // All categories can be featured (Business, Talent, etc.)
     const start = new Date(startAt);
     const end = new Date(endAt);
     if (!(start < end)) throw new BadRequestError("Invalid time range");
@@ -208,10 +205,75 @@ exports.myPlacements = async (req, res, next) => {
 exports.activePlacements = async (req, res, next) => {
   try {
     const now = new Date();
-    const docs = await FeaturedPlacement.find({ status: 'approved', startAt: { $lte: now }, endAt: { $gte: now } })
-      .populate({ path: 'listingId', select: 'title description category location tier owner mediaFiles', populate: { path: 'owner', select: 'name tier verifiedBadge profilePhoto' } })
+
+    // Get all currently active approved placements
+    const docs = await FeaturedPlacement.find({
+      status: 'approved',
+      startAt: { $lte: now },
+      endAt: { $gte: now }
+    })
+      .populate({
+        path: 'listingId',
+        select: 'title description category location tier owner mediaFiles',
+        populate: {
+          path: 'owner',
+          select: 'name tier verifiedBadge profilePhoto'
+        }
+      })
+      .populate({
+        path: 'showcaseId',
+        select: 'title eventDate description status'
+      })
       .sort({ startAt: 1 });
-    res.json({ ok: true, placements: docs });
+
+    // Filter out showcase winner placements where the showcase hasn't ended yet
+    // or where no actual voting occurred (to prevent showing winners before event completes)
+    const filteredDocs = [];
+
+    for (const placement of docs) {
+      // If this placement has a showcaseId (it's a winner placement)
+      if (placement.showcaseId) {
+        // Check if the showcase event has actually completed
+        const ShowcaseEventTimeline = require('../models/ShowcaseEventTimeline');
+        const TalentContestant = require('../models/TalentContestant');
+
+        const timeline = await ShowcaseEventTimeline.findOne({
+          showcase: placement.showcaseId._id
+        });
+
+        // Only show winner if:
+        // 1. Timeline exists and event has ended (eventStatus = 'completed' or currentPhase = 'ended')
+        // 2. A winner has been declared in the timeline
+        // 3. At least one vote was cast
+        if (timeline) {
+          const hasEnded = timeline.eventStatus === 'completed' ||
+                          timeline.currentPhase === 'ended' ||
+                          !timeline.isLive;
+
+          const hasWinner = timeline.winnerAnnouncement &&
+                           timeline.winnerAnnouncement.winner;
+
+          // Check if any votes were cast
+          const totalVotes = await TalentContestant.countDocuments({
+            showcase: placement.showcaseId._id,
+            votes: { $gt: 0 }
+          });
+
+          // Only include winner placement if event ended, winner declared, and votes were cast
+          if (hasEnded && hasWinner && totalVotes > 0) {
+            filteredDocs.push(placement);
+          }
+          // If event hasn't ended yet, don't show the winner placement
+          // (it was created prematurely or event is still in progress)
+        }
+        // If no timeline found, don't show the placement (data inconsistency)
+      } else {
+        // Regular featured placement (not a showcase winner) - always include
+        filteredDocs.push(placement);
+      }
+    }
+
+    res.json({ ok: true, placements: filteredDocs });
   } catch (e) { next(e); }
 };
 

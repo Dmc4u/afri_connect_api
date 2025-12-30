@@ -486,19 +486,27 @@ exports.getUnreadCount = async (req, res, next) => {
       participants: req.user.id,
     });
 
+    console.log('🔔 [Backend] User:', req.user.id);
+    console.log('🔔 [Backend] Total conversations:', conversations.length);
+
     let totalUnread = 0;
-    conversations.forEach((conv) => {
-      totalUnread += conv.unreadCount.get(req.user.id) || 0;
+    const byConversation = conversations.map((c) => {
+      const count = c.unreadCount.get(req.user.id) || 0;
+      console.log('🔔 [Backend] Conversation:', c._id, 'unreadCount Map:', c.unreadCount, 'count for user:', count);
+      totalUnread += count;
+      return {
+        conversationId: c._id,
+        unreadCount: count,
+      };
     });
+
+    console.log('🔔 [Backend] Total unread:', totalUnread);
 
     res.status(200).json({
       success: true,
       data: {
         totalUnread,
-        byConversation: conversations.map((c) => ({
-          conversationId: c._id,
-          unreadCount: c.unreadCount.get(req.user.id) || 0,
-        })),
+        byConversation,
       },
     });
   } catch (error) {

@@ -5,7 +5,7 @@ const paymentSchema = new mongoose.Schema(
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true,
+      required: false, // Optional for donations
       index: true,
     },
     orderId: {
@@ -41,21 +41,27 @@ const paymentSchema = new mongoose.Schema(
         },
       },
     },
+    paymentType: {
+      type: String,
+      enum: ["membership", "showcase", "advertising", "donation", "listing", "featured"],
+      default: "membership",
+      index: true,
+    },
     tierUpgrade: {
       from: {
         type: String,
         enum: ["Free", "Starter", "Premium", "Pro"],
-        required: true,
+        required: false,
       },
       to: {
         type: String,
         enum: ["Starter", "Premium", "Pro"],
-        required: true,
+        required: false,
       },
       duration: {
         type: String,
         enum: ["monthly", "yearly"],
-        required: true,
+        required: false,
       },
     },
     status: {

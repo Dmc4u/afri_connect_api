@@ -1,57 +1,32 @@
-# AfriOnet API - Backend Server# afri_onet_api
+# AfriOnet API - Backend Server
 
-
-
-![License](https://img.shields.io/badge/license-ISC-blue.svg)How to Generate Them (Securely)
-
+![License](https://img.shields.io/badge/license-ISC-blue.svg)
 ![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)
+![Express](https://img.shields.io/badge/express-5.1.0-blue.svg)
+![MongoDB](https://img.shields.io/badge/mongodb-8.19.1-green.svg)
 
-![Express](https://img.shields.io/badge/express-5.1.0-blue.svg)You can create both secrets easily in your terminal:
+Backend API server for AfriOnet - A comprehensive business networking platform connecting professionals and businesses across Africa.
 
-
-
-Backend API server for AfriOnet - A comprehensive business networking platform connecting professionals and businesses across Africa.✅ Option 1: Use Node.js
-
-
-
-**Developed by:** Moses Ademola Aina  Run this in your terminal:
-
+**Developed by:** Moses Ademola Aina  
 **Company:** DMC LIMITED
 
-node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
-
----
-
-This will print something like:
 
 ## 📋 Table of Contents
 
-a3f94d57e13bb4e7e5a0e88a2c14b87e6b7f8d6e0a13ad5bbd6a02a7c5e45bce...
-
 - [Features](#-features)
-
-- [Tech Stack](#-tech-stack)Now you have a secure random key.
-
+- [Tech Stack](#-tech-stack)
 - [Project Structure](#-project-structure)
-
-- [Prerequisites](#-prerequisites)Do this twice — one for each variable:
-
+- [Prerequisites](#-prerequisites)
 - [Installation](#-installation)
-
-- [Environment Configuration](#-environment-configuration)JWT_SECRET
-
+- [Environment Configuration](#-environment-configuration)
 - [Running the Application](#-running-the-application)
-
-- [API Endpoints](#-api-endpoints)JWT_SESSION_SECRET
-
+- [API Endpoints](#-api-endpoints)
 - [Database Models](#-database-models)
-
-- [Middleware](#-middleware)🧾 3. Add Them to .env
-
+- [Middleware](#-middleware)
 - [Testing](#-testing)
 - [Deployment](#-deployment)
+- [Troubleshooting](#-troubleshooting)
 
----
 
 ## ✨ Features
 
@@ -60,10 +35,46 @@ a3f94d57e13bb4e7e5a0e88a2c14b87e6b7f8d6e0a13ad5bbd6a02a7c5e45bce...
 - 💬 **Real-time Messaging** - Socket.io powered instant messaging
 - 📧 **Email Notifications** - Nodemailer integration
 - 🖼️ **Image Upload** - Cloudinary integration for file storage
-- 💳 **Payment Processing** - PayPal and 2Checkout integration
+- 💳 **Payment Processing** - Universal payment system (PayPal, 2Checkout, Stripe-ready)
 - 🔍 **Advanced Search** - Full-text search with MongoDB
-- ⭐ **Reviews & Ratings** - User feedback system
+- ⭐ **Reviews & Ratings** - User feedback system with admin moderation
 - 📊 **Analytics & Logging** - Winston-based logging system
+- 🏆 **Talent Showcase System** - Complete competition management platform
+- 📢 **Advertising Platform** - Full-featured ad management with click tracking
+- 💎 **Event Sponsorships** - Business sponsorship system for showcases
+- 🎁 **Donation System** - Direct support for talents and causes
+
+### Talent Showcase Features
+- 🎭 **Two Showcase Types**:
+  - **Structured Events** - Automated phase transitions (Welcome → Performances → Commercial → Voting → Winner → Thank You)
+  - **Legacy/Manual Events** - Admin-controlled event flow
+- 🎲 **Raffle System** - Cryptographically secure contestant selection using SHA-256
+  - Fair selection from unlimited applicants
+  - Waitlist management for dropped contestants
+  - Public seed verification for transparency
+- 🗳️ **Voting System** - Real-time voting with Socket.io
+  - IP-based and user-based voting options
+  - One-vote or multiple-vote configurations
+  - Live leaderboard updates
+- 📹 **Media Management** - Video and image uploads for performances
+- 💰 **Entry Fees** - Multi-currency support (USD, EUR, GBP, NGN, etc.)
+- 🏅 **Prize Management** - Configurable prize pools and descriptions
+- 📊 **Event Timeline Tracking** - Phase-by-phase event progression logging
+- 👑 **Winner Features** - Automatic 30-day homepage featuring for winners
+- 💎 **Sponsorship Integration** - Businesses can sponsor events
+- 📺 **Commercial Breaks** - Integrated video ad playback during events
+
+### Advertising Features
+- 📢 **Ad Placements** - Multiple placement types:
+  - Homepage banner, sidebar, footer
+  - Category-specific sidebars
+  - Talent showcase sponsor ads
+  - Listing detail sidebars
+- 📹 **Video Ads** - Support for video commercials with duration-based pricing
+- 📊 **Click Tracking** - Real-time analytics and reporting
+- 💵 **Revenue Management** - Automated billing and revenue tracking
+- 🎯 **Targeting** - Category-based ad targeting
+- ⏰ **Campaign Scheduling** - Start/end date configuration
 
 ### Security Features
 - 🛡️ **Rate Limiting** - Express rate limiter
@@ -78,7 +89,6 @@ a3f94d57e13bb4e7e5a0e88a2c14b87e6b7f8d6e0a13ad5bbd6a02a7c5e45bce...
 - **Premium** - Forum + Advanced search ($7/month)
 - **Pro** - Full API access ($20/month)
 
----
 
 ## 🛠 Tech Stack
 
@@ -121,10 +131,8 @@ a3f94d57e13bb4e7e5a0e88a2c14b87e6b7f8d6e0a13ad5bbd6a02a7c5e45bce...
 - **dotenv** 17.2.3 - Environment variables
 - **uuid** 13.0.0 - Unique identifiers
 
----
 
 ## 📁 Project Structure
-
 ```
 afri_connect_api/
 ├── app.js                    # Application entry point
@@ -133,18 +141,21 @@ afri_connect_api/
 ├── controllers/              # Request handlers
 │   ├── api.js               # API key management
 │   ├── apiExport.js         # API export functionality
-│   ├── checkout.js          # 2Checkout payment handling
+│   ├── advertising.js       # Advertising management
 │   ├── contact.js           # Contact messages
 │   ├── contactThread.js     # Contact threads
 │   ├── featured.js          # Featured placements
 │   ├── forum.js             # Forum posts & replies
 │   ├── listing.js           # Business listings
+│   ├── liveShowcase.js      # Live showcase event control
 │   ├── membership.js        # Membership management
 │   ├── messaging.js         # Real-time messaging
 │   ├── paypal.js            # PayPal integration
 │   ├── pricing.js           # Pricing settings
 │   ├── reviews.js           # Review system
 │   ├── search.js            # Search functionality
+│   ├── talentShowcase.js    # Talent showcase management
+│   ├── universalPayment.js  # Universal payment processing
 │   └── user.js              # User authentication & profile
 ├── middlewares/              # Custom middleware
 │   ├── apiAuth.js           # API authentication
@@ -155,12 +166,15 @@ afri_connect_api/
 │   ├── optionalAuth.js      # Optional authentication
 │   ├── rateLimiter.js       # Rate limiting
 │   ├── recaptcha.js         # reCAPTCHA verification
+│   ├── showcaseValidation.js # Showcase input validation
 │   ├── tierCheck.js         # Tier access control
 │   ├── upload.js            # File upload (listings)
 │   ├── uploadProfile.js     # Profile image upload
+│   ├── uploadTalentVideo.js # Talent video upload
 │   └── validation.js        # Input validation
 ├── models/                   # MongoDB schemas
 │   ├── ActivityLog.js       # User activity tracking
+│   ├── Advertisement.js     # Advertising placements
 │   ├── Announcement.js      # System announcements
 │   ├── ApiKey.js            # API key storage
 │   ├── ApiUsage.js          # API usage tracking
@@ -178,30 +192,41 @@ afri_connect_api/
 │   ├── PricingSettings.js   # Pricing configuration
 │   ├── Review.js            # Reviews & ratings
 │   ├── SavedSearch.js       # Saved searches
-│   ├── TwoCheckoutTransaction.js # 2Checkout transactions
+│   ├── ShowcaseEventTimeline.js # Event phase tracking
+│   ├── ShowcaseVote.js      # Showcase voting records
+│   ├── SponsorshipRequest.js # Event sponsorship requests
+│   ├── TalentContestant.js  # Showcase contestants
+│   ├── TalentShowcase.js    # Talent showcase events
 │   ├── User.js              # User accounts
 │   └── Verification.js      # Email verification
 ├── routes/                   # API routes
 │   ├── admin.js             # Admin routes
+│   ├── adminEventConfig.js  # Admin event configuration
+│   ├── adminLiveEvent.js    # Admin live event controls
 │   ├── advertising.js       # Advertising management
 │   ├── analytics.js         # Analytics endpoints
 │   ├── api.js               # API management
-│   ├── checkout.js          # 2Checkout routes
 │   ├── contact.js           # Contact routes
 │   ├── contactThread.js     # Contact threads
+│   ├── exchangeRates.js     # Currency exchange rates
 │   ├── featured.js          # Featured listings
 │   ├── forum.js             # Forum routes
 │   ├── index.js             # Main router
 │   ├── leads.js             # Lead generation
 │   ├── listing.js           # Listing routes
+│   ├── liveShowcase.js      # Live showcase events
+│   ├── liveTalentEvent.js   # Live talent event viewer
 │   ├── membership.js        # Membership routes
 │   ├── messaging.js         # Messaging routes
 │   ├── migration.js         # Database migration
 │   ├── news.js              # News routes
+│   ├── payments.js          # Universal payment processing
 │   ├── paypal.js            # PayPal routes
 │   ├── pricing.js           # Pricing routes
 │   ├── reviews.js           # Review routes
 │   ├── search.js            # Search routes
+│   ├── talentShowcase.js    # Talent showcase management
+│   ├── upload.js            # File upload routes
 │   ├── user.js              # User routes
 │   └── verification.js      # Verification routes
 ├── utils/                    # Utility functions
@@ -229,7 +254,6 @@ afri_connect_api/
 └── logs/                     # Application logs
 ```
 
----
 
 ## 📦 Prerequisites
 
@@ -249,36 +273,34 @@ afri_connect_api/
 - **2Checkout Account** ([Sign up](https://www.2checkout.com/))
 - **Google reCAPTCHA** ([Get keys](https://www.google.com/recaptcha/))
 
----
+
 
 ## 🚀 Installation
 
 ### 1. Clone the Repository
 
-```bash
 git clone https://github.com/Dmc4u/afri_connect_api.git
 cd afri_connect_api
 ```
 
 ### 2. Install Dependencies
 
-```bash
+
 npm install
 ```
 
 ### 3. Verify Installation
 
-```bash
 npm list --depth=0
 ```
 
----
+
 
 ## ⚙️ Environment Configuration
 
 ### Create .env File
 
-```bash
+
 touch .env
 ```
 
@@ -365,7 +387,7 @@ ADMIN_EMAIL=admin@afrionet.com
 
 Run this command twice to generate both secrets:
 
-```bash
+
 node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
 ```
 
@@ -379,13 +401,13 @@ Copy the output to `JWT_SECRET` and run again for `JWT_SESSION_SECRET`.
 4. Generate a new app password for "Mail"
 5. Copy the 16-digit password to `EMAIL_PASS`
 
----
+
 
 ## 🏃 Running the Application
 
 ### Development Mode (with auto-reload)
 
-```bash
+
 npm run dev
 ```
 
@@ -481,6 +503,58 @@ Production: https://api.afrionet.com
 | POST | `/checkout/process` | 2Checkout payment | Yes |
 | GET | `/payments/history` | Payment history | Yes |
 
+### Talent Showcase Endpoints
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| GET | `/talent-showcase` | Get all showcases | No |
+| GET | `/talent-showcase/:id` | Get showcase by ID | No |
+| GET | `/talent-showcase/:id/type` | Get showcase type | No |
+| GET | `/talent-showcase/:id/timeline` | Get event timeline | No |
+| GET | `/talent-showcase/:showcaseId/contestants` | Get contestants | No |
+| GET | `/talent-showcase/:showcaseId/leaderboard` | Get voting leaderboard | No |
+| POST | `/talent-showcase/:showcaseId/register` | Register to compete | Yes |
+| POST | `/talent-showcase/:showcaseId/vote` | Cast vote | Yes/IP-based |
+| POST | `/talent-showcase/upload-video` | Upload performance video | Yes |
+| POST | `/talent-showcase/admin/create` | Create showcase | Yes (Admin) |
+| PUT | `/talent-showcase/admin/:id` | Update showcase | Yes (Admin) |
+| DELETE | `/talent-showcase/admin/:id` | Delete showcase | Yes (Admin) |
+| POST | `/talent-showcase/admin/raffle/:id` | Execute raffle | Yes (Admin) |
+| POST | `/talent-showcase/admin/set-winner` | Declare winner | Yes (Admin) |
+| PUT | `/talent-showcase/admin/contestant/:id` | Update contestant | Yes (Admin) |
+
+### Live Event Control Endpoints
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| GET | `/api/live-showcase/:id` | Get live event state | No |
+| POST | `/api/live-showcase/:id/start` | Start event | Yes (Admin) |
+| POST | `/api/live-showcase/:id/next-phase` | Skip to next phase | Yes (Admin) |
+| POST | `/api/live-showcase/:id/prev-phase` | Go to previous phase | Yes (Admin) |
+| POST | `/api/live-showcase/:id/pause` | Pause event | Yes (Admin) |
+| POST | `/api/live-showcase/:id/resume` | Resume event | Yes (Admin) |
+| POST | `/api/live-showcase/:id/reset` | Reset event | Yes (Admin) |
+
+### Advertising Endpoints
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| GET | `/advertising/active` | Get active ads | No |
+| POST | `/advertising` | Create ad campaign | Yes |
+| GET | `/advertising/my` | Get my campaigns | Yes |
+| PUT | `/advertising/:id` | Update campaign | Yes (Owner) |
+| DELETE | `/advertising/:id` | Delete campaign | Yes (Owner) |
+| POST | `/advertising/:id/click` | Track ad click | No |
+| GET | `/advertising/admin` | List all ads | Yes (Admin) |
+| PUT | `/advertising/admin/:id/status` | Update ad status | Yes (Admin) |
+
+### Sponsorship Endpoints
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| POST | `/talent-showcase/:showcaseId/sponsor` | Sponsor showcase | Yes |
+| GET | `/talent-showcase/admin/sponsorships` | View sponsorships | Yes (Admin) |
+
 ### Admin Endpoints
 
 | Method | Endpoint | Description | Auth Required |
@@ -489,6 +563,8 @@ Production: https://api.afrionet.com
 | GET | `/admin/analytics` | Get analytics | Yes (Admin) |
 | PUT | `/admin/users/:id/tier` | Update user tier | Yes (Admin) |
 | DELETE | `/admin/listings/:id` | Delete listing | Yes (Admin) |
+| GET | `/admin/showcases` | Get all showcases | Yes (Admin) |
+| GET | `/admin/revenue` | Get revenue analytics | Yes (Admin) |
 
 ### Authentication Header
 
@@ -561,6 +637,133 @@ Authorization: Bearer <your_jwt_token>
 }
 ```
 
+### Talent Showcase Schema
+```javascript
+{
+  showcaseType: String ('structured'/'legacy'),
+  title: String,
+  description: String,
+  category: String,
+  competitionType: String,
+  themeTitle: String,
+  themeCreator: String,
+  performanceDuration: Number,
+  votingDuration: Number,
+  oneVoteOnly: Boolean,
+  eventDate: Date,
+  streamUrl: String,
+  hasLiveStream: Boolean,
+  entryFee: Number,
+  entryFeeCurrency: String,
+  prizeDetails: {
+    amount: Number,
+    currency: String,
+    description: String
+  },
+  // Raffle configuration
+  registrationStartDate: Date,
+  registrationEndDate: Date,
+  submissionDeadline: Date,
+  raffleScheduledDate: Date,
+  maxContestants: Number,
+  // Structured event phases
+  welcomeDuration: Number,
+  commercialDuration: Number,
+  votingDisplayDuration: Number,
+  winnerDisplayDuration: Number,
+  thankYouDuration: Number,
+  thankYouMessage: String,
+  status: String,
+  totalVotes: Number,
+  createdAt: Date
+}
+```
+
+### Talent Contestant Schema
+```javascript
+{
+  showcase: ObjectId (TalentShowcase),
+  user: ObjectId (User),
+  performanceTitle: String,
+  performanceDescription: String,
+  videoUrl: String,
+  thumbnailUrl: String,
+  country: String,
+  status: String ('pending'/'selected'/'waitlist'/'rejected'),
+  raffleStatus: String,
+  raffleNumber: Number,
+  votes: Number,
+  registeredAt: Date,
+  createdAt: Date
+}
+```
+
+### Advertisement Schema
+```javascript
+{
+  advertiser: {
+    userId: ObjectId (User),
+    name: String,
+    email: String,
+    company: String
+  },
+  title: String,
+  description: String,
+  callToAction: String,
+  targetUrl: String,
+  imageUrl: String,
+  videoUrl: String,
+  videoDuration: Number,
+  placement: String,
+  category: String,
+  startDate: Date,
+  endDate: Date,
+  totalClicks: Number,
+  totalImpressions: Number,
+  status: String,
+  createdAt: Date
+}
+```
+
+### Sponsorship Request Schema
+```javascript
+{
+  showcase: ObjectId (TalentShowcase),
+  sponsor: ObjectId (User),
+  listing: ObjectId (Listing),
+  tier: String,
+  amount: Number,
+  currency: String,
+  logoUrl: String,
+  websiteUrl: String,
+  status: String ('pending'/'approved'/'rejected'),
+  paymentStatus: String,
+  createdAt: Date
+}
+```
+
+### Showcase Event Timeline Schema
+```javascript
+{
+  showcase: ObjectId (TalentShowcase),
+  eventStatus: String,
+  currentPhase: String,
+  isLive: Boolean,
+  eventStarted: Date,
+  phaseHistory: [{
+    phase: String,
+    startedAt: Date,
+    endedAt: Date
+  }],
+  winnerAnnouncement: {
+    winner: ObjectId (TalentContestant),
+    announcedAt: Date,
+    totalVotes: Number
+  },
+  createdAt: Date
+}
+```
+
 ---
 
 ## 🛡️ Middleware
@@ -570,6 +773,9 @@ Verifies JWT token and attaches user to request.
 
 ### Optional Auth (`optionalAuth.js`)
 Attempts authentication but doesn't fail if token is missing.
+
+### Showcase Validation (`showcaseValidation.js`)
+Validates showcase creation, registration, voting, and admin operations.
 
 ### Rate Limiter (`rateLimiter.js`)
 Prevents abuse by limiting request rates.

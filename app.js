@@ -18,6 +18,8 @@ const { PORT, MONGO_URL, PAYPAL_CLIENT_ID, PAYPAL_MODE } = require("./utils/conf
 const { createUser, login } = require("./controllers/user");
 const { initializeSocket } = require("./utils/socket");
 const PricingSettings = require("./models/PricingSettings");
+// Event scheduler - automatically starts events at scheduled time
+const { startScheduler } = require("./utils/eventScheduler");
 
 const app = express();
 const httpServer = createServer(app);
@@ -74,8 +76,8 @@ function rawBodySaver(req, res, buf, encoding) {
   }
 }
 
-app.use(express.json({ verify: rawBodySaver }));
-app.use(express.urlencoded({ extended: true, verify: rawBodySaver }));
+app.use(express.json({ verify: rawBodySaver, limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, verify: rawBodySaver, limit: '50mb' }));
 
 // Enable trust proxy for Cloudflare/Nginx
 app.set('trust proxy', 1);
@@ -142,6 +144,26 @@ app.get("/paypal/client-id", (req, res) => {
 const exchangeRatesRouter = require("./routes/exchangeRates");
 app.use("/exchange-rates", exchangeRatesRouter);
 
+// Universal Payment routes
+const paymentsRouter = require("./routes/payments");
+app.use("/payments", paymentsRouter);
+
+// Talent Showcase routes
+const talentShowcaseRouter = require("./routes/talentShowcase");
+app.use("/talent-showcase", talentShowcaseRouter);
+
+// Live Showcase Event routes
+const liveShowcaseRouter = require("./routes/liveShowcase");
+app.use("/api/live-showcase", liveShowcaseRouter);
+
+// Admin Event Configuration routes
+const adminEventConfigRouter = require("./routes/adminEventConfig");
+app.use("/api/admin/event-config", adminEventConfigRouter);
+
+// Upload routes (video, images, etc.)
+const uploadRouter = require("./routes/upload");
+app.use("/api/upload", uploadRouter);
+
 // Public endpoint to get unique user countries (for exchange rate display)
 app.get("/users/countries", async (req, res) => {
   try {
@@ -173,4 +195,8 @@ app.locals.io = io;
 httpServer.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`💬 WebSocket server initialized`);
+
+  // Event auto-start scheduler - automatically starts events and executes raffles at scheduled times
+  startScheduler();
+  console.log(`⏰ Event scheduler started - will auto-start events and auto-execute raffles at scheduled times`);
 });

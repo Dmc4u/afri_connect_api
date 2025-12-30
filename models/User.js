@@ -22,6 +22,7 @@ const userSchema = new mongoose.Schema(
     phone: {
       type: String,
       required: true,
+      unique: true,
       validate: {
         validator: (value) => validator.isMobilePhone(value, "any"),
         message: "Invalid phone number",
@@ -39,6 +40,10 @@ const userSchema = new mongoose.Schema(
     country: {
       type: String,
       default: null, // e.g., "Nigeria", "Kenya", "Ghana"
+    },
+    location: {
+      type: String,
+      default: null, // e.g., "Lagos, Nigeria" or "Nairobi, Kenya"
     },
     tier: {
       type: String,

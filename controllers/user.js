@@ -33,18 +33,31 @@ const getCurrentUser = (req, res, next) =>
 
 // POST /signup - Create user
 const createUser = (req, res, next) => {
-  const { name, email, phone, country, password } = req.body;
+  const { name, email, phone, city, country, password } = req.body;
 
-  if (!name || !email || !phone || !password) {
-    return next(new BadRequestError("Name, email, phone, and password are required"));
+  if (!name || !email || !phone || !city || !country || !password) {
+    return next(new BadRequestError("Name, email, phone, city, country, and password are required"));
   }
 
-  return bcrypt
-    .hash(password, 10)
+  // Check if user already exists with this email or phone
+  return User.findOne({ $or: [{ email }, { phone }] })
+    .then((existingUser) => {
+      if (existingUser) {
+        if (existingUser.email === email) {
+          throw new ConflictError("An account with this email already exists");
+        }
+        if (existingUser.phone === phone) {
+          throw new ConflictError("An account with this phone number already exists");
+        }
+      }
+      return bcrypt.hash(password, 10);
+    })
     .then((hash) => {
       // Determine role based on ADMIN_EMAILS configuration
       const role = isAdminEmail(email) ? "admin" : "user";
-      return User.create({ name, email, phone, country, password: hash, role });
+      // Create location string from city and country
+      const location = city && country ? `${city}, ${country}` : (country || city || null);
+      return User.create({ name, email, phone, city, country, location, password: hash, role });
     })
     .then((user) => {
       const userObj = user.toObject();
@@ -73,7 +86,14 @@ const createUser = (req, res, next) => {
     })
     .catch((err) => {
       if (err.code === 11000) {
-        return next(new ConflictError("User with this email already exists"));
+        // Handle MongoDB duplicate key error
+        const field = Object.keys(err.keyPattern || {})[0];
+        if (field === 'email') {
+          return next(new ConflictError("An account with this email already exists"));
+        } else if (field === 'phone') {
+          return next(new ConflictError("An account with this phone number already exists"));
+        }
+        return next(new ConflictError("An account with these credentials already exists"));
       }
       if (err.name === "ValidationError") {
         return next(new BadRequestError("Validation failed"));
@@ -124,15 +144,21 @@ const login = (req, res, next) => {
     });
 };
 
-// PATCH /users/me - Update user name
+// PATCH /users/me - Update user profile
 const updateUser = (req, res, next) => {
-  const { name } = req.body;
+  const { name, phone, country, location } = req.body;
 
   if (!name) {
     return next(new BadRequestError("Name is required"));
   }
 
-  return User.findByIdAndUpdate(req.user._id, { name }, { new: true, runValidators: true })
+  // Prepare update object with only provided fields
+  const updateFields = { name };
+  if (phone !== undefined) updateFields.phone = phone;
+  if (country !== undefined) updateFields.country = country;
+  if (location !== undefined) updateFields.location = location;
+
+  return User.findByIdAndUpdate(req.user._id, updateFields, { new: true, runValidators: true })
     .orFail(() => new NotFoundError("User not found"))
     .then((user) => {
       const userObj = user.toObject();
@@ -148,16 +174,14 @@ const updateUser = (req, res, next) => {
     });
 };
 
-// PATCH /users/me/photo - Update profile photo (Starter+)
+// PATCH /users/me/photo - Update profile photo (All tiers allowed)
 const updateUserPhoto = (req, res, next) => {
   if (!req.file) {
     return next(new BadRequestError("No photo file provided"));
   }
 
-  // Tier check is handled by middleware, but double-check here
-  if (req.user.tier === "Free") {
-    return next(new ForbiddenError("Profile photo customization requires Starter tier or higher"));
-  }
+  // All tiers can now upload profile photos (including Free talent)
+  // No tier restrictions for basic profile customization
 
   // For local storage, construct the URL path
   const profilePhoto = `/uploads/profiles/${req.file.filename}`;
@@ -169,7 +193,7 @@ const updateUserPhoto = (req, res, next) => {
       delete userObj.password;
       return res.send({
         profilePhoto: userObj.profilePhoto,
-        message: `✅ Profile photo updated (${user.tier} tier feature)`,
+        message: "✅ Profile photo updated successfully",
       });
     })
     .catch((err) => {
@@ -180,12 +204,10 @@ const updateUserPhoto = (req, res, next) => {
     });
 };
 
-// DELETE /users/me/photo - Remove profile photo (Starter+)
+// DELETE /users/me/photo - Remove profile photo (All tiers allowed)
 const deleteUserPhoto = (req, res, next) => {
-  // Tier check is handled by middleware
-  if (req.user.tier === "Free") {
-    return next(new ForbiddenError("Profile photo customization requires Starter tier or higher"));
-  }
+  // All tiers can now remove profile photos (including Free talent)
+  // No tier restrictions for basic profile customization
 
   return User.findByIdAndUpdate(
     req.user._id,
@@ -198,7 +220,7 @@ const deleteUserPhoto = (req, res, next) => {
       delete userObj.password;
       return res.send({
         profilePhoto: null,
-        message: "Profile photo removed successfully (Starter+ feature)",
+        message: "Profile photo removed successfully",
       });
     })
     .catch((err) => {

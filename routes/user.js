@@ -35,17 +35,15 @@ router.patch("/me", validateUpdateUser, updateUser);
 router.patch("/me/settings", updateUserSettings);
 router.patch(
   "/me/photo",
-  requireProfileCustomization,
   uploadProfile.single("photo"),
   updateUserPhoto
 );
 router.post(
   "/me/photo",
-  requireProfileCustomization,
   uploadProfile.single("photo"),
   updateUserPhoto
 );
-router.delete("/me/photo", requireProfileCustomization, deleteUserPhoto);
+router.delete("/me/photo", deleteUserPhoto);
 
 // Pro-tier specific routes
 router.patch("/me/verified-badge", requireVerifiedBadgeAccess, toggleVerifiedBadge);
@@ -67,6 +65,59 @@ router.patch(
 );
 
 // === ANNOUNCEMENTS ===
+
+// Get unread announcement count
+router.get("/announcements/unread-count", async (req, res, next) => {
+  try {
+    // Find announcements for this user or sent to all
+    const visibilityFilter = {
+      $or: [
+        { "recipients.type": "all" },
+        { "recipients.type": "tier", "recipients.value": req.user.tier },
+        { "recipients.type": "individual", "recipients.value": { $in: [req.user._id] } },
+      ],
+    };
+
+    const notDismissedFilter = {
+      $and: [
+        {
+          $or: [
+            { dismissedByUsers: { $exists: false } },
+            { dismissedByUsers: { $ne: req.user._id } },
+          ],
+        },
+        {
+          $or: [
+            { dismissedForTiers: { $exists: false } },
+            { dismissedForTiers: { $ne: req.user.tier } },
+          ],
+        },
+      ],
+    };
+
+    // Count announcements that are not read by this user
+    const unreadCount = await Announcement.countDocuments({
+      $and: [
+        visibilityFilter,
+        notDismissedFilter,
+        {
+          $or: [
+            { "readBy.userId": { $ne: req.user._id } },
+            { readBy: { $exists: false } },
+            { readBy: { $size: 0 } },
+          ],
+        },
+      ],
+    });
+
+    res.json({
+      success: true,
+      unreadCount,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 
 // Get user's announcements
 router.get("/announcements", async (req, res, next) => {

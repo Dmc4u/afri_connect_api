@@ -78,6 +78,7 @@ async function createOrder(amount, seatType, currency = "USD", userId = null, co
 
 // Capture PayPal Order
 async function captureOrder(orderId) {
+  console.log(`🔵 Attempting to capture PayPal order: ${orderId}`);
   const accessToken = await getAccessToken();
 
   const response = await fetch(`${baseUrl}/v2/checkout/orders/${orderId}/capture`, {
@@ -89,11 +90,17 @@ async function captureOrder(orderId) {
   });
 
   const data = await response.json();
+  console.log(`📊 PayPal capture response status: ${response.status}`);
+  console.log(`📊 PayPal capture response data:`, JSON.stringify(data, null, 2));
+
   if (!response.ok) {
     console.error("❌ PayPal Capture Error:", data);
-    throw new Error(data.details?.[0]?.issue || "Failed to capture order");
+    console.error(`❌ Error details:`, data.details);
+    const errorMessage = data.details?.[0]?.issue || data.details?.[0]?.description || data.message || "Failed to capture order";
+    throw new Error(errorMessage);
   }
 
+  console.log(`✅ PayPal order captured successfully. Status: ${data.status}`);
   return data; // contains capture details
 }
 

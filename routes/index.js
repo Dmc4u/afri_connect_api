@@ -18,9 +18,16 @@ const verificationRouter = require("./verification");
 const pricingRouter = require("./pricing");
 const featuredRouter = require("./featured");
 const reviewsRouter = require("./reviews");
+const liveTalentEventRouter = require("./liveTalentEvent");
+const adminLiveEventRouter = require("./adminLiveEvent");
+const talentShowcaseRouter = require("./talentShowcase");
 const { NotFoundError } = require("../utils/errors");
 
 const router = express.Router();
+
+// Public API routes (must come BEFORE /api to avoid auth middleware)
+router.use("/api/live-talent-event", liveTalentEventRouter);
+router.use("/api/admin/live-event", adminLiveEventRouter);
 
 router.use("/users", userRouter);
 router.use("/listings", listingRouter);
@@ -38,6 +45,7 @@ router.use("/contact", contactRouter);
 router.use("/advertising", advertisingRouter);
 router.use("/leads", leadsRouter);
 router.use("/verification", verificationRouter);
+router.use("/talent-showcase", talentShowcaseRouter);
 router.use("/", pricingRouter);
 router.use("/featured", featuredRouter);
 router.use("/reviews", reviewsRouter);

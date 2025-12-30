@@ -4,6 +4,7 @@ const featuredPlacementSchema = new mongoose.Schema(
   {
     ownerId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     listingId: { type: mongoose.Schema.Types.ObjectId, ref: "Listing", required: true },
+    showcaseId: { type: mongoose.Schema.Types.ObjectId, ref: "TalentShowcase" }, // For talent showcase winners
     startAt: { type: Date, required: true },
     endAt: { type: Date, required: true },
   status: { type: String, enum: ["pending", "approved", "rejected"], default: "pending" },

@@ -57,8 +57,28 @@ const syncUserRole = async (user) => {
   return user;
 };
 
+/**
+ * Express middleware to check if authenticated user is an admin
+ * Must be used after auth middleware
+ */
+const adminCheckMiddleware = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+
+  next();
+};
+
 module.exports = {
   isAdminEmail,
   getRoleForEmail,
   syncUserRole,
+  adminCheckMiddleware
 };
+
+// Default export for backward compatibility
+module.exports.default = adminCheckMiddleware;

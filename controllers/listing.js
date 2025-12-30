@@ -30,7 +30,7 @@ async function generateUniqueSlug(base, currentId) {
 // Get all listings (public)
 const getAllListings = async (req, res, next) => {
   try {
-    const { category, location, search, page = 1, limit = 20 } = req.query;
+    const { category, location, search, page = 1, limit = 20, excludeWinners } = req.query;
 
     const query = { status: "active" };
 
@@ -47,6 +47,23 @@ const getAllListings = async (req, res, next) => {
         { title: { $regex: search, $options: "i" } },
         { description: { $regex: search, $options: "i" } },
       ];
+    }
+
+    // Exclude talent showcase contestants ONLY when explicitly requested (for business listings page)
+    // Talent directory (/discover-talent) should include all talent contestants
+    if (excludeWinners === 'true') {
+      const TalentContestant = require("../models/TalentContestant");
+      // Exclude ALL listings that are associated with talent showcase contestants
+      // This ensures showcase contestants don't appear on business listings page
+      const contestantListingIds = await TalentContestant.find({
+        listing: { $exists: true, $ne: null }
+      })
+        .distinct('listing')
+        .lean();
+
+      if (contestantListingIds.length > 0) {
+        query._id = { $nin: contestantListingIds };
+      }
     }
 
     const skip = (page - 1) * limit;
@@ -135,6 +152,9 @@ const getMyListings = async (req, res, next) => {
     const { page = 1, limit = 20, status = "all" } = req.query;
 
     const query = { owner: req.user._id };
+
+    // Always exclude deleted listings
+    query.status = { $ne: "deleted" };
 
     if (status !== "all") {
       query.status = status;

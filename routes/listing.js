@@ -24,7 +24,7 @@ const createListingValidation = celebrate({
     description: Joi.string().trim().min(10).max(1000).required(),
     category: Joi.string()
       .valid(
-        // Core
+        // Business categories
         "Technology",
         "Creative",
         "Professional Services",
@@ -36,9 +36,6 @@ const createListingValidation = celebrate({
         "Real Estate",
         "Transportation",
         "Entertainment",
-        // Unified creative/skills bucket used in client
-        "Talent",
-        // Region/Culture specific
         "Nollywood",
         "Construction",
         "Agriculture",
@@ -47,7 +44,20 @@ const createListingValidation = celebrate({
         "Fashion",
         "Consulting",
         "Logistics",
-        // Specialized roles
+        "Podcasts & Radio",
+        "Sports & Fitness",
+        "Non-profit & NGOs",
+        // Talent categories
+        "Talent",
+        "Music",
+        "Comedy",
+        "Instrumentalist",
+        "Artist",
+        "Dancer",
+        "Singer",
+        "Rapper",
+        "DJ",
+        "Producer",
         "Web Developer",
         "Mobile Developer",
         "UI/UX Design",
@@ -58,12 +68,11 @@ const createListingValidation = celebrate({
         "Content Writing",
         "Photography",
         "Videography",
-        // Community & media
         "Afrobeats & Music",
         "Content Creators",
-        "Podcasts & Radio",
-        "Sports & Fitness",
-        "Non-profit & NGOs",
+        "Actor/Actress",
+        "Voice Over Artist",
+        "Other Talent",
         // Fallback
         "Other"
       )
@@ -83,7 +92,7 @@ const updateListingValidation = celebrate({
       title: Joi.string().trim().min(2).max(100),
       description: Joi.string().trim().min(10).max(1000),
       category: Joi.string().valid(
-        // Core
+        // Business categories
         "Technology",
         "Creative",
         "Professional Services",
@@ -95,9 +104,6 @@ const updateListingValidation = celebrate({
         "Real Estate",
         "Transportation",
         "Entertainment",
-        // Unified creative/skills bucket used in client
-        "Talent",
-        // Region/Culture specific
         "Nollywood",
         "Construction",
         "Agriculture",
@@ -106,7 +112,20 @@ const updateListingValidation = celebrate({
         "Fashion",
         "Consulting",
         "Logistics",
-        // Specialized roles
+        "Podcasts & Radio",
+        "Sports & Fitness",
+        "Non-profit & NGOs",
+        // Talent categories
+        "Talent",
+        "Music",
+        "Comedy",
+        "Instrumentalist",
+        "Artist",
+        "Dancer",
+        "Singer",
+        "Rapper",
+        "DJ",
+        "Producer",
         "Web Developer",
         "Mobile Developer",
         "UI/UX Design",
@@ -117,12 +136,11 @@ const updateListingValidation = celebrate({
         "Content Writing",
         "Photography",
         "Videography",
-        // Community & media
         "Afrobeats & Music",
         "Content Creators",
-        "Podcasts & Radio",
-        "Sports & Fitness",
-        "Non-profit & NGOs",
+        "Actor/Actress",
+        "Voice Over Artist",
+        "Other Talent",
         // Fallback
         "Other"
       ),
@@ -170,6 +188,7 @@ const queryValidation = celebrate({
     page: Joi.number().integer().min(1).default(1),
     limit: Joi.number().integer().min(1).max(50).default(20),
     status: Joi.string().valid("active", "pending", "suspended", "deleted", "all").default("all"),
+    excludeWinners: Joi.string().valid("true", "false"),
   }),
 });
 

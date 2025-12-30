@@ -59,6 +59,11 @@ module.exports.validateUserBody = celebrate({
     phone: Joi.string().required().messages({
       "string.empty": 'The "phone" field must be filled in',
     }),
+    city: Joi.string().required().min(2).messages({
+      "string.empty": 'The "city" field must be filled in',
+      "string.min": 'The minimum length of the "city" field is 2',
+      "any.required": 'The "city" field is required',
+    }),
     country: Joi.string().required().messages({
       "string.empty": 'The "country" field must be filled in',
       "any.required": 'The "country" field is required',
@@ -84,6 +89,11 @@ module.exports.validateSignup = celebrate({
     }),
     phone: Joi.string().required().messages({
       "string.empty": 'The "phone" field must be filled in',
+    }),
+    city: Joi.string().required().min(2).messages({
+      "string.empty": 'The "city" field must be filled in',
+      "string.min": 'The minimum length of the "city" field is 2',
+      "any.required": 'The "city" field is required',
     }),
     country: Joi.string().required().messages({
       "string.empty": 'The "country" field must be filled in',

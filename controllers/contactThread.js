@@ -114,7 +114,7 @@ const getSentThreads = async (req, res, next) => {
 
     let threads = await ContactMessage.find(query)
       .populate("businessOwner", "name email avatar tier")
-      .populate("listing", "title location")
+      .populate("listing", "title location status owner")
       .populate("replies.author", "name email avatar")
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -158,7 +158,7 @@ const getReceivedThreads = async (req, res, next) => {
     }
 
     let threads = await ContactMessage.find(query)
-      .populate("listing", "title location owner")
+      .populate("listing", "title location status owner")
       .populate("replies.author", "name email avatar")
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -197,7 +197,7 @@ const getThread = async (req, res, next) => {
 
     const thread = await ContactMessage.findById(threadId)
       .populate("businessOwner", "name email avatar tier")
-      .populate("listing", "title location category")
+      .populate("listing", "title location category status owner")
       .populate("replies.author", "name email avatar");
 
     if (!thread) {
@@ -277,6 +277,7 @@ const addReply = async (req, res, next) => {
       authorName: user.name || "Unknown",
       authorEmail: user.email || "unknown@example.com",
       content,
+      read: false, // Mark as unread by default
       createdAt: new Date(),
     });
 
@@ -377,10 +378,19 @@ const markAsRead = async (req, res, next) => {
       throw new ForbiddenError("Not authorized");
     }
 
+    // Mark thread as read if it's new
     if (thread.status === "new") {
       thread.status = "read";
-      await thread.save();
     }
+
+    // Mark all replies as read (that were NOT authored by current user)
+    thread.replies.forEach((reply) => {
+      if (reply.author.toString() !== req.user._id.toString()) {
+        reply.read = true;
+      }
+    });
+
+    await thread.save();
 
     res.json({
       success: true,
@@ -395,15 +405,40 @@ const markAsRead = async (req, res, next) => {
 // Get thread count for badge
 const getUnreadCount = async (req, res, next) => {
   try {
-    // Count unread received messages
-    const unreadCount = await ContactMessage.countDocuments({
+    // Count unread received messages (threads with status "new")
+    const unreadThreads = await ContactMessage.countDocuments({
       businessOwner: req.user._id,
       status: "new",
     });
 
+    // Count unread replies in threads where current user is NOT the reply author
+    const threadsWithReplies = await ContactMessage.find({
+      $or: [
+        { businessOwner: req.user._id }, // Threads I received
+        { sender: req.user._id },        // Threads I sent
+      ],
+      "replies.0": { $exists: true }, // Has at least one reply
+    });
+
+    let unreadReplies = 0;
+    threadsWithReplies.forEach((thread) => {
+      thread.replies.forEach((reply) => {
+        // Count as unread if:
+        // 1. Reply is marked as unread (read: false or undefined)
+        // 2. Reply author is NOT the current user
+        if (!reply.read && reply.author.toString() !== req.user._id.toString()) {
+          unreadReplies++;
+        }
+      });
+    });
+
+    const totalUnread = unreadThreads + unreadReplies;
+
     res.json({
       success: true,
-      unreadCount,
+      unreadCount: totalUnread,
+      unreadThreads,
+      unreadReplies,
     });
   } catch (error) {
     next(error);

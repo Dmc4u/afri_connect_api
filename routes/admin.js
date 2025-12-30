@@ -311,7 +311,7 @@ router.get("/users/recent", async (req, res, next) => {
     const limit = Math.min(Math.max(parseInt(req.query.limit) || 10, 1), 100);
 
     const users = await User.find()
-      .select("name email tier role createdAt profilePhoto")
+      .select("name email tier role createdAt profilePhoto country location")
       .sort({ createdAt: -1 })
       .limit(limit);
 

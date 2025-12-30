@@ -1,0 +1,568 @@
+const ShowcaseEventTimeline = require('../models/ShowcaseEventTimeline');
+const TalentShowcase = require('../models/TalentShowcase');
+const TalentContestant = require('../models/TalentContestant');
+const { performRaffle } = require('./raffleSelection');
+
+/**
+ * Event Auto-Start Scheduler
+ * Automatically starts events at their scheduled time and executes raffles
+ */
+
+let schedulerInterval = null;
+
+/**
+ * Check for events that should auto-start
+ */
+async function checkAndStartScheduledEvents() {
+  try {
+    const now = new Date();
+
+    // Check for raffles that should execute
+    await checkAndExecuteScheduledRaffles();
+
+    // Find all scheduled events that should start now (within 1 minute window)
+    const timelines = await ShowcaseEventTimeline.find({
+      eventStatus: 'scheduled',
+      isLive: false
+    }).populate('showcase');
+
+    for (const timeline of timelines) {
+      if (!timeline.showcase || !timeline.showcase.eventDate) {
+        console.warn(`⚠️  Timeline ${timeline._id} has no associated showcase or event date - skipping`);
+        continue;
+      }
+
+      const eventDate = new Date(timeline.showcase.eventDate);
+      const timeDiff = eventDate - now;
+
+      // If event should start now (at or after scheduled time, within 1 minute late window)
+      if (timeDiff <= 0 && timeDiff >= -60000) {
+        const lateSeconds = Math.abs(Math.floor(timeDiff / 1000));
+        console.log(`🚀 Auto-starting event: ${timeline.showcase.title || 'Unnamed Event'} (${lateSeconds > 0 ? `${lateSeconds}s late` : 'on time'})`);
+
+        // Start the event - use SCHEDULED time, not current time
+        timeline.actualStartTime = eventDate; // Use scheduled event time
+        timeline.isLive = true;
+        timeline.eventStatus = 'live';
+        timeline.currentPhase = 'welcome';
+
+        // Generate timeline if not already generated
+        if (!timeline.phases || timeline.phases.length === 0) {
+          timeline.generateTimeline();
+        }
+
+        // Schedule performances if not already scheduled
+        if (!timeline.performances || timeline.performances.length === 0) {
+          const TalentContestant = require('../models/TalentContestant');
+          const contestants = await TalentContestant.find({
+            showcase: timeline.showcase._id,
+            status: 'selected'
+          }).sort({ rafflePosition: 1 });
+
+          if (contestants.length > 0) {
+            timeline.schedulePerformances(contestants);
+            console.log(`📋 Scheduled ${contestants.length} performances`);
+          }
+        }
+
+        // Set first phase to active - start from SCHEDULED event time
+        if (timeline.phases.length > 0) {
+          timeline.phases[0].status = 'active';
+          timeline.phases[0].startTime = eventDate; // Use scheduled time
+
+          // Recalculate all phase times from SCHEDULED event time (not current time)
+          let currentTime = new Date(eventDate);
+          timeline.phases.forEach((phase, index) => {
+            phase.startTime = new Date(currentTime);
+            phase.endTime = new Date(currentTime.getTime() + phase.duration * 60000);
+            currentTime = phase.endTime;
+          });
+
+          console.log(`📅 Phases scheduled from event time: ${eventDate.toLocaleTimeString()}`);
+        }
+
+        await timeline.save();
+
+        // Update showcase status
+        await TalentShowcase.findByIdAndUpdate(timeline.showcase._id, {
+          status: 'live',
+          liveStartTime: new Date()
+        });
+
+        console.log(`✅ Event started: ${timeline.showcase.title || 'Unnamed Event'} (ID: ${timeline.showcase._id})`);
+      }
+    }
+
+    // Auto-advance phases for live events
+    await checkAndAdvancePhases();
+
+  } catch (error) {
+    console.error('❌ Error in event scheduler:', error);
+  }
+}
+
+/**
+ * Check for phases that should advance
+ */
+async function checkAndAdvancePhases() {
+  try {
+    const now = new Date();
+
+    // Find all live events
+    const liveTimelines = await ShowcaseEventTimeline.find({
+      isLive: true,
+      eventStatus: 'live'
+    }).populate('showcase');
+
+    for (const timeline of liveTimelines) {
+      // Skip if showcase is null or deleted
+      if (!timeline.showcase) {
+        console.warn(`⚠️  Timeline ${timeline._id} has no associated showcase - marking as ended`);
+        timeline.isLive = false;
+        timeline.eventStatus = 'cancelled';
+        await timeline.save();
+        continue;
+      }
+
+      // Skip if event is paused
+      if (timeline.showcase.liveEventControl?.isPaused) {
+        console.log(`⏸️  Event paused: ${timeline.showcase.title}`);
+        continue;
+      }
+
+      const currentPhase = timeline.getCurrentPhase();
+
+      if (!currentPhase) {
+        // No current phase means event should have ended
+        const lastPhase = timeline.phases[timeline.phases.length - 1];
+        if (lastPhase && now > lastPhase.endTime) {
+          console.log(`🏁 Auto-ending event: ${timeline.showcase.title}`);
+
+          timeline.actualEndTime = new Date();
+          timeline.isLive = false;
+          timeline.eventStatus = 'completed';
+          timeline.currentPhase = 'ended';
+
+          await timeline.save();
+
+          // Update showcase status
+          await TalentShowcase.findByIdAndUpdate(timeline.showcase._id, {
+            status: 'completed',
+            endDate: new Date()
+          });
+
+          console.log(`✅ Event ended: ${timeline.showcase.title}`);
+        }
+        continue;
+      }
+
+      // Check if current phase has ended
+      if (now > currentPhase.endTime) {
+        // Don't auto-advance from countdown phase - it runs until next event
+        if (currentPhase.name === 'countdown') {
+          console.log(`⏰ Event in countdown mode: ${timeline.showcase.title}`);
+          continue;
+        }
+
+        // Don't auto-advance from performance phase based on time alone
+        // Performance phase should only advance when all performances are completed
+        if (currentPhase.name === 'performance') {
+          const allCompleted = timeline.performances.every(p => p.status === 'completed');
+          if (!allCompleted) {
+            console.log(`🎬 Performance phase time exceeded but not all performances completed - staying in phase`);
+            continue;
+          }
+          console.log(`🎬 All performances completed - ready to advance from performance phase`);
+        }
+
+        console.log(`⏭️  Auto-advancing phase for: ${timeline.showcase.title} (${currentPhase.name} → next)`);
+
+        const nextPhase = timeline.advancePhase();
+
+        if (!nextPhase) {
+          // Event ended
+          timeline.actualEndTime = new Date();
+          timeline.isLive = false;
+
+          await timeline.save();
+
+          // Update showcase to completed
+          await TalentShowcase.findByIdAndUpdate(timeline.showcase._id, {
+            status: 'completed',
+            endDate: new Date()
+          });
+
+          console.log(`✅ Event completed: ${timeline.showcase.title}`);
+        } else {
+          // Handle special phase transitions
+          if (nextPhase.name === 'voting') {
+            // Auto-enable voting when voting phase starts
+            await TalentShowcase.findByIdAndUpdate(timeline.showcase._id, {
+              isVotingOpen: true,
+              status: 'voting',
+              votingStartTime: nextPhase.startTime,
+              votingEndTime: nextPhase.endTime
+            });
+            console.log(`🗳️  Voting opened for: ${timeline.showcase.title}`);
+          } else if (nextPhase.name === 'winner') {
+            // Auto-close voting and declare winner when winner phase starts
+            await TalentShowcase.findByIdAndUpdate(timeline.showcase._id, {
+              isVotingOpen: false
+            });
+            await autoDeclareWinner(timeline);
+            console.log(`🏆 Winner auto-declared for: ${timeline.showcase.title}`);
+          }
+
+          await timeline.save();
+          console.log(`✅ Advanced to phase: ${nextPhase.name}`);
+        }
+      }
+
+      // Auto-advance performances within performance phase
+      if (timeline.currentPhase === 'performance') {
+        const currentPerf = timeline.getCurrentPerformance();
+
+        if (!currentPerf) {
+          console.log(`⚠️ No active performance found during performance phase`);
+          // Find next pending performance (should be the first one if none is active)
+          const nextPerf = timeline.performances
+            .sort((a, b) => a.performanceOrder - b.performanceOrder)
+            .find(p => p.status === 'pending');
+
+          if (nextPerf) {
+            console.log(`🎭 Auto-starting performance Order #${nextPerf.performanceOrder} (was pending)`);
+            nextPerf.status = 'active';
+            nextPerf.startTime = new Date();
+            // Use actual video duration instead of slot duration
+            const videoDuration = nextPerf.videoDuration || timeline.config.performanceSlotDuration * 60;
+            nextPerf.endTime = new Date(Date.now() + videoDuration * 1000);
+            await timeline.save();
+            console.log(`✅ Started performance ${nextPerf.performanceOrder}/${timeline.performances.length}, duration: ${videoDuration}s`);
+          } else {
+            console.log(`⚠️ No pending performances found - all may be completed`);
+          }
+        } else {
+          // There is an active performance - check if it should have ended
+          const videoDuration = currentPerf.videoDuration || timeline.config.performanceSlotDuration * 60;
+          const expectedEndTime = new Date(currentPerf.startTime.getTime() + videoDuration * 1000);
+
+          if (now > expectedEndTime) {
+            console.log(`⏱️ Performance ${currentPerf.performanceOrder}/${timeline.performances.length} exceeded its duration (${videoDuration}s), auto-completing`);
+            currentPerf.status = 'completed';
+            await timeline.save();
+            console.log(`✅ Auto-completed performance ${currentPerf.performanceOrder}/${timeline.performances.length}`);
+          }
+        }
+      }
+
+      // Auto-advance commercials within commercial phase
+      if (timeline.currentPhase === 'commercial' && timeline.showcase.commercials && timeline.showcase.commercials.length > 0) {
+        const commercials = timeline.showcase.commercials;
+        const phaseStartTime = new Date(activePhase.startTime);
+        const elapsed = Math.floor((now - phaseStartTime) / 1000); // seconds elapsed in commercial phase
+
+        let accumulatedTime = 0;
+        let expectedCommercialIndex = 0;
+        let allCommercialsDone = false;
+
+        // Calculate which commercial should be playing based on elapsed time
+        for (let i = 0; i < commercials.length; i++) {
+          const duration = commercials[i].duration || 30;
+          if (elapsed < accumulatedTime + duration) {
+            expectedCommercialIndex = i;
+            break;
+          }
+          accumulatedTime += duration;
+          if (i === commercials.length - 1 && elapsed >= accumulatedTime) {
+            allCommercialsDone = true;
+          }
+        }
+
+        // If all commercials are done, advance to next phase
+        if (allCommercialsDone) {
+          console.log(`📺 All ${commercials.length} commercials completed, auto-advancing to next phase`);
+          const nextPhase = timeline.advancePhase();
+          if (nextPhase) {
+            await timeline.save();
+            console.log(`✅ Advanced from commercial to ${nextPhase.name}`);
+          }
+        }
+      }
+    }
+
+  } catch (error) {
+    console.error('❌ Error in phase advancement:', error);
+  }
+}
+
+// Use shared helper for auto-featuring winners
+const { autoFeatureWinner } = require('./featuredHelper');
+
+/**
+ * Auto-declare winner during winner phase
+ */
+async function autoDeclareWinner(timeline) {
+  try {
+    const TalentContestant = require('../models/TalentContestant');
+    const TalentShowcase = require('../models/TalentShowcase');
+
+    // Get showcase to access prize details
+    const showcase = await TalentShowcase.findById(timeline.showcase._id || timeline.showcase);
+    const prizeText = showcase?.prizeDetails?.amount
+      ? `$${showcase.prizeDetails.amount} ${showcase.prizeDetails.description || 'cash prize and featured placement'}`
+      : 'Cash prize and featured placement for the winner';
+
+    // Get all contestants sorted by votes
+    const contestants = await TalentContestant.find({ showcase: timeline.showcase._id || timeline.showcase })
+      .sort({ votes: -1, _id: 1 }) // Sort by votes desc, then by ID for consistency
+      .populate('user')
+      .populate('listing');
+
+    if (contestants.length === 0) {
+      console.log(`⚠️  No contestants found for winner declaration`);
+      timeline.winnerAnnouncement = {
+        totalVotes: 0,
+        prizeDetails: prizeText + ' - No contestants participated',
+        announcementTime: new Date(),
+        noWinner: true
+      };
+      return;
+    }
+
+    // Check if there are any votes
+    const totalVotes = contestants.reduce((sum, c) => sum + (c.votes || 0), 0);
+
+    if (totalVotes === 0) {
+      console.log(`⚠️  No votes cast - no winner declared`);
+      // No winner when no votes
+      timeline.winnerAnnouncement = {
+        totalVotes: 0,
+        prizeDetails: prizeText + ' - No votes were cast, no winner declared',
+        announcementTime: new Date(),
+        noWinner: true
+      };
+
+      console.log(`ℹ️  No winner: No votes cast`);
+      return;
+    }
+
+    // Get the highest vote count
+    const highestVotes = contestants[0].votes || 0;
+
+    // Check for tie
+    const tiedContestants = contestants.filter(c => (c.votes || 0) === highestVotes);
+
+    if (tiedContestants.length > 1) {
+      console.log(`⚠️  ${tiedContestants.length} contestants tied with ${highestVotes} votes - no winner declared`);
+      // No winner declared when there's a tie
+      timeline.winnerAnnouncement = {
+        totalVotes: highestVotes,
+        prizeDetails: `TIE - ${tiedContestants.length} contestants tied with ${highestVotes} votes each. No winner can be declared.`,
+        announcementTime: new Date(),
+        isTie: true,
+        noWinner: true,
+        tiedContestants: tiedContestants.map(c => ({
+          id: c._id,
+          name: c.performanceTitle,
+          performer: c.user?.name,
+          votes: c.votes
+        }))
+      };
+
+      console.log(`🤝 TIE: No winner declared - ${tiedContestants.length} contestants with ${highestVotes} votes each`);
+      return;
+    }
+
+    // Clear winner
+    const winner = contestants[0];
+    timeline.winnerAnnouncement = {
+      winner: winner._id,
+      totalVotes: highestVotes,
+      prizeDetails: prizeText + ` - Won with ${highestVotes} votes out of ${totalVotes} total`,
+      announcementTime: new Date()
+    };
+
+    winner.isWinner = true;
+    winner.wonAt = new Date();
+    await winner.save();
+
+    // Auto-feature winner's listing
+    await autoFeatureWinner(winner);
+
+    console.log(`✅ Winner declared: ${winner.performanceTitle} (${highestVotes} votes)`);
+
+  } catch (error) {
+    console.error('❌ Error auto-declaring winner:', error);
+    timeline.winnerAnnouncement = {
+      totalVotes: 0,
+      prizeDetails: 'Cash prize and featured placement - Error determining winner',
+      announcementTime: new Date(),
+      error: true
+    };
+  }
+}
+
+/**
+ * Check for raffles that should auto-execute
+ * Executes raffles at their scheduled time
+ */
+async function checkAndExecuteScheduledRaffles() {
+  try {
+    const now = new Date();
+
+    // Find showcases with scheduled raffles that haven't been executed yet
+    // Look for raffles scheduled within the last 10 minutes (to account for scheduler intervals and delays)
+    const showcases = await TalentShowcase.find({
+      raffleScheduledDate: { $exists: true, $ne: null },
+      raffleExecutedDate: { $exists: false },
+      registrationEndDate: { $lt: now } // Only if registration has closed
+    });
+
+    console.log(`🎲 Checking for raffles to execute... Found ${showcases.length} showcases with pending raffles`);
+
+    for (const showcase of showcases) {
+      const raffleDate = new Date(showcase.raffleScheduledDate);
+      const timeDiff = now - raffleDate;
+      const minutesDiff = Math.floor(timeDiff / 60000);
+
+      console.log(`   Showcase: ${showcase.title}`);
+      console.log(`   Raffle scheduled for: ${raffleDate.toLocaleString()}`);
+      console.log(`   Current time: ${now.toLocaleString()}`);
+      console.log(`   Time difference: ${minutesDiff} minutes (${Math.floor(timeDiff / 1000)} seconds)`);
+
+      // If raffle should execute now (within 10 minute window after scheduled time)
+      if (timeDiff >= 0 && timeDiff <= 600000) {
+        console.log(`🎲 Auto-executing raffle for: ${showcase.title || 'Unnamed Showcase'}`);
+
+        try {
+          // Get all submitted contestants
+          const contestants = await TalentContestant.find({
+            showcase: showcase._id,
+            status: { $in: ['submitted', 'pending-raffle'] }
+          }).populate('user', 'name email country');
+
+          console.log(`   Found ${contestants.length} contestants for raffle`);
+
+          if (contestants.length === 0) {
+            console.warn(`⚠️  No contestants found for showcase ${showcase._id} - skipping raffle`);
+            continue;
+          }
+
+          const maxContestants = showcase.maxContestants || 5;
+
+          console.log(`   Max contestants: ${maxContestants}`);
+
+          // Perform raffle
+          const raffleResults = performRaffle(contestants, maxContestants);
+
+          // Update showcase with raffle results
+          showcase.raffleSeed = raffleResults.raffleSeed;
+          showcase.raffleExecutedDate = raffleResults.raffleTimestamp;
+          showcase.raffleExecutedBy = null; // Auto-executed (no specific admin)
+          showcase.raffleResults = raffleResults.selected;
+          showcase.waitlist = raffleResults.waitlist;
+          showcase.status = 'raffle-completed';
+
+          // Update selected contestants
+          const updatePromises = [];
+
+          for (const selected of raffleResults.selected) {
+            updatePromises.push(
+              TalentContestant.findByIdAndUpdate(selected.contestant, {
+                raffleStatus: 'selected',
+                rafflePosition: selected.position,
+                raffleRandomNumber: selected.randomNumber,
+                status: 'selected'
+              })
+            );
+          }
+
+          // Update waitlisted contestants
+          for (const waitlisted of raffleResults.waitlist) {
+            updatePromises.push(
+              TalentContestant.findByIdAndUpdate(waitlisted.contestant, {
+                raffleStatus: 'waitlisted',
+                rafflePosition: waitlisted.position,
+                raffleRandomNumber: waitlisted.randomNumber,
+                status: 'waitlisted'
+              })
+            );
+          }
+
+          await Promise.all(updatePromises);
+
+          // Delete all unselected AND waitlisted contestants
+          const selectedIds = raffleResults.selected.map(s => s.contestant.toString());
+
+          const deleteResult = await TalentContestant.deleteMany({
+            showcase: showcase._id,
+            _id: { $nin: selectedIds }
+          });
+
+          // Update showcase with only selected contestants
+          showcase.contestants = raffleResults.selected.map(s => s.contestant);
+          showcase.waitlist = []; // Clear waitlist since we're deleting them
+          await showcase.save();
+
+          console.log(`✅ Raffle auto-executed for ${showcase.title}: ${raffleResults.selected.length} selected, ${deleteResult.deletedCount} contestants deleted`);
+
+          // Log selected contestants
+          for (const selected of raffleResults.selected) {
+            const contestant = await TalentContestant.findById(selected.contestant).populate('user');
+            console.log(`   ✓ Selected: ${contestant.user?.name || 'Unknown'} - Position ${selected.position}`);
+          }
+
+        } catch (error) {
+          console.error(`❌ Error auto-executing raffle for showcase ${showcase._id}:`, error);
+          // Continue with other raffles even if one fails
+        }
+      } else if (timeDiff < 0) {
+        console.log(`   ⏰ Raffle not yet due (${Math.abs(minutesDiff)} minutes early)`);
+      } else {
+        console.log(`   ⚠️  Raffle window expired (${minutesDiff} minutes late - window is 10 minutes)`);
+      }
+    }
+
+  } catch (error) {
+    console.error('❌ Error in automatic raffle executor:', error);
+  }
+}
+
+/**
+ * Start the event scheduler
+ * Checks every 10 seconds for events to start and phases to advance
+ */
+function startScheduler() {
+  if (schedulerInterval) {
+    console.log('⚠️  Event scheduler already running');
+    return;
+  }
+
+  console.log('🕐 Starting event auto-start and raffle execution scheduler...');
+
+  // Check immediately
+  checkAndStartScheduledEvents();
+
+  // Check every 10 seconds
+  schedulerInterval = setInterval(checkAndStartScheduledEvents, 10000);
+
+  console.log('✅ Event scheduler started (checking every 10 seconds for events and raffles)');
+}
+
+/**
+ * Stop the event scheduler
+ */
+function stopScheduler() {
+  if (schedulerInterval) {
+    clearInterval(schedulerInterval);
+    schedulerInterval = null;
+    console.log('🛑 Event scheduler stopped');
+  }
+}
+
+module.exports = {
+  startScheduler,
+  stopScheduler,
+  checkAndStartScheduledEvents,
+  checkAndAdvancePhases
+};

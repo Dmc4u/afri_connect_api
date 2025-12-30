@@ -17,16 +17,20 @@ const getMembershipTiers = async (req, res, next) => {
         currency: "USD",
         interval: "forever",
         features: [
+          "1 business listing with 1 image",
+          "1 talent listing with photos & videos (up to 5 files)",
           "Browse business listings",
           "Basic profile creation",
           "Community forum access",
           "Basic search functionality",
           "Email support (48hr response)",
-          "Upgrade anytime to create listings",
+          "Upgrade anytime to create more listings",
         ],
         limits: {
-          listings: 0,
-          mediaPerListing: 0,
+          listings: 2, // 1 business + 1 talent
+          businessListings: 1,
+          talentListings: 1,
+          mediaPerListing: 5, // Max 5 for talent, 1 for business (enforced in frontend)
           profileImages: 1,
           forumAccess: true,
           apiAccess: false,
@@ -234,6 +238,14 @@ const upgradeMembership = async (req, res, next) => {
     const pricing = tierPricing[tier];
     if (!pricing) throw new BadRequestError("Pricing unavailable for requested tier");
 
+    // Clean up old pending payments (older than 10 minutes) before checking count
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+    await Payment.deleteMany({
+      user: req.user._id,
+      status: "pending",
+      createdAt: { $lt: tenMinutesAgo }
+    });
+
     // Anti‑tampering: ensure user cannot call upgrade repeatedly within a short window to spam orders
     const recentPending = await Payment.find({
       user: req.user._id,
@@ -241,7 +253,10 @@ const upgradeMembership = async (req, res, next) => {
       "tierUpgrade.to": tier,
       createdAt: { $gt: new Date(Date.now() - 5 * 60 * 1000) } // last 5 minutes
     }).countDocuments();
-    if (recentPending > 2) {
+
+    console.log(`[Membership] Recent pending payments for ${tier}: ${recentPending}`);
+
+    if (recentPending > 5) { // Increased from 2 to 5 to be less restrictive
       throw new BadRequestError("Too many pending upgrade attempts. Please wait a few minutes.");
     }
 

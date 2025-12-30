@@ -20,6 +20,7 @@ const listingSchema = new mongoose.Schema(
       type: String,
       required: [true, "Category is required"],
       enum: [
+        // Business categories
         "Technology",
         "Creative",
         "Professional Services",
@@ -31,9 +32,6 @@ const listingSchema = new mongoose.Schema(
         "Real Estate",
         "Transportation",
         "Entertainment",
-        // Unified creative/skills bucket used in client UI
-        "Talent",
-        // Region- and culture-specific
         "Nollywood",
         "Construction",
         "Agriculture",
@@ -42,7 +40,20 @@ const listingSchema = new mongoose.Schema(
         "Fashion",
         "Consulting",
         "Logistics",
-        // New specialized categories
+        "Podcasts & Radio",
+        "Sports & Fitness",
+        "Non-profit & NGOs",
+        // Talent categories
+        "Talent",
+        "Music",
+        "Comedy",
+        "Instrumentalist",
+        "Artist",
+        "Dancer",
+        "Singer",
+        "Rapper",
+        "DJ",
+        "Producer",
         "Web Developer",
         "Mobile Developer",
         "UI/UX Design",
@@ -53,12 +64,12 @@ const listingSchema = new mongoose.Schema(
         "Content Writing",
         "Photography",
         "Videography",
-        // Additional community & media
         "Afrobeats & Music",
         "Content Creators",
-        "Podcasts & Radio",
-        "Sports & Fitness",
-        "Non-profit & NGOs",
+        "Actor/Actress",
+        "Voice Over Artist",
+        "Other Talent",
+        // Fallback
         "Other",
       ],
     },

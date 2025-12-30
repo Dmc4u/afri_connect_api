@@ -308,6 +308,136 @@ const emailTemplates = {
       </div>
     `,
   }),
+
+  // Advertisement Notifications
+  adRequestReceived: (advertiser, ad) => ({
+    subject: `Advertisement Request Received - ${APP_NAME}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background-color: #f8f9fa; padding: 20px; text-align: center;">
+          <h1 style="color: #333;">${APP_NAME}</h1>
+        </div>
+        <div style="padding: 20px;">
+          <h2>Thank You for Your Advertising Request!</h2>
+          <p>Hello ${advertiser.name},</p>
+          <p>We've received your advertising request for "<strong>${ad.title}</strong>" and our team is reviewing it.</p>
+          <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
+            <h3>Request Details:</h3>
+            <p><strong>Ad Title:</strong> ${ad.title}</p>
+            <p><strong>Placement:</strong> ${ad.placement}</p>
+            <p><strong>Plan:</strong> ${ad.pricing?.plan || 'N/A'}</p>
+            <p><strong>Total Amount:</strong> $${ad.pricing?.amount || 0} ${ad.pricing?.currency || 'USD'}</p>
+          </div>
+          <div style="background-color: #d1ecf1; padding: 15px; border-left: 4px solid #17a2b8; margin: 20px 0;">
+            <h3 style="margin-top: 0; color: #0c5460;">What Happens Next?</h3>
+            <ul style="color: #0c5460; margin: 0;">
+              <li>Our team will review your request within 24 hours</li>
+              <li>We'll verify your ad content meets our guidelines</li>
+              <li>You'll receive an approval/revision email</li>
+              <li>Once approved, you'll complete payment to activate</li>
+            </ul>
+          </div>
+          <p>If you have any questions, please reply to this email or contact our advertising team.</p>
+          <p>Best regards,<br>The ${APP_NAME} Advertising Team</p>
+        </div>
+        <div style="background-color: #f8f9fa; padding: 10px; text-align: center; font-size: 12px; color: #666;">
+          <p>&copy; 2025 ${APP_NAME}. All rights reserved.</p>
+        </div>
+      </div>
+    `,
+  }),
+
+  adApproved: (advertiser, ad) => ({
+    subject: `Advertisement Approved - ${APP_NAME}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background-color: #f8f9fa; padding: 20px; text-align: center;">
+          <h1 style="color: #333;">${APP_NAME}</h1>
+        </div>
+        <div style="padding: 20px;">
+          <h2>🎉 Your Advertisement Has Been Approved!</h2>
+          <p>Hello ${advertiser.name},</p>
+          <p>Great news! Your advertisement "<strong>${ad.title}</strong>" has been approved and is ready to go live.</p>
+          <div style="background-color: #d4edda; padding: 15px; border-left: 4px solid #28a745; margin: 20px 0;">
+            <h3 style="margin-top: 0; color: #155724;">✓ Approval Confirmed</h3>
+            <p style="color: #155724; margin: 0;">Your ad content has been reviewed and meets our advertising standards.</p>
+          </div>
+          <div style="background-color: #fff3cd; padding: 15px; border-left: 4px solid #ffc107; margin: 20px 0;">
+            <h3 style="margin-top: 0; color: #856404;">💳 Payment Required</h3>
+            <p style="color: #856404; margin: 0;">To activate your advertisement, please complete payment by logging into your dashboard.</p>
+          </div>
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${FRONTEND_URL}/advertiser/dashboard" style="background-color: #28a745; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">Complete Payment & Activate</a>
+          </div>
+          <p>Once payment is confirmed, your ad will begin displaying according to your selected schedule.</p>
+          <p>Best regards,<br>The ${APP_NAME} Advertising Team</p>
+        </div>
+        <div style="background-color: #f8f9fa; padding: 10px; text-align: center; font-size: 12px; color: #666;">
+          <p>&copy; 2025 ${APP_NAME}. All rights reserved.</p>
+        </div>
+      </div>
+    `,
+  }),
+
+  adRejected: (advertiser, ad, reason) => ({
+    subject: `Advertisement Requires Revision - ${APP_NAME}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background-color: #f8f9fa; padding: 20px; text-align: center;">
+          <h1 style="color: #333;">${APP_NAME}</h1>
+        </div>
+        <div style="padding: 20px;">
+          <h2>Advertisement Needs Revision</h2>
+          <p>Hello ${advertiser.name},</p>
+          <p>After reviewing your advertisement "<strong>${ad.title}</strong>", we need you to make some changes before we can approve it.</p>
+          <div style="background-color: #f8d7da; padding: 15px; border-left: 4px solid #dc3545; margin: 20px 0;">
+            <h3 style="margin-top: 0; color: #721c24;">Reason for Revision Request:</h3>
+            <p style="color: #721c24; margin: 0;">${reason || 'Please review our advertising guidelines and ensure your ad meets all requirements.'}</p>
+          </div>
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${FRONTEND_URL}/advertiser/dashboard" style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px;">Go to Dashboard</a>
+          </div>
+          <p>Best regards,<br>The ${APP_NAME} Advertising Team</p>
+        </div>
+        <div style="background-color: #f8f9fa; padding: 10px; text-align: center; font-size: 12px; color: #666;">
+          <p>&copy; 2025 ${APP_NAME}. All rights reserved.</p>
+        </div>
+      </div>
+    `,
+  }),
+
+  adActivated: (advertiser, ad) => ({
+    subject: `Your Ad is Now Live! - ${APP_NAME}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background-color: #f8f9fa; padding: 20px; text-align: center;">
+          <h1 style="color: #333;">${APP_NAME}</h1>
+        </div>
+        <div style="padding: 20px;">
+          <h2>🚀 Your Advertisement is Live!</h2>
+          <p>Hello ${advertiser.name},</p>
+          <p>Excellent news! Your advertisement "<strong>${ad.title}</strong>" is now active and displaying to our audience.</p>
+          <div style="background-color: #d4edda; padding: 15px; border-left: 4px solid #28a745; margin: 20px 0;">
+            <h3 style="margin-top: 0; color: #155724;">✓ Campaign Active</h3>
+            <p style="color: #155724; margin: 0;">Your ad is now being shown across ${APP_NAME}.</p>
+          </div>
+          <div style="background-color: #d1ecf1; padding: 15px; border-left: 4px solid #17a2b8; margin: 20px 0;">
+            <h3 style="margin-top: 0; color: #0c5460;">📊 Track Your Performance</h3>
+            <p style="color: #0c5460; margin: 0;">Monitor impressions, clicks, and engagement in real-time through your advertiser dashboard.</p>
+          </div>
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${FRONTEND_URL}/advertiser/dashboard" style="background-color: #17a2b8; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px;">View Analytics Dashboard</a>
+          </div>
+          <p>Thank you for choosing ${APP_NAME} to grow your brand!</p>
+          <p>Best regards,<br>The ${APP_NAME} Advertising Team</p>
+        </div>
+        <div style="background-color: #f8f9fa; padding: 10px; text-align: center; font-size: 12px; color: #666;">
+          <p>&copy; 2025 ${APP_NAME}. All rights reserved.</p>
+        </div>
+      </div>
+    `,
+  }),
+
   reviewApproved: (user, listing, review) => ({
     subject: `Your review was approved - ${APP_NAME}`,
     html: `
@@ -435,6 +565,23 @@ const notifications = {
   // Notify listing owner of a new (pending or approved) review
   sendNewReviewOnListing: async (owner, listing, review, reviewer) => {
     return await sendEmail(owner.email, 'newReviewOnListing', { owner, listing, review, reviewer });
+  },
+
+  // Advertisement Notification Functions
+  sendAdRequestReceived: async (advertiser, ad) => {
+    return await sendEmail(advertiser.email, 'adRequestReceived', { advertiser, ad });
+  },
+
+  sendAdApproved: async (advertiser, ad) => {
+    return await sendEmail(advertiser.email, 'adApproved', { advertiser, ad });
+  },
+
+  sendAdRejected: async (advertiser, ad, reason) => {
+    return await sendEmail(advertiser.email, 'adRejected', { advertiser, ad, reason });
+  },
+
+  sendAdActivated: async (advertiser, ad) => {
+    return await sendEmail(advertiser.email, 'adActivated', { advertiser, ad });
   },
 };
 
