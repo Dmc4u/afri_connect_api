@@ -575,3 +575,98 @@ exports.adminGetAnalytics = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * Admin: Create advertisement without payment
+ * Bypasses payment requirements for admin-created ads
+ */
+exports.adminCreateAd = async (req, res, next) => {
+  try {
+    const {
+      name,
+      email,
+      company,
+      phone,
+      title,
+      description,
+      targetUrl,
+      placement,
+      category,
+      startDate,
+      endDate,
+      plan,
+      amount,
+      basePlanAmount,
+      videoAddonAmount,
+      mediaFiles,
+      videoDuration,
+      videoTier,
+      message
+    } = req.body;
+
+    // Validation
+    if (!name || !email || !title || !targetUrl || !placement || !startDate || !endDate || !plan) {
+      throw new BadRequestError('Missing required fields');
+    }
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+
+    if (start >= end) {
+      throw new BadRequestError('End date must be after start date');
+    }
+
+    const advertisement = new Advertisement({
+      advertiser: {
+        userId: req.user?._id,
+        name,
+        email,
+        company,
+        phone
+      },
+      title,
+      description,
+      targetUrl,
+      placement,
+      category,
+      startDate: start,
+      endDate: end,
+      pricing: {
+        plan,
+        amount: amount || 0,
+        basePlanAmount: basePlanAmount || amount || 0,
+        videoAddonAmount: videoAddonAmount || 0,
+        billingCycle: 'monthly'
+      },
+      mediaFiles: mediaFiles || [],
+      imageUrl: mediaFiles && mediaFiles.length > 0 ? mediaFiles[0] : null,
+      videoDuration: videoDuration || 0,
+      videoTier: videoTier || null,
+      status: 'active', // Admin-created ads are active immediately
+      paymentStatus: 'paid', // Mark as paid (admin bypass)
+      paymentDetails: {
+        method: 'admin',
+        transactionId: `ADMIN_${Date.now()}`,
+        paidAt: new Date()
+      },
+      adminNotes: `Admin created: ${message || 'No notes'}`,
+      createdBy: req.user._id
+    });
+
+    await advertisement.save();
+
+    console.log(`✅ Admin created advertisement: ${advertisement._id} by ${req.user.email}`);
+
+    res.status(201).json({
+      success: true,
+      message: 'Advertisement created and activated successfully (admin bypass)',
+      advertisement: {
+        _id: advertisement._id,
+        status: advertisement.status,
+        paymentStatus: advertisement.paymentStatus
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};

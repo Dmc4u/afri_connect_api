@@ -16,7 +16,8 @@ const {
   adminUpdateAdStatus,
   adminUpdateAd,
   adminDeleteAd,
-  adminGetAnalytics
+  adminGetAnalytics,
+  adminCreateAd
 } = require('../controllers/advertising');
 
 const router = express.Router();
@@ -34,6 +35,7 @@ router.get('/ads/:id', auth, getAdById); // Get single advertisement
 router.post('/ads/:id/payment', auth, completeAdPayment); // Complete payment for approved ad
 
 // Admin routes
+router.post('/ads/admin/create', auth, adminCheckMiddleware, adminCreateAd); // Admin: Create ad without payment
 router.get('/ads/admin/all', auth, adminCheckMiddleware, adminGetAllAds); // Get all ads
 router.get('/ads/admin/analytics', auth, adminCheckMiddleware, adminGetAnalytics); // Get analytics
 router.patch('/ads/admin/:id/status', auth, adminCheckMiddleware, adminUpdateAdStatus); // Update status

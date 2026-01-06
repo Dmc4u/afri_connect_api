@@ -654,25 +654,7 @@ exports.registerContestant = async (req, res) => {
       entryFeeData.paidAt = new Date();
     }
 
-    // Extract video duration
-    let finalVideoDuration = videoDuration;
-
-    // If videoUrl is provided and no duration, try to extract from YouTube
-    if (videoUrl && !videoDuration) {
-      const { isYouTubeUrl, getYouTubeDuration } = require('../utils/youtubeUtils');
-
-      if (isYouTubeUrl(videoUrl)) {
-        console.log('🎥 Extracting YouTube video duration...');
-        finalVideoDuration = await getYouTubeDuration(videoUrl);
-
-        if (finalVideoDuration) {
-          console.log(`✅ Extracted duration: ${finalVideoDuration}s (${(finalVideoDuration/60).toFixed(2)} minutes)`);
-        } else {
-          console.log('⚠️ Could not extract YouTube duration, video will use default timing');
-        }
-      }
-    }
-
+    // Create contestant with provided duration
     const contestant = new TalentContestant({
       showcase: showcaseId,
       user: req.user._id,
@@ -683,13 +665,37 @@ exports.registerContestant = async (req, res) => {
       themeCreator,
       country,
       videoUrl,
-      videoDuration: finalVideoDuration, // Store actual video duration in seconds
+      videoDuration: videoDuration, // Use provided duration
       thumbnailUrl,
       socialMedia,
       entryFee: entryFeeData
     });
 
     await contestant.save();
+
+    // Extract video duration in background if not provided (non-blocking)
+    if (videoUrl && !videoDuration) {
+      const { isYouTubeUrl, getYouTubeDuration } = require('../utils/youtubeUtils');
+
+      if (isYouTubeUrl(videoUrl)) {
+        // Run in background without blocking response
+        getYouTubeDuration(videoUrl)
+          .then(duration => {
+            if (duration) {
+              console.log(`✅ Background: Extracted YouTube duration: ${duration}s (${(duration/60).toFixed(2)} minutes)`);
+              // Update contestant with extracted duration
+              TalentContestant.findByIdAndUpdate(
+                contestant._id,
+                { videoDuration: duration },
+                { new: true }
+              ).catch(err => console.error('Error updating video duration:', err));
+            } else {
+              console.log('⚠️ Background: Could not extract YouTube duration');
+            }
+          })
+          .catch(err => console.error('Background YouTube extraction error:', err));
+      }
+    }
 
     // Add contestant to showcase
     showcase.contestants.push(contestant._id);
@@ -2239,7 +2245,16 @@ exports.getStructuredTimeline = async (req, res) => {
     const ShowcaseEventTimeline = require('../models/ShowcaseEventTimeline');
     const TalentContestant = require('../models/TalentContestant');
 
-    const timeline = await ShowcaseEventTimeline.findOne({
+    // First, get the showcase to check if auto-initialization is needed
+    const showcase = await TalentShowcase.findById(req.params.id);
+    if (!showcase) {
+      return res.status(404).json({
+        success: false,
+        message: 'Showcase not found'
+      });
+    }
+
+    let timeline = await ShowcaseEventTimeline.findOne({
       showcase: req.params.id
     }).populate('showcase')
       .populate({
@@ -2257,6 +2272,96 @@ exports.getStructuredTimeline = async (req, res) => {
           select: 'name username profilePhoto'
         }
       });
+
+    // AUTO-INITIALIZE: If no timeline exists and event time has passed, create it
+    if (!timeline && showcase.eventDate) {
+      const eventTime = new Date(showcase.eventDate).getTime();
+      const currentTime = Date.now();
+
+      if (currentTime >= eventTime && showcase.status !== 'completed') {
+        console.log(`🚀 AUTO-INITIALIZE (via timeline fetch): Event "${showcase.title}" should be live, creating timeline...`);
+
+        try {
+          // Get selected contestants
+          const contestants = await TalentContestant.find({
+            showcase: req.params.id,
+            status: 'selected'
+          }).sort({ rafflePosition: 1 });
+
+          if (contestants.length > 0) {
+            // Create new timeline
+            timeline = new ShowcaseEventTimeline({
+              showcase: req.params.id,
+              config: {
+                welcomeDuration: showcase.welcomeDuration || 3,
+                performanceSlotDuration: showcase.performanceDuration || 0,
+                commercialDuration: showcase.commercialDuration || 0,
+                votingDuration: showcase.votingDisplayDuration || 3,
+                winnerDeclarationDuration: showcase.winnerDisplayDuration || 3,
+                thankYouDuration: showcase.thankYouDuration || 2
+              },
+              welcomeMessage: {
+                title: showcase.welcomeMessage || `Welcome to ${showcase.title}!`,
+                message: showcase.rulesMessage || `Get ready for amazing talent! We have ${contestants.length} incredible contestants competing.`,
+                rules: showcase.rulesMessage ? showcase.rulesMessage.split('\n') : []
+              },
+              thankYouMessage: {
+                title: 'Thank You for Joining Us!',
+                message: showcase.thankYouMessage || `Thank you for being part of ${showcase.title}! See you next month!`,
+                nextEventDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+              }
+            });
+
+            // Generate timeline phases
+            timeline.generateTimeline();
+
+            // CRITICAL: Initialize phase start/end times BEFORE scheduling performances
+            const eventStartTime = new Date(showcase.eventDate);
+            let currentTime = new Date(eventStartTime);
+
+            timeline.phases.forEach((phase, index) => {
+              phase.startTime = new Date(currentTime);
+              phase.endTime = new Date(currentTime.getTime() + phase.duration * 60000);
+              currentTime = new Date(phase.endTime);
+              phase.status = index === 0 ? 'active' : 'pending'; // First phase is active
+            });
+
+            // Now schedule contestant performances (requires phase times to be set)
+            timeline.schedulePerformances(contestants);
+            console.log(`🎬 AUTO-INITIALIZE: Scheduled ${timeline.performances.length} performances`);
+
+            // Auto-start the event
+            timeline.isLive = true;
+            timeline.actualStartTime = eventStartTime;
+            timeline.currentPhase = 'welcome';
+            timeline.eventStatus = 'live';
+
+            await timeline.save();
+
+            // Update showcase status
+            if (showcase.status !== 'live') {
+              showcase.status = 'live';
+              await showcase.save();
+            }
+
+            console.log(`✅ AUTO-INITIALIZE: Timeline created and event started for "${showcase.title}"`);
+
+            // Populate the timeline for response
+            timeline = await ShowcaseEventTimeline.findById(timeline._id)
+              .populate('showcase')
+              .populate({
+                path: 'performances.contestant',
+                populate: {
+                  path: 'user',
+                  select: 'name username profilePhoto'
+                }
+              });
+          }
+        } catch (initError) {
+          console.error('❌ AUTO-INITIALIZE ERROR:', initError);
+        }
+      }
+    }
 
     if (!timeline) {
       return res.status(404).json({

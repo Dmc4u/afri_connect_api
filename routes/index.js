@@ -22,6 +22,7 @@ const liveTalentEventRouter = require("./liveTalentEvent");
 const adminLiveEventRouter = require("./adminLiveEvent");
 const talentShowcaseRouter = require("./talentShowcase");
 const proxyRouter = require("./proxy");
+const aiSupportRouter = require("./aiSupport");
 const { NotFoundError } = require("../utils/errors");
 
 const router = express.Router();
@@ -29,6 +30,7 @@ const router = express.Router();
 // Public API routes (must come BEFORE /api to avoid auth middleware)
 router.use("/api/live-talent-event", liveTalentEventRouter);
 router.use("/api/admin/live-event", adminLiveEventRouter);
+router.use("/api/ai-support", aiSupportRouter);
 
 router.use("/users", userRouter);
 router.use("/listings", listingRouter);

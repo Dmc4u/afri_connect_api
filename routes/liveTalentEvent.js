@@ -95,8 +95,8 @@ router.get('/', async (req, res) => {
       const currentTime = Date.now();
       const timeUntilEvent = eventTime - currentTime;
 
-      // If event time has arrived (NOT EARLY - only at or after scheduled time) and no timeline exists, auto-initialize
-      if (timeUntilEvent <= 0 && timeUntilEvent >= -60000 && !timeline) {
+      // If event time has arrived and no timeline exists, auto-initialize (no time limit)
+      if (timeUntilEvent <= 0 && !timeline && showcase.status !== 'completed') {
         console.log(`🚀 AUTO-INITIALIZE: Event "${showcase.title}" is starting, initializing timeline...`);
 
         try {
