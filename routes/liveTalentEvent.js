@@ -47,19 +47,17 @@ router.get('/', async (req, res) => {
     const now = new Date();
     const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000); // 24 hours ago
 
-    // Find the current month's live event
-    // Look for events scheduled for the next event or recent past (within 24 hours)
-    // Exclude draft status for public display
+    // Find the next showcase (or recent one within 24h) for public display.
+    // NOTE: This endpoint backs `/live-talent-event` which should reflect newly created
+    // showcases in nomination/upcoming stages; do not hard-require a title pattern.
     let showcase = await TalentShowcase.findOne({
-      title: /LIVE.*Talent/i, // Matches "LIVE Talent Showcase" or similar
       eventDate: { $gte: oneDayAgo }, // Include events from the last 24 hours
-      status: { $ne: 'draft' } // Exclude draft events
+      status: { $nin: ['draft', 'cancelled', 'completed'] }
     }).sort({ eventDate: 1 });
 
     // If no upcoming event found, check if there's one in progress
     if (!showcase) {
       showcase = await TalentShowcase.findOne({
-        title: /LIVE.*Talent/i,
         status: 'live'
       });
     }
@@ -112,7 +110,7 @@ router.get('/', async (req, res) => {
             timeline = new ShowcaseEventTimeline({
               showcase: showcase._id,
               config: {
-                welcomeDuration: showcase.welcomeDuration || 3,
+                welcomeDuration: showcase.welcomeDuration ?? 5,
                 performanceSlotDuration: showcase.performanceDuration || 0,
                 commercialDuration: showcase.commercialDuration || 0,
                 votingDuration: showcase.votingDisplayDuration || 3,
@@ -267,7 +265,6 @@ router.get('/', async (req, res) => {
     if (showcase && eventStatus === 'ended') {
       // First, check if there's already a next showcase scheduled in the database
       const nextShowcase = await TalentShowcase.findOne({
-        title: /LIVE.*Talent/i,
         eventDate: { $gt: new Date(showcase.eventDate) }, // After current event
         status: { $nin: ['cancelled', 'completed', 'draft'] } // Exclude cancelled/completed/draft
       }).sort({ eventDate: 1 }).limit(1);
@@ -292,7 +289,6 @@ router.get('/', async (req, res) => {
     if (!showcase) {
       // No current event - check for the last completed event to get next event date
       const lastEvent = await TalentShowcase.findOne({
-        title: /LIVE.*Talent/i,
         status: 'completed'
       }).sort({ eventDate: -1 }).limit(1);
 
@@ -337,6 +333,7 @@ router.get('/', async (req, res) => {
       success: true,
       event: {
         showcaseId: showcase._id,
+        showcaseStatus: showcase.status,
         title: showcase.title,
         description: showcase.description,
         eventDate: showcase.eventDate,
@@ -369,7 +366,8 @@ router.get('/', async (req, res) => {
           if (showcase.commercials && showcase.commercials.length > 0) {
             // Sum up all commercial durations (in seconds) and convert to minutes
             const totalCommercialSeconds = showcase.commercials.reduce((sum, comm) => {
-              return sum + (comm.duration || 0);
+              const seconds = comm.duration || 0;
+              return sum + Math.min(seconds, 180);
             }, 0);
             commercial = parseFloat((totalCommercialSeconds / 60).toFixed(2)); // Exact decimal value
           }
@@ -414,7 +412,7 @@ router.get('/', async (req, res) => {
         commercialDuration: (() => {
           // Calculate from actual commercial videos
           if (showcase.commercials && showcase.commercials.length > 0) {
-            const totalSeconds = showcase.commercials.reduce((sum, comm) => sum + (comm.duration || 0), 0);
+            const totalSeconds = showcase.commercials.reduce((sum, comm) => sum + Math.min((comm.duration || 0), 180), 0);
             return parseFloat((totalSeconds / 60).toFixed(2)); // Exact decimal value
           }
           return 0;

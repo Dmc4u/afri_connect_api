@@ -258,6 +258,7 @@ async function checkAndAdvancePhases() {
       // Auto-advance commercials within commercial phase
       if (timeline.currentPhase === 'commercial' && timeline.showcase.commercials && timeline.showcase.commercials.length > 0) {
         const commercials = timeline.showcase.commercials;
+        const MAX_COMMERCIAL_SECONDS = 180;
         const phaseStartTime = new Date(activePhase.startTime);
         const elapsed = Math.floor((now - phaseStartTime) / 1000); // seconds elapsed in commercial phase
 
@@ -267,7 +268,7 @@ async function checkAndAdvancePhases() {
 
         // Calculate which commercial should be playing based on elapsed time
         for (let i = 0; i < commercials.length; i++) {
-          const duration = commercials[i].duration || 30;
+          const duration = Math.min(commercials[i].duration || 30, MAX_COMMERCIAL_SECONDS);
           if (elapsed < accumulatedTime + duration) {
             expectedCommercialIndex = i;
             break;

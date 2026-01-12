@@ -72,7 +72,7 @@ exports.initializeEventTimeline = async (req, res) => {
     timeline = new ShowcaseEventTimeline({
       showcase: showcaseId,
       config: {
-        welcomeDuration: showcase.welcomeDuration !== undefined ? showcase.welcomeDuration : 3,
+        welcomeDuration: showcase.welcomeDuration ?? 5,
         performanceSlotDuration: showcase.performanceDuration || 0, // Total performance duration from actual video lengths
         commercialDuration: showcase.commercialDuration || 0,
         votingDuration: showcase.votingDisplayDuration || 3,

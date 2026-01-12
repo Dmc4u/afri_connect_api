@@ -43,7 +43,7 @@ const advertisementSchema = new mongoose.Schema({
   // Placement Configuration
   placement: {
     type: String,
-    enum: ['homepage-banner', 'homepage-sidebar', 'talent-showcase-sponsor', 'category-sidebar', 'listing-detail-sidebar', 'footer-banner'],
+    enum: ['homepage-banner', 'homepage-sidebar', 'talent-showcase-sponsor', 'listing-detail-sidebar', 'footer-banner'],
     required: true
   },
   category: { type: String }, // For category-specific ads (e.g., 'Tech', 'Arts')

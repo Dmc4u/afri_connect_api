@@ -178,9 +178,9 @@ const talentShowcaseSchema = new mongoose.Schema({
       default: 'Advertisement'
     },
     duration: {
-      type: Number, // in seconds (max 45 seconds per ad)
+      type: Number, // in seconds (max 3 minutes per ad)
       required: true,
-      max: 45
+      max: 180
     },
     order: {
       type: Number,

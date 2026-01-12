@@ -476,6 +476,69 @@ exports.updateShowcase = async (req, res) => {
       await showcase.save();
     }
 
+    // If welcomeDuration is changed, update any existing timeline so the Welcome phase timer
+    // reflects the configured minutes.
+    if (req.body.welcomeDuration !== undefined) {
+      try {
+        const ShowcaseEventTimeline = require('../models/ShowcaseEventTimeline');
+        const timeline = await ShowcaseEventTimeline.findOne({ showcase: showcase._id });
+
+        if (timeline && timeline.eventStatus !== 'completed') {
+          const desiredWelcomeMinutes = showcase.welcomeDuration ?? 5;
+          const currentWelcomeMinutes = timeline.config?.welcomeDuration;
+
+          if (currentWelcomeMinutes !== desiredWelcomeMinutes) {
+            const welcomeIndex = Array.isArray(timeline.phases)
+              ? timeline.phases.findIndex(p => p.name === 'welcome')
+              : -1;
+
+            if (welcomeIndex >= 0) {
+              const welcomePhase = timeline.phases[welcomeIndex];
+              const startTime = welcomePhase.startTime ? new Date(welcomePhase.startTime) : null;
+              const oldEndTime = welcomePhase.endTime ? new Date(welcomePhase.endTime) : null;
+
+              timeline.config.welcomeDuration = desiredWelcomeMinutes;
+              welcomePhase.duration = desiredWelcomeMinutes;
+
+              if (startTime && !Number.isNaN(startTime.getTime())) {
+                const newEndTime = new Date(startTime.getTime() + desiredWelcomeMinutes * 60000);
+                const deltaMs = oldEndTime ? (newEndTime.getTime() - oldEndTime.getTime()) : 0;
+                welcomePhase.endTime = newEndTime;
+
+                if (deltaMs !== 0) {
+                  // Shift subsequent phases
+                  for (let i = welcomeIndex + 1; i < timeline.phases.length; i++) {
+                    if (timeline.phases[i].startTime) {
+                      timeline.phases[i].startTime = new Date(new Date(timeline.phases[i].startTime).getTime() + deltaMs);
+                    }
+                    if (timeline.phases[i].endTime) {
+                      timeline.phases[i].endTime = new Date(new Date(timeline.phases[i].endTime).getTime() + deltaMs);
+                    }
+                  }
+
+                  // Shift scheduled performances (if already scheduled)
+                  if (Array.isArray(timeline.performances)) {
+                    timeline.performances.forEach(perf => {
+                      if (perf.startTime) {
+                        perf.startTime = new Date(new Date(perf.startTime).getTime() + deltaMs);
+                      }
+                      if (perf.endTime) {
+                        perf.endTime = new Date(new Date(perf.endTime).getTime() + deltaMs);
+                      }
+                    });
+                  }
+                }
+              }
+
+              await timeline.save();
+            }
+          }
+        }
+      } catch (timelineSyncError) {
+        console.error('Error syncing timeline welcomeDuration:', timelineSyncError);
+      }
+    }
+
     res.json({
       success: true,
       message: 'Showcase updated successfully',
@@ -1754,13 +1817,50 @@ exports.executeRaffle = async (req, res) => {
     const publicReport = generatePublicReport(raffleResults, showcase.title);
 
     // Send notifications to selected contestants
-    const notificationPromises = raffleResults.selected.map(async (selected) => {
-      const contestant = await TalentContestant.findById(selected.contestant).populate('user');
-      // TODO: Send email/notification to contestant.user.email
-      console.log(`✅ Selected: ${contestant.user?.name || 'Unknown'} - Position ${selected.position}`);
-    });
+    // 1) Real-time in-app popup (Socket.io) if they are online
+    // 2) Persistent announcement so they can see it later even if offline
+    const Announcement = require('../models/Announcement');
+    const { getIO } = require('../utils/socket');
 
-    await Promise.all(notificationPromises);
+    const selectedContestantsForNotify = await TalentContestant.find({
+      _id: { $in: selectedIds }
+    }).populate('user', '_id name email');
+
+    const selectedUserIds = selectedContestantsForNotify
+      .map(c => c.user?._id)
+      .filter(Boolean);
+
+    // Persistent announcement (shows in Profile -> Announcements)
+    if (selectedUserIds.length > 0) {
+      await Announcement.create({
+        subject: `🎉 You have been selected for ${showcase.title}!`,
+        message: `Next Steps: Start reaching out to friends, family, and supporters to solicit their votes during the live event. The more support you gather now, the better your chances!`,
+        sender: req.user._id,
+        recipients: {
+          type: 'individual',
+          value: selectedUserIds,
+        },
+        priority: 'high',
+        status: 'sent',
+      });
+    }
+
+    // Real-time socket event (immediate popup)
+    const io = getIO?.();
+    if (io && selectedUserIds.length > 0) {
+      selectedUserIds.forEach((userId) => {
+        io.to(userId.toString()).emit('raffle-selected', {
+          showcaseId: showcaseId,
+          showcaseTitle: showcase.title,
+        });
+      });
+    }
+
+    // Log selections
+    selectedContestantsForNotify.forEach((contestantDoc) => {
+      const match = raffleResults.selected.find(s => s.contestant.toString() === contestantDoc._id.toString());
+      console.log(`✅ Selected: ${contestantDoc.user?.name || 'Unknown'} - Position ${match?.position ?? 'N/A'}`);
+    });
 
     res.json({
       success: true,
@@ -2056,6 +2156,7 @@ exports.uploadCommercialVideo = async (req, res) => {
     const path = require('path');
     const { getVideoDurationInSeconds } = require('get-video-duration');
 
+    const MAX_COMMERCIAL_SECONDS = 180;
     let duration = 30; // Default 30 seconds
 
     // Try to get actual duration
@@ -2063,7 +2164,11 @@ exports.uploadCommercialVideo = async (req, res) => {
       const filePath = path.join(__dirname, '..', videoUrl);
       const durationInSeconds = await getVideoDurationInSeconds(filePath);
       duration = Math.ceil(durationInSeconds);
-      console.log(`✅ Detected video duration: ${duration} seconds for ${req.file.filename}`);
+      if (duration > MAX_COMMERCIAL_SECONDS) {
+        console.log(`⚠️ Detected commercial duration ${duration}s exceeds ${MAX_COMMERCIAL_SECONDS}s; capping to ${MAX_COMMERCIAL_SECONDS}s`);
+        duration = MAX_COMMERCIAL_SECONDS;
+      }
+      console.log(`✅ Detected commercial duration: ${duration} seconds for ${req.file.filename}`);
     } catch (err) {
       console.warn('⚠️ Could not detect video duration, using default 30s:', err.message);
       duration = 30; // Fallback to 30 seconds
@@ -2293,7 +2398,7 @@ exports.getStructuredTimeline = async (req, res) => {
             timeline = new ShowcaseEventTimeline({
               showcase: req.params.id,
               config: {
-                welcomeDuration: showcase.welcomeDuration || 3,
+                welcomeDuration: showcase.welcomeDuration ?? 5,
                 performanceSlotDuration: showcase.performanceDuration || 0,
                 commercialDuration: showcase.commercialDuration || 0,
                 votingDuration: showcase.votingDisplayDuration || 3,
