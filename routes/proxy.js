@@ -1,5 +1,62 @@
 const express = require("express");
+const geoip = require("geoip-lite");
+const rateLimit = require("express-rate-limit");
+
 const router = express.Router();
+
+const ipLocationLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  limit: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+/**
+ * IP-based geolocation endpoint (server-side, avoids browser CORS/mixed-content)
+ * GET /proxy/ip-location
+ */
+router.get("/ip-location", ipLocationLimiter, (req, res) => {
+  try {
+    const xff = req.headers["x-forwarded-for"];
+    const forwardedIp = (Array.isArray(xff) ? xff[0] : String(xff || ""))
+      .split(",")[0]
+      .trim();
+
+    const rawIp = forwardedIp || req.ip;
+    const ip = rawIp && rawIp.startsWith("::ffff:") ? rawIp.slice(7) : rawIp;
+    const geo = ip ? geoip.lookup(ip) : null;
+
+    res.set("Cache-Control", "private, max-age=3600"); // 1 hour
+    res.set("Access-Control-Allow-Origin", "*");
+
+    if (!geo || !geo.ll) {
+      return res.json({
+        success: false,
+        ip,
+        source: "geoip-lite",
+      });
+    }
+
+    const [latitude, longitude] = geo.ll;
+    return res.json({
+      success: true,
+      ip,
+      city: geo.city || null,
+      region: geo.region || null,
+      country: geo.country || null,
+      latitude,
+      longitude,
+      timezone: geo.timezone || null,
+      source: "geoip-lite",
+    });
+  } catch (error) {
+    console.error("IP location proxy error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to detect IP location",
+    });
+  }
+});
 
 /**
  * Image proxy endpoint to avoid CORS issues with external images

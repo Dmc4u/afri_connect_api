@@ -53,6 +53,7 @@ router.use("/", pricingRouter);
 router.use("/featured", featuredRouter);
 router.use("/reviews", reviewsRouter);
 router.use("/proxy", proxyRouter);
+router.use("/api/proxy", proxyRouter);
 
 // Handle non-existent routes
 router.use((req, res, next) => {
