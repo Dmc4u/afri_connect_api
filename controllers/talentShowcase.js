@@ -2618,6 +2618,19 @@ exports.getStructuredTimeline = async (req, res) => {
       }
     }
 
+    // Viewer count: baseline + real unique sessions
+    const baseViewers = Number.isFinite(Number(timeline.viewerCountBase))
+      ? Math.max(0, Number(timeline.viewerCountBase))
+      : 2000;
+    const activeViewersCount = Array.isArray(timeline.activeViewers) ? timeline.activeViewers.length : 0;
+    const shouldShowLiveViewers =
+      timeline.isLive ||
+      timeline.eventStatus === 'live' ||
+      timeline.showcase?.status === 'live' ||
+      timeline.showcase?.status === 'voting';
+    const computedViewerCount = shouldShowLiveViewers ? baseViewers + activeViewersCount : activeViewersCount;
+    const computedPeakViewerCount = Math.max(timeline.peakViewerCount || 0, computedViewerCount);
+
     res.json({
       success: true,
       timeline: {
@@ -2641,6 +2654,9 @@ exports.getStructuredTimeline = async (req, res) => {
         timeRemaining,
         isLive: timeline.isLive,
         eventStatus: timeline.eventStatus,
+        viewerCountBase: baseViewers,
+        viewerCount: computedViewerCount,
+        peakViewerCount: computedPeakViewerCount,
         performances: timeline.performances,
         commercialContent: timeline.showcase.commercialContent,
         commercialVideoUrl: timeline.showcase.commercialVideoUrl,

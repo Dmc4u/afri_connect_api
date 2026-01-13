@@ -2,6 +2,23 @@ const ShowcaseEventTimeline = require('../models/ShowcaseEventTimeline');
 const TalentShowcase = require('../models/TalentShowcase');
 const TalentContestant = require('../models/TalentContestant');
 
+const DEFAULT_VIEWER_COUNT_BASE = 2000;
+
+function getViewerCountBase(timeline) {
+  const base = Number(timeline?.viewerCountBase);
+  return Number.isFinite(base) && base >= 0 ? base : DEFAULT_VIEWER_COUNT_BASE;
+}
+
+function computeDisplayedViewerCount(timeline) {
+  const base = getViewerCountBase(timeline);
+  const active = Array.isArray(timeline?.activeViewers) ? timeline.activeViewers.length : 0;
+  return base + active;
+}
+
+function isAdminUser(user) {
+  return !!user && (user.role === 'admin' || user.isAdmin === true);
+}
+
 /**
  * Live Showcase Event Controller
  * Manages real-time event flow with automatic phase transitions
@@ -462,8 +479,18 @@ exports.updateViewerCount = async (req, res) => {
       return res.status(404).json({ message: 'Event timeline not found' });
     }
 
-    timeline.viewerCount = count || 0;
-    timeline.peakViewerCount = Math.max(timeline.peakViewerCount, timeline.viewerCount);
+    // Allow manual override while still supporting "active sessions" reporting.
+    const base = getViewerCountBase(timeline);
+    const n = Number(count) || 0;
+    const displayed = n >= base ? n : base + n;
+
+    // Persist base if missing on older docs
+    if (timeline.viewerCountBase === undefined || timeline.viewerCountBase === null) {
+      timeline.viewerCountBase = base;
+    }
+
+    timeline.viewerCount = displayed;
+    timeline.peakViewerCount = Math.max(timeline.peakViewerCount || 0, displayed);
 
     await timeline.save();
 
@@ -512,9 +539,14 @@ exports.joinLiveEvent = async (req, res) => {
       timeline.activeViewers.push(viewerSessionId);
     }
 
-    // Update viewer count based on unique sessions
-    timeline.viewerCount = timeline.activeViewers.length;
-    timeline.peakViewerCount = Math.max(timeline.peakViewerCount, timeline.viewerCount);
+    // Update viewer count based on unique sessions + baseline
+    const base = getViewerCountBase(timeline);
+    if (timeline.viewerCountBase === undefined || timeline.viewerCountBase === null) {
+      timeline.viewerCountBase = base;
+    }
+    const displayed = computeDisplayedViewerCount(timeline);
+    timeline.viewerCount = displayed;
+    timeline.peakViewerCount = Math.max(timeline.peakViewerCount || 0, displayed);
 
     await timeline.save();
 
@@ -560,8 +592,14 @@ exports.leaveLiveEvent = async (req, res) => {
       timeline.activeViewers = timeline.activeViewers.filter(id => id !== viewerSessionId);
     }
 
-    // Update viewer count based on unique sessions
-    timeline.viewerCount = timeline.activeViewers.length;
+    // Update viewer count based on unique sessions + baseline
+    const base = getViewerCountBase(timeline);
+    if (timeline.viewerCountBase === undefined || timeline.viewerCountBase === null) {
+      timeline.viewerCountBase = base;
+    }
+    const displayed = computeDisplayedViewerCount(timeline);
+    timeline.viewerCount = displayed;
+    timeline.peakViewerCount = Math.max(timeline.peakViewerCount || 0, displayed);
 
     await timeline.save();
 
@@ -582,6 +620,52 @@ exports.leaveLiveEvent = async (req, res) => {
 
   } catch (error) {
     console.error('Error leaving live event:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Update baseline viewers (admin only)
+exports.updateViewerCountBase = async (req, res) => {
+  try {
+    const { showcaseId } = req.params;
+
+    if (!isAdminUser(req.user)) {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+
+    const raw = req.body?.viewerCountBase ?? req.body?.base ?? req.body?.count;
+    const nextBase = Number(raw);
+    if (!Number.isFinite(nextBase) || nextBase < 0) {
+      return res.status(400).json({ message: 'viewerCountBase must be a non-negative number' });
+    }
+
+    const timeline = await ShowcaseEventTimeline.findOne({ showcase: showcaseId });
+    if (!timeline) {
+      return res.status(404).json({ message: 'Event timeline not found' });
+    }
+
+    timeline.viewerCountBase = Math.floor(nextBase);
+    timeline.viewerCount = computeDisplayedViewerCount(timeline);
+    timeline.peakViewerCount = Math.max(timeline.peakViewerCount || 0, timeline.viewerCount);
+
+    await timeline.save();
+
+    const io = req.app.locals.io;
+    if (io) {
+      io.to(`showcase-${showcaseId}`).emit('viewerCountUpdate', {
+        viewerCountBase: timeline.viewerCountBase,
+        viewerCount: timeline.viewerCount,
+        peakViewerCount: timeline.peakViewerCount
+      });
+    }
+
+    res.json({
+      viewerCountBase: timeline.viewerCountBase,
+      viewerCount: timeline.viewerCount,
+      peakViewerCount: timeline.peakViewerCount
+    });
+  } catch (error) {
+    console.error('Error updating viewerCountBase:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };

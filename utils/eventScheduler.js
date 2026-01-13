@@ -505,6 +505,69 @@ async function checkAndExecuteScheduledRaffles() {
           showcase.waitlist = []; // Clear waitlist since we're deleting them
           await showcase.save();
 
+          // Notify contestants (auto-executed raffles previously sent no messages)
+          try {
+            const Announcement = require('../models/Announcement');
+            const User = require('../models/User');
+            const { getIO } = require('./socket');
+
+            const senderUser = await User.findOne({ role: 'admin' }).select('_id').lean();
+            const senderId = senderUser?._id;
+
+            const contestantToUserId = new Map(
+              contestants
+                .map(c => [c?._id?.toString?.(), c?.user?._id])
+                .filter(([contestantId, userId]) => Boolean(contestantId) && Boolean(userId))
+            );
+
+            const selectedIdSet = new Set(raffleResults.selected.map(s => s.contestant.toString()));
+            const selectedUserIds = raffleResults.selected
+              .map(s => contestantToUserId.get(s.contestant.toString()))
+              .filter(Boolean);
+            const nonSelectedUserIds = contestants
+              .filter(c => c?._id && !selectedIdSet.has(c._id.toString()))
+              .map(c => c?.user?._id)
+              .filter(Boolean);
+
+            if (!senderId) {
+              console.warn(`⚠️  No admin user found; skipping raffle announcements for showcase ${showcase._id}`);
+            } else {
+              if (selectedUserIds.length > 0) {
+                await Announcement.create({
+                  subject: `🎉 You have been selected for ${showcase.title}!`,
+                  message: `You’ve been selected to compete in the live event! Next Steps: Start reaching out to friends, family, and supporters to solicit their votes during the live event. The more support you gather now, the better your chances!`,
+                  sender: senderId,
+                  recipients: { type: 'individual', value: selectedUserIds },
+                  priority: 'high',
+                  status: 'sent',
+                });
+              }
+
+              if (nonSelectedUserIds.length > 0) {
+                await Announcement.create({
+                  subject: `Update on ${showcase.title} raffle`,
+                  message: `Thanks for entering ${showcase.title}. The raffle has been completed, and you were not selected for this live event. Keep an eye out for the next showcase — new opportunities are posted regularly.`,
+                  sender: senderId,
+                  recipients: { type: 'individual', value: nonSelectedUserIds },
+                  priority: 'normal',
+                  status: 'sent',
+                });
+              }
+            }
+
+            const io = getIO?.();
+            if (io && selectedUserIds.length > 0) {
+              selectedUserIds.forEach((userId) => {
+                io.to(userId.toString()).emit('raffle-selected', {
+                  showcaseId: showcase._id.toString(),
+                  showcaseTitle: showcase.title,
+                });
+              });
+            }
+          } catch (notifyErr) {
+            console.error(`❌ Error sending raffle notifications for showcase ${showcase._id}:`, notifyErr);
+          }
+
           console.log(`✅ Raffle auto-executed for ${showcase.title}: ${raffleResults.selected.length} selected, ${deleteResult.deletedCount} contestants deleted`);
 
           // Log selected contestants

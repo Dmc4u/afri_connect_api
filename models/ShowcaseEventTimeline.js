@@ -195,6 +195,12 @@ const showcaseEventTimeline = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  // Baseline viewers to display (marketing/vanity count) + real unique sessions.
+  // Total displayed viewers = viewerCountBase + activeViewers.length
+  viewerCountBase: {
+    type: Number,
+    default: 2000
+  },
   viewerCount: {
     type: Number,
     default: 0

@@ -32,6 +32,9 @@ router.post('/:showcaseId/vote', auth, liveShowcaseController.voteForContestant)
 // Update viewer count (called by frontend)
 router.post('/:showcaseId/viewers', liveShowcaseController.updateViewerCount);
 
+// Update baseline viewers (admin only)
+router.patch('/:showcaseId/viewers/baseline', auth, liveShowcaseController.updateViewerCountBase);
+
 // Join live event (viewer tracking)
 router.post('/:showcaseId/join', liveShowcaseController.joinLiveEvent);
 
