@@ -37,6 +37,7 @@ router.use("/listings", listingRouter);
 router.use("/membership", membershipRouter);
 router.use("/forum", forumRouter);
 router.use("/search", searchRouter);
+router.use("/api/proxy", proxyRouter);
 router.use("/api", apiRouter);
 router.use("/admin", adminRouter);
 router.use("/analytics", analyticsRouter);
@@ -53,7 +54,6 @@ router.use("/", pricingRouter);
 router.use("/featured", featuredRouter);
 router.use("/reviews", reviewsRouter);
 router.use("/proxy", proxyRouter);
-router.use("/api/proxy", proxyRouter);
 
 // Handle non-existent routes
 router.use((req, res, next) => {
