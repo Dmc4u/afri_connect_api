@@ -8,6 +8,11 @@ const {
   BCRYPT_ROUNDS = 10,
   TOKEN_EXPIRY = "7d",
 
+  // ✅ reCAPTCHA (v2/v3)
+  RECAPTCHA_SECRET,
+  RECAPTCHA_SECRET_KEY,
+  RECAPTCHA_MIN_SCORE = 0.5,
+
   // ✅ Admin Configuration
   ADMIN_EMAIL,
   ADMIN_EMAILS = "", // Comma-separated list of admin emails
@@ -40,6 +45,13 @@ if (NODE_ENV === "development" && PAYPAL_MODE !== "sandbox") {
 
 console.log(`💳 PayPal Mode: ${PAYPAL_MODE_ENFORCED} (Environment: ${NODE_ENV})`);
 
+// ✅ Production safety checks
+if (NODE_ENV === "production" && !(RECAPTCHA_SECRET || RECAPTCHA_SECRET_KEY)) {
+  throw new Error(
+    "❌ Missing reCAPTCHA secret in production. Set RECAPTCHA_SECRET (or RECAPTCHA_SECRET_KEY)."
+  );
+}
+
 // JWT_SECRET validation removed - make sure to set a strong secret in production .env
 // if (NODE_ENV === "production" && JWT_SECRET === "dev-secret-key-not-for-production") {
 //   throw new Error("❌ JWT_SECRET must be changed in production");
@@ -53,7 +65,9 @@ module.exports = {
   BCRYPT_ROUNDS: Number(BCRYPT_ROUNDS),
   TOKEN_EXPIRY,
 
-  // reCAPTCHA removed
+  // ✅ reCAPTCHA (support both env var names)
+  RECAPTCHA_SECRET: RECAPTCHA_SECRET || RECAPTCHA_SECRET_KEY,
+  RECAPTCHA_MIN_SCORE: Number(RECAPTCHA_MIN_SCORE),
 
   // ✅ Admin Configuration
   ADMIN_EMAIL,

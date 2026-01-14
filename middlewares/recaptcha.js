@@ -1,5 +1,10 @@
 const { RECAPTCHA_SECRET, RECAPTCHA_MIN_SCORE = 0.5, NODE_ENV } = require("../utils/config");
 
+const isEnforced = () => {
+  const raw = process.env.RECAPTCHA_ENFORCE;
+  return String(raw || "").toLowerCase() === "true";
+};
+
 // Use global fetch if available (Node >=18); fallback to node-fetch dynamically
 async function doFetch(url, options) {
   if (typeof fetch === "function") return fetch(url, options);
@@ -14,6 +19,12 @@ async function doFetch(url, options) {
  */
 module.exports = async function verifyRecaptcha(req, res, next) {
   try {
+    // In local/dev environments, do not block requests by default.
+    // Set RECAPTCHA_ENFORCE=true to turn verification on.
+    if (NODE_ENV !== "production" && !isEnforced()) {
+      return next();
+    }
+
     const token = req.body?.recaptchaToken || req.headers["x-recaptcha-token"];
 
     if (!RECAPTCHA_SECRET) {

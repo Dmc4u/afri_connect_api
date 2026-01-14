@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { sendSupportMessage } = require('../controllers/contact');
 const { Joi, celebrate } = require('celebrate');
+const verifyRecaptcha = require('../middlewares/recaptcha');
 
 /**
  * @route   POST /contact/support
@@ -31,8 +32,12 @@ router.post(
         'string.max': 'Message must not exceed 4000 characters',
         'string.empty': 'Message is required',
       }),
+      // reCAPTCHA token (v2 checkbox or v3 execute)
+      // If server secret is configured, middleware will require a token.
+      recaptchaToken: Joi.string().min(10).optional(),
     }),
   }),
+  verifyRecaptcha,
   sendSupportMessage
 );
 
