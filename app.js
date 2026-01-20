@@ -9,6 +9,7 @@ const { Server: IOServer } = require("socket.io");
 const { errors } = require("celebrate");
 // Fixed: Added _id to sender populate in messaging controller
 const { limiter: rateLimiter, strictLimiter } = require("./middlewares/rateLimiter");
+const pkg = require("./package.json");
 const mainRouter = require("./routes/index");
 const auth = require("./middlewares/auth");
 const errorHandler = require("./middlewares/error-handler");
@@ -25,10 +26,7 @@ const app = express();
 const httpServer = createServer(app);
 const io = new IOServer(httpServer, {
   cors: {
-    origin: [
-      "http://localhost:3001",
-      "https://afrionet.com",
-    ],
+    origin: ["http://localhost:3001", "https://afrionet.com"],
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     credentials: true,
   },
@@ -76,11 +74,11 @@ function rawBodySaver(req, res, buf, encoding) {
   }
 }
 
-app.use(express.json({ verify: rawBodySaver, limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, verify: rawBodySaver, limit: '50mb' }));
+app.use(express.json({ verify: rawBodySaver, limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, verify: rawBodySaver, limit: "50mb" }));
 
 // Enable trust proxy for Cloudflare/Nginx
-app.set('trust proxy', 1);
+app.set("trust proxy", 1);
 
 // DON'T use helmet - it overrides CORS headers
 // app.use(helmet({
@@ -90,31 +88,58 @@ app.set('trust proxy', 1);
 
 app.use(
   cors({
-    origin: [
-      "http://localhost:3001",
-      "https://afrionet.com",
-      "https://www.afrionet.com",
-    ],
+    origin: ["http://localhost:3001", "https://afrionet.com", "https://www.afrionet.com"],
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
-    exposedHeaders: ["Cross-Origin-Resource-Policy"]
+    exposedHeaders: ["Cross-Origin-Resource-Policy"],
   })
 );
+
+// Basic health endpoint (unauthenticated, not rate-limited)
+app.get("/health", (req, res) => {
+  const mongoState = mongoose.connection?.readyState;
+  const mongoStateLabel =
+    {
+      0: "disconnected",
+      1: "connected",
+      2: "connecting",
+      3: "disconnecting",
+    }[mongoState] || "unknown";
+
+  res.setHeader("Cache-Control", "no-store");
+  res.status(200).json({
+    ok: true,
+    status: "up",
+    name: pkg.name,
+    version: pkg.version,
+    env: process.env.NODE_ENV || "development",
+    uptimeSeconds: Math.round(process.uptime()),
+    mongo: {
+      readyState: mongoState,
+      status: mongoStateLabel,
+    },
+    timestamp: new Date().toISOString(),
+  });
+});
 
 app.use(rateLimiter);
 
 // Serve static files from uploads directory with explicit CORS headers
-app.use("/uploads", (req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-  next();
-}, express.static(path.join(__dirname, "uploads")));
+app.use(
+  "/uploads",
+  (req, res, next) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    next();
+  },
+  express.static(path.join(__dirname, "uploads"))
+);
 
 // Set security headers manually (instead of helmet)
 app.use((req, res, next) => {
-  if (!req.path.startsWith('/uploads')) {
+  if (!req.path.startsWith("/uploads")) {
     res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
   }
   res.setHeader("X-Content-Type-Options", "nosniff");
@@ -133,7 +158,10 @@ app.use((req, res, next) => {
   res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
 
   // HSTS only when actually on HTTPS (production behind proxy/CDN)
-  if (process.env.NODE_ENV === 'production' && (req.secure || req.headers['x-forwarded-proto'] === 'https')) {
+  if (
+    process.env.NODE_ENV === "production" &&
+    (req.secure || req.headers["x-forwarded-proto"] === "https")
+  ) {
     res.setHeader("Strict-Transport-Security", "max-age=15552000; includeSubDomains");
   }
   next();
@@ -214,5 +242,7 @@ httpServer.listen(PORT, () => {
 
   // Event auto-start scheduler - automatically starts events and executes raffles at scheduled times
   startScheduler();
-  console.log(`⏰ Event scheduler started - will auto-start events and auto-execute raffles at scheduled times`);
+  console.log(
+    `⏰ Event scheduler started - will auto-start events and auto-execute raffles at scheduled times`
+  );
 });
