@@ -1,11 +1,12 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const showcaseController = require('../controllers/talentShowcase');
-const authenticateToken = require('../middlewares/auth');
-const optionalAuth = require('../middlewares/optionalAuth');
-const upload = require('../middlewares/upload');
-const uploadTalentVideo = require('../middlewares/uploadTalentVideo');
-const { paymentCreateLimiter } = require('../middlewares/rateLimiter');
+const showcaseController = require("../controllers/talentShowcase");
+const authenticateToken = require("../middlewares/auth");
+const optionalAuth = require("../middlewares/optionalAuth");
+const upload = require("../middlewares/upload");
+const uploadTalentVideo = require("../middlewares/uploadTalentVideo");
+const uploadChunk = require("../middlewares/uploadChunk");
+const { paymentCreateLimiter } = require("../middlewares/rateLimiter");
 const {
   validateShowcaseCreation,
   validateContestantRegistration,
@@ -16,15 +17,15 @@ const {
   validateJudgeScore,
   validateCommercialUpload,
   validateCommercialDeletion,
-  validateTimeAdjustment
-} = require('../middlewares/showcaseValidation');
+  validateTimeAdjustment,
+} = require("../middlewares/showcaseValidation");
 
 // Admin check middleware
 const requireAdmin = (req, res, next) => {
-  if (!req.user || req.user.role !== 'admin') {
+  if (!req.user || req.user.role !== "admin") {
     return res.status(403).json({
       success: false,
-      message: 'Admin access required'
+      message: "Admin access required",
     });
   }
   next();
@@ -33,77 +34,51 @@ const requireAdmin = (req, res, next) => {
 // ============ PUBLIC ROUTES ============
 
 // Get all showcases (with filters)
-router.get(
-  '/',
-  optionalAuth,
-  validateShowcaseQuery,
-  showcaseController.getShowcases
-);
+router.get("/", optionalAuth, validateShowcaseQuery, showcaseController.getShowcases);
 
 // Get showcase type (for routing) - MUST come before /:id route
-router.get(
-  '/:id/type',
-  async (req, res) => {
-    try {
-      const TalentShowcase = require('../models/TalentShowcase');
-      const showcase = await TalentShowcase.findById(req.params.id).select('showcaseType');
+router.get("/:id/type", async (req, res) => {
+  try {
+    const TalentShowcase = require("../models/TalentShowcase");
+    const showcase = await TalentShowcase.findById(req.params.id).select("showcaseType");
 
-      if (!showcase) {
-        return res.status(404).json({ message: 'Showcase not found' });
-      }
-
-      res.json({ showcaseType: showcase.showcaseType || 'structured' });
-    } catch (error) {
-      console.error('Error fetching showcase type:', error);
-      res.status(500).json({ message: 'Server error', error: error.message });
+    if (!showcase) {
+      return res.status(404).json({ message: "Showcase not found" });
     }
+
+    res.json({ showcaseType: showcase.showcaseType || "structured" });
+  } catch (error) {
+    console.error("Error fetching showcase type:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
   }
-);
+});
 
 // Get structured timeline data for a showcase
-router.get(
-  '/:id/timeline',
-  showcaseController.getStructuredTimeline
-);
+router.get("/:id/timeline", showcaseController.getStructuredTimeline);
 
 // Get single showcase by ID
-router.get(
-  '/:id',
-  validateShowcaseId,
-  showcaseController.getShowcaseById
-);
+router.get("/:id", validateShowcaseId, showcaseController.getShowcaseById);
 
 // Get contestants for a showcase
-router.get(
-  '/:showcaseId/contestants',
-  showcaseController.getContestants
-);// Get leaderboard
-router.get(
-  '/:showcaseId/leaderboard',
-  showcaseController.getLeaderboard
-);
+router.get("/:showcaseId/contestants", showcaseController.getContestants); // Get leaderboard
+router.get("/:showcaseId/leaderboard", showcaseController.getLeaderboard);
 
 // ============ AUTHENTICATED ROUTES ============
 
 // Cast vote (requires auth or IP-based voting if allowed)
-router.post(
-  '/:showcaseId/vote',
-  optionalAuth,
-  validateVote,
-  showcaseController.castVote
-);
+router.post("/:showcaseId/vote", optionalAuth, validateVote, showcaseController.castVote);
 
 // Upload talent video
 router.post(
-  '/upload-video',
+  "/upload-video",
   authenticateToken,
-  uploadTalentVideo.single('video'),
+  uploadTalentVideo.single("video"),
   showcaseController.uploadTalentVideo
 );
 
 // Register as contestant
 router.post(
-  '/register',
+  "/register",
   authenticateToken,
   validateContestantRegistration,
   showcaseController.registerContestant
@@ -111,22 +86,18 @@ router.post(
 
 // Update contestant registration (User can edit their own pending registration)
 router.put(
-  '/contestant/:id',
+  "/contestant/:id",
   authenticateToken,
   validateContestantId,
   showcaseController.updateContestantRegistration
 );
 
 // Get user's votes for a showcase
-router.get(
-  '/:showcaseId/my-votes',
-  authenticateToken,
-  showcaseController.getUserVotes
-);
+router.get("/:showcaseId/my-votes", authenticateToken, showcaseController.getUserVotes);
 
 // Entry fee payment - Create PayPal order (before registration)
 router.post(
-  '/entry-fee/create-order',
+  "/entry-fee/create-order",
   paymentCreateLimiter,
   authenticateToken,
   showcaseController.createEntryFeePayPalOrder
@@ -136,7 +107,7 @@ router.post(
 
 // Create new showcase
 router.post(
-  '/admin/create',
+  "/admin/create",
   authenticateToken,
   requireAdmin,
   validateShowcaseCreation,
@@ -145,7 +116,7 @@ router.post(
 
 // Update showcase
 router.put(
-  '/admin/:id',
+  "/admin/:id",
   authenticateToken,
   requireAdmin,
   validateShowcaseId,
@@ -154,7 +125,7 @@ router.put(
 
 // Delete showcase
 router.delete(
-  '/admin/:id',
+  "/admin/:id",
   authenticateToken,
   requireAdmin,
   validateShowcaseId,
@@ -163,7 +134,7 @@ router.delete(
 
 // Approve/Reject contestant
 router.patch(
-  '/admin/contestant/:id/status',
+  "/admin/contestant/:id/status",
   authenticateToken,
   requireAdmin,
   validateContestantId,
@@ -171,16 +142,11 @@ router.patch(
 );
 
 // Set winner
-router.post(
-  '/admin/set-winner',
-  authenticateToken,
-  requireAdmin,
-  showcaseController.setWinner
-);
+router.post("/admin/set-winner", authenticateToken, requireAdmin, showcaseController.setWinner);
 
 // Add judge score
 router.post(
-  '/admin/judge-score',
+  "/admin/judge-score",
   authenticateToken,
   requireAdmin,
   validateJudgeScore,
@@ -188,15 +154,11 @@ router.post(
 );
 
 // Sponsorship request
-router.post(
-  '/sponsor',
-  authenticateToken,
-  showcaseController.submitSponsorshipRequest
-);
+router.post("/sponsor", authenticateToken, showcaseController.submitSponsorshipRequest);
 
 // Get all sponsorship requests (Admin only)
 router.get(
-  '/admin/sponsorships',
+  "/admin/sponsorships",
   authenticateToken,
   requireAdmin,
   showcaseController.getSponsorshipRequests
@@ -204,7 +166,7 @@ router.get(
 
 // Get unread sponsorship count (Admin only)
 router.get(
-  '/admin/sponsorships/unread-count',
+  "/admin/sponsorships/unread-count",
   authenticateToken,
   requireAdmin,
   showcaseController.getUnreadSponsorshipCount
@@ -212,7 +174,7 @@ router.get(
 
 // Mark sponsorship as viewed (Admin only)
 router.patch(
-  '/admin/sponsorships/:id/view',
+  "/admin/sponsorships/:id/view",
   authenticateToken,
   requireAdmin,
   showcaseController.markSponsorshipViewed
@@ -220,7 +182,7 @@ router.patch(
 
 // Update sponsorship status (Admin only)
 router.patch(
-  '/admin/sponsorships/:id/status',
+  "/admin/sponsorships/:id/status",
   authenticateToken,
   requireAdmin,
   showcaseController.updateSponsorshipStatus
@@ -228,7 +190,7 @@ router.patch(
 
 // Delete sponsorship request (Admin only)
 router.delete(
-  '/admin/sponsorships/:id',
+  "/admin/sponsorships/:id",
   authenticateToken,
   requireAdmin,
   showcaseController.deleteSponsorshipRequest
@@ -236,7 +198,7 @@ router.delete(
 
 // Get analytics
 router.get(
-  '/admin/:showcaseId/analytics',
+  "/admin/:showcaseId/analytics",
   authenticateToken,
   requireAdmin,
   showcaseController.getShowcaseAnalytics
@@ -244,17 +206,40 @@ router.get(
 
 // Upload commercial video (Admin only)
 router.post(
-  '/admin/:showcaseId/upload-commercial',
+  "/admin/:showcaseId/upload-commercial",
   authenticateToken,
   requireAdmin,
-  upload.single('commercialVideo'),
+  upload.single("commercialVideo"),
   validateCommercialUpload,
   showcaseController.uploadCommercialVideo
 );
 
+// Chunked commercial upload (Admin only) - for large files behind proxies/CDNs
+router.post(
+  "/admin/:showcaseId/upload-commercial/init",
+  authenticateToken,
+  requireAdmin,
+  showcaseController.initCommercialUpload
+);
+
+router.post(
+  "/admin/:showcaseId/upload-commercial/chunk",
+  authenticateToken,
+  requireAdmin,
+  uploadChunk().single("chunk"),
+  showcaseController.uploadCommercialChunk
+);
+
+router.post(
+  "/admin/:showcaseId/upload-commercial/complete",
+  authenticateToken,
+  requireAdmin,
+  showcaseController.completeCommercialUpload
+);
+
 // Delete commercial video (Admin only)
 router.delete(
-  '/admin/:showcaseId/delete-commercial/:commercialIndex',
+  "/admin/:showcaseId/delete-commercial/:commercialIndex",
   authenticateToken,
   requireAdmin,
   validateCommercialDeletion,
@@ -263,19 +248,19 @@ router.delete(
 
 // Upload stream video (Admin only)
 router.post(
-  '/upload-stream',
+  "/upload-stream",
   authenticateToken,
   requireAdmin,
-  upload.single('streamVideo'),
+  upload.single("streamVideo"),
   showcaseController.uploadStreamVideo
 );
 
 // Upload static image (Admin only)
 router.post(
-  '/upload-image',
+  "/upload-image",
   authenticateToken,
   requireAdmin,
-  upload.single('staticImage'),
+  upload.single("staticImage"),
   showcaseController.uploadStaticImage
 );
 
@@ -283,47 +268,32 @@ router.post(
 
 // Execute raffle selection (Admin only)
 router.post(
-  '/admin/:showcaseId/execute-raffle',
+  "/admin/:showcaseId/execute-raffle",
   authenticateToken,
   requireAdmin,
   showcaseController.executeRaffle
 );
 
 // Get raffle results (Public - for transparency)
-router.get(
-  '/:showcaseId/raffle-results',
-  showcaseController.getRaffleResults
-);
+router.get("/:showcaseId/raffle-results", showcaseController.getRaffleResults);
 
 // Verify raffle results (Public - anyone can verify)
-router.get(
-  '/:showcaseId/verify-raffle',
-  showcaseController.verifyRaffleResults
-);
+router.get("/:showcaseId/verify-raffle", showcaseController.verifyRaffleResults);
 
 // Get raffle status (Public)
-router.get(
-  '/:showcaseId/raffle-status',
-  showcaseController.getRaffleStatus
-);
+router.get("/:showcaseId/raffle-status", showcaseController.getRaffleStatus);
 
 // ============ LIVE EVENT CONTROL ROUTES (ADMIN ONLY) ============
 
 // Auto-advance to next performance (PUBLIC - system triggered)
-router.post(
-  '/:id/auto-advance-performance',
-  showcaseController.advancePerformance
-);
+router.post("/:id/auto-advance-performance", showcaseController.advancePerformance);
 
 // Signal that all commercials have completed (PUBLIC - system triggered)
-router.post(
-  '/:id/commercials-complete',
-  showcaseController.commercialsComplete
-);
+router.post("/:id/commercials-complete", showcaseController.commercialsComplete);
 
 // Advance to next performance (ADMIN - manual control)
 router.post(
-  '/admin/:id/advance-performance',
+  "/admin/:id/advance-performance",
   authenticateToken,
   requireAdmin,
   showcaseController.advancePerformance
@@ -331,7 +301,7 @@ router.post(
 
 // Pause/Resume live event
 router.patch(
-  '/admin/:id/pause-resume',
+  "/admin/:id/pause-resume",
   authenticateToken,
   requireAdmin,
   showcaseController.pauseResumeEvent
@@ -339,7 +309,7 @@ router.patch(
 
 // Skip to specific stage
 router.patch(
-  '/admin/:id/skip-to-stage',
+  "/admin/:id/skip-to-stage",
   authenticateToken,
   requireAdmin,
   showcaseController.skipToStage
@@ -347,7 +317,7 @@ router.patch(
 
 // Extend stage time
 router.post(
-  '/admin/:id/extend-time',
+  "/admin/:id/extend-time",
   authenticateToken,
   requireAdmin,
   validateTimeAdjustment,
@@ -355,16 +325,11 @@ router.post(
 );
 
 // Stop event
-router.post(
-  '/admin/:id/stop-event',
-  authenticateToken,
-  requireAdmin,
-  showcaseController.stopEvent
-);
+router.post("/admin/:id/stop-event", authenticateToken, requireAdmin, showcaseController.stopEvent);
 
 // Restart event
 router.post(
-  '/admin/:id/restart-event',
+  "/admin/:id/restart-event",
   authenticateToken,
   requireAdmin,
   showcaseController.restartEvent
@@ -372,7 +337,7 @@ router.post(
 
 // Resume event from Performance phase
 router.post(
-  '/admin/:id/resume-performance',
+  "/admin/:id/resume-performance",
   authenticateToken,
   requireAdmin,
   showcaseController.resumePerformancePhase
@@ -380,56 +345,51 @@ router.post(
 
 // Get live event control status
 router.get(
-  '/admin/:id/live-control',
+  "/admin/:id/live-control",
   authenticateToken,
   requireAdmin,
   showcaseController.getLiveEventControl
 );
 
 // Control background music (play/stop)
-router.patch(
-  '/admin/:id/music-control',
-  authenticateToken,
-  requireAdmin,
-  async (req, res) => {
-    try {
-      const { action } = req.body;
+router.patch("/admin/:id/music-control", authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { action } = req.body;
 
-      if (!action || !['play', 'stop'].includes(action)) {
-        return res.status(400).json({
-          success: false,
-          message: 'action must be "play" or "stop"'
-        });
-      }
-
-      const TalentShowcase = require('../models/TalentShowcase');
-      const showcase = await TalentShowcase.findById(req.params.id);
-
-      if (!showcase) {
-        return res.status(404).json({
-          success: false,
-          message: 'Showcase not found'
-        });
-      }
-
-      // Update music playing state
-      showcase.musicPlaying = action === 'play';
-      await showcase.save();
-
-      res.json({
-        success: true,
-        message: `Music ${action === 'play' ? 'started' : 'stopped'} successfully`,
-        musicPlaying: showcase.musicPlaying
-      });
-    } catch (error) {
-      console.error('Error controlling music:', error);
-      res.status(500).json({
+    if (!action || !["play", "stop"].includes(action)) {
+      return res.status(400).json({
         success: false,
-        message: 'Failed to control music',
-        error: error.message
+        message: 'action must be "play" or "stop"',
       });
     }
+
+    const TalentShowcase = require("../models/TalentShowcase");
+    const showcase = await TalentShowcase.findById(req.params.id);
+
+    if (!showcase) {
+      return res.status(404).json({
+        success: false,
+        message: "Showcase not found",
+      });
+    }
+
+    // Update music playing state
+    showcase.musicPlaying = action === "play";
+    await showcase.save();
+
+    res.json({
+      success: true,
+      message: `Music ${action === "play" ? "started" : "stopped"} successfully`,
+      musicPlaying: showcase.musicPlaying,
+    });
+  } catch (error) {
+    console.error("Error controlling music:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to control music",
+      error: error.message,
+    });
   }
-);
+});
 
 module.exports = router;

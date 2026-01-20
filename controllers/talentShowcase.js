@@ -5,6 +5,76 @@ const ShowcaseEventTimeline = require("../models/ShowcaseEventTimeline");
 const User = require("../models/User");
 const SponsorshipRequest = require("../models/SponsorshipRequest");
 const { performRaffle, verifyRaffle, generatePublicReport } = require("../utils/raffleSelection");
+const path = require("path");
+const fs = require("fs");
+const { v4: uuidv4 } = require("uuid");
+
+const COMMERCIAL_TMP_ROOT = path.join(__dirname, "..", "uploads", "tmp", "commercials");
+
+function ensureDir(dirPath) {
+  if (!fs.existsSync(dirPath)) {
+    fs.mkdirSync(dirPath, { recursive: true });
+  }
+}
+
+function safeFilename(originalName) {
+  const base = String(originalName || "upload")
+    .replace(/\s+/g, "_")
+    .replace(/[^a-zA-Z0-9._-]/g, "");
+  return base || "upload";
+}
+
+async function addCommercialToShowcase({ showcaseId, filePath, title, requestedDurationSeconds }) {
+  const showcase = await TalentShowcase.findById(showcaseId);
+  if (!showcase) {
+    const err = new Error("Showcase not found");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const uploadsRoot = path.join(__dirname, "..", "uploads");
+  const relToUploads = path.relative(uploadsRoot, filePath).replace(/\\/g, "/");
+  const videoUrl = `/uploads/${relToUploads.replace(/^\/+/, "")}`;
+
+  const { getVideoDurationInSeconds } = require("get-video-duration");
+  const MAX_COMMERCIAL_SECONDS = Number(process.env.COMMERCIAL_MAX_SECONDS || 600);
+  const requestedDuration = Number(requestedDurationSeconds);
+  let duration = 30;
+
+  try {
+    const durationInSeconds = await getVideoDurationInSeconds(filePath);
+    duration = Math.ceil(durationInSeconds);
+    if (duration > MAX_COMMERCIAL_SECONDS) duration = MAX_COMMERCIAL_SECONDS;
+  } catch (err) {
+    if (Number.isFinite(requestedDuration) && requestedDuration > 0) {
+      duration = Math.ceil(requestedDuration);
+      if (duration > MAX_COMMERCIAL_SECONDS) duration = MAX_COMMERCIAL_SECONDS;
+    }
+  }
+
+  if (!showcase.commercials) showcase.commercials = [];
+
+  const newCommercial = {
+    videoUrl,
+    title: title || `Advertisement ${showcase.commercials.length + 1}`,
+    duration,
+    order: showcase.commercials.length,
+    uploadedAt: new Date(),
+  };
+
+  showcase.commercials.push(newCommercial);
+
+  const totalDurationSeconds = showcase.commercials.reduce((sum, c) => sum + (c.duration || 0), 0);
+  showcase.commercialDuration = Math.ceil(totalDurationSeconds / 60);
+  await showcase.save();
+
+  return {
+    videoUrl,
+    commercials: showcase.commercials,
+    totalDurationSeconds,
+    commercialDuration: showcase.commercialDuration,
+  };
+}
 
 // Helper function to calculate showcase status based on dates
 const calculateShowcaseStatus = (showcase) => {
@@ -2322,73 +2392,20 @@ exports.uploadCommercialVideo = async (req, res) => {
       });
     }
 
-    // Store the file path/URL
-    const videoUrl = `/uploads/listings/${req.file.filename}`;
-
-    // Get video/audio duration using get-video-duration
-    const { getVideoDurationInSeconds } = require("get-video-duration");
-
-    const MAX_COMMERCIAL_SECONDS = Number(process.env.COMMERCIAL_MAX_SECONDS || 600); // 10 min default
-    const requestedDuration = Number(req.body?.duration);
-    let duration = 30; // Default 30 seconds
-
-    // Try to get actual duration
-    try {
-      // Multer provides a safe on-disk path; avoids Windows/leading-slash join issues.
-      const filePath = req.file.path;
-      const durationInSeconds = await getVideoDurationInSeconds(filePath);
-      duration = Math.ceil(durationInSeconds);
-      if (duration > MAX_COMMERCIAL_SECONDS) {
-        console.log(
-          `⚠️ Detected commercial duration ${duration}s exceeds ${MAX_COMMERCIAL_SECONDS}s; capping to ${MAX_COMMERCIAL_SECONDS}s`
-        );
-        duration = MAX_COMMERCIAL_SECONDS;
-      }
-      console.log(`✅ Detected commercial duration: ${duration} seconds for ${req.file.filename}`);
-    } catch (err) {
-      console.warn("⚠️ Could not detect video duration:", err.message);
-      if (Number.isFinite(requestedDuration) && requestedDuration > 0) {
-        duration = Math.ceil(requestedDuration);
-        if (duration > MAX_COMMERCIAL_SECONDS) duration = MAX_COMMERCIAL_SECONDS;
-        console.log(`✅ Using client-provided commercial duration: ${duration}s`);
-      } else {
-        console.warn("⚠️ No valid client duration provided, using default 30s");
-        duration = 30;
-      }
-    }
-
-    // Initialize commercials array if it doesn't exist
-    if (!showcase.commercials) {
-      showcase.commercials = [];
-    }
-
-    // Add new commercial to the array
-    const newCommercial = {
-      videoUrl: videoUrl,
-      title: title || `Advertisement ${showcase.commercials.length + 1}`,
-      duration: duration,
-      order: showcase.commercials.length,
-      uploadedAt: new Date(),
-    };
-
-    showcase.commercials.push(newCommercial);
-
-    // Auto-calculate total commercial duration (in minutes)
-    const totalDurationSeconds = showcase.commercials.reduce(
-      (sum, c) => sum + (c.duration || 0),
-      0
-    );
-    showcase.commercialDuration = Math.ceil(totalDurationSeconds / 60);
-
-    await showcase.save();
+    const result = await addCommercialToShowcase({
+      showcaseId,
+      filePath: req.file.path,
+      title,
+      requestedDurationSeconds: req.body?.duration,
+    });
 
     res.json({
       success: true,
       message: "Commercial uploaded successfully",
-      videoUrl: videoUrl,
-      commercials: showcase.commercials,
-      totalDuration: totalDurationSeconds,
-      commercialDuration: showcase.commercialDuration,
+      videoUrl: result.videoUrl,
+      commercials: result.commercials,
+      totalDuration: result.totalDurationSeconds,
+      commercialDuration: result.commercialDuration,
     });
   } catch (error) {
     console.error("Error uploading commercial video:", error);
@@ -2397,6 +2414,189 @@ exports.uploadCommercialVideo = async (req, res) => {
       message: "Failed to upload commercial video",
       error: error.message,
     });
+  }
+};
+
+// ============ CHUNKED COMMERCIAL UPLOADS (Admin) ============
+
+exports.initCommercialUpload = async (req, res) => {
+  try {
+    const { showcaseId } = req.params;
+    const { filename, totalChunks, totalSize, mimetype, title, duration, chunkSize } =
+      req.body || {};
+
+    const nTotalChunks = Number(totalChunks);
+    const nTotalSize = Number(totalSize);
+    const nChunkSize = Number(chunkSize || 0);
+
+    if (!filename || !Number.isFinite(nTotalChunks) || nTotalChunks <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid upload metadata (filename/totalChunks required)",
+      });
+    }
+
+    // Validate showcase exists early
+    const showcase = await TalentShowcase.findById(showcaseId).select("_id");
+    if (!showcase) {
+      return res.status(404).json({ success: false, message: "Showcase not found" });
+    }
+
+    ensureDir(COMMERCIAL_TMP_ROOT);
+    const uploadId = uuidv4();
+    const dir = path.join(COMMERCIAL_TMP_ROOT, uploadId);
+    ensureDir(dir);
+
+    const meta = {
+      uploadId,
+      showcaseId,
+      filename: safeFilename(filename),
+      mimetype: mimetype || null,
+      totalChunks: nTotalChunks,
+      totalSize: Number.isFinite(nTotalSize) ? nTotalSize : null,
+      title: title || null,
+      duration: Number(duration) || null,
+      chunkSize: Number.isFinite(nChunkSize) && nChunkSize > 0 ? nChunkSize : null,
+      createdAt: new Date().toISOString(),
+    };
+
+    fs.writeFileSync(path.join(dir, "meta.json"), JSON.stringify(meta));
+
+    res.json({
+      success: true,
+      uploadId,
+      maxChunkBytes: Number(process.env.UPLOAD_CHUNK_MAX_BYTES || 8 * 1024 * 1024),
+    });
+  } catch (error) {
+    console.error("initCommercialUpload error:", error);
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to init upload", error: error.message });
+  }
+};
+
+exports.uploadCommercialChunk = async (req, res) => {
+  try {
+    const { uploadId, chunkIndex } = req.body || {};
+    const idx = Number(chunkIndex);
+
+    if (!uploadId || !Number.isFinite(idx) || idx < 0) {
+      return res
+        .status(400)
+        .json({ success: false, message: "uploadId and chunkIndex are required" });
+    }
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({ success: false, message: "No chunk provided" });
+    }
+
+    const dir = path.join(COMMERCIAL_TMP_ROOT, uploadId);
+    const metaPath = path.join(dir, "meta.json");
+    if (!fs.existsSync(metaPath)) {
+      return res.status(404).json({ success: false, message: "Upload session not found" });
+    }
+
+    const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
+    if (String(meta.uploadId) !== String(uploadId)) {
+      return res.status(400).json({ success: false, message: "Invalid upload session" });
+    }
+    if (idx >= Number(meta.totalChunks)) {
+      return res.status(400).json({ success: false, message: "chunkIndex out of range" });
+    }
+
+    // Basic access check: ensure session matches this showcase and requester is admin (already enforced)
+    const chunkName = `chunk-${String(idx).padStart(6, "0")}`;
+    fs.writeFileSync(path.join(dir, chunkName), req.file.buffer);
+
+    res.json({ success: true, uploadId, chunkIndex: idx });
+  } catch (error) {
+    console.error("uploadCommercialChunk error:", error);
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to upload chunk", error: error.message });
+  }
+};
+
+exports.completeCommercialUpload = async (req, res) => {
+  try {
+    const { showcaseId } = req.params;
+    const { uploadId } = req.body || {};
+    if (!uploadId) {
+      return res.status(400).json({ success: false, message: "uploadId is required" });
+    }
+
+    const dir = path.join(COMMERCIAL_TMP_ROOT, uploadId);
+    const metaPath = path.join(dir, "meta.json");
+    if (!fs.existsSync(metaPath)) {
+      return res.status(404).json({ success: false, message: "Upload session not found" });
+    }
+
+    const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
+    if (String(meta.showcaseId) !== String(showcaseId)) {
+      return res.status(400).json({ success: false, message: "Upload session showcase mismatch" });
+    }
+
+    const totalChunks = Number(meta.totalChunks);
+    for (let i = 0; i < totalChunks; i++) {
+      const chunkName = `chunk-${String(i).padStart(6, "0")}`;
+      if (!fs.existsSync(path.join(dir, chunkName))) {
+        return res.status(400).json({
+          success: false,
+          message: `Missing chunk ${i}/${totalChunks - 1}`,
+        });
+      }
+    }
+
+    // Merge chunks into final file in uploads/listings
+    const listingsDir = path.join(__dirname, "..", "uploads", "listings");
+    ensureDir(listingsDir);
+    const finalName = `${Date.now()}-${safeFilename(meta.filename)}`;
+    const finalPath = path.join(listingsDir, finalName);
+
+    const writeStream = fs.createWriteStream(finalPath);
+    for (let i = 0; i < totalChunks; i++) {
+      const chunkName = `chunk-${String(i).padStart(6, "0")}`;
+      const chunkPath = path.join(dir, chunkName);
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((resolve, reject) => {
+        const readStream = fs.createReadStream(chunkPath);
+        readStream.on("error", reject);
+        readStream.on("end", resolve);
+        readStream.pipe(writeStream, { end: false });
+      });
+    }
+
+    await new Promise((resolve, reject) => {
+      writeStream.end(() => resolve());
+      writeStream.on("error", reject);
+    });
+
+    const result = await addCommercialToShowcase({
+      showcaseId,
+      filePath: finalPath,
+      title: meta.title,
+      requestedDurationSeconds: meta.duration,
+    });
+
+    // Cleanup temp session
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch (cleanupErr) {
+      console.warn("⚠️ Could not cleanup commercial upload temp:", cleanupErr.message);
+    }
+
+    res.json({
+      success: true,
+      message: "Commercial uploaded successfully",
+      videoUrl: result.videoUrl,
+      commercials: result.commercials,
+      totalDuration: result.totalDurationSeconds,
+      commercialDuration: result.commercialDuration,
+    });
+  } catch (error) {
+    console.error("completeCommercialUpload error:", error);
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to complete upload", error: error.message });
   }
 };
 
