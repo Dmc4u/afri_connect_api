@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const auth = require('../middlewares/auth');
 const uploadVideo = require('../middlewares/uploadVideo');
+const uploadImage = require('../middlewares/uploadImage');
 
 /**
  * @route   POST /api/upload/video
@@ -54,6 +55,37 @@ router.post('/video', auth, uploadVideo.single('video'), async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Video upload failed',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @route   POST /api/upload/image
+ * @desc    Upload image file to local storage
+ * @access  Private
+ */
+router.post('/image', auth, uploadImage.single('image'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'No image file provided' });
+    }
+
+    const imageUrl = `${req.protocol}://${req.get('host')}/uploads/images/${req.file.filename}`;
+
+    res.json({
+      success: true,
+      imageUrl,
+      filename: req.file.filename,
+      size: req.file.size,
+      mimetype: req.file.mimetype
+    });
+  } catch (error) {
+    console.error('Image upload error:', error);
+
+    res.status(500).json({
+      success: false,
+      message: 'Image upload failed',
       error: error.message
     });
   }

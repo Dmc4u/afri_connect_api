@@ -5,6 +5,7 @@ const authenticateToken = require('../middlewares/auth');
 const optionalAuth = require('../middlewares/optionalAuth');
 const upload = require('../middlewares/upload');
 const uploadTalentVideo = require('../middlewares/uploadTalentVideo');
+const { paymentCreateLimiter } = require('../middlewares/rateLimiter');
 const {
   validateShowcaseCreation,
   validateContestantRegistration,
@@ -126,6 +127,7 @@ router.get(
 // Entry fee payment - Create PayPal order (before registration)
 router.post(
   '/entry-fee/create-order',
+  paymentCreateLimiter,
   authenticateToken,
   showcaseController.createEntryFeePayPalOrder
 );

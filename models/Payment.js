@@ -109,6 +109,13 @@ const paymentSchema = new mongoose.Schema(
         default: 0,
       },
     },
+
+    // Flexible per-payment data used to apply effects after capture.
+    // This is intentionally server-stored so we don't have to trust any client-sent metadata on capture.
+    context: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
     processingFees: {
       paypal: {
         type: Number,

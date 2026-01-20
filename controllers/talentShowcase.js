@@ -1,46 +1,55 @@
-const TalentShowcase = require('../models/TalentShowcase');
-const TalentContestant = require('../models/TalentContestant');
-const ShowcaseVote = require('../models/ShowcaseVote');
-const ShowcaseEventTimeline = require('../models/ShowcaseEventTimeline');
-const User = require('../models/User');
-const SponsorshipRequest = require('../models/SponsorshipRequest');
-const { performRaffle, verifyRaffle, generatePublicReport } = require('../utils/raffleSelection');
+const TalentShowcase = require("../models/TalentShowcase");
+const TalentContestant = require("../models/TalentContestant");
+const ShowcaseVote = require("../models/ShowcaseVote");
+const ShowcaseEventTimeline = require("../models/ShowcaseEventTimeline");
+const User = require("../models/User");
+const SponsorshipRequest = require("../models/SponsorshipRequest");
+const { performRaffle, verifyRaffle, generatePublicReport } = require("../utils/raffleSelection");
 
 // Helper function to calculate showcase status based on dates
 const calculateShowcaseStatus = (showcase) => {
   const now = new Date();
   const eventDate = new Date(showcase.eventDate);
-  const registrationStart = showcase.registrationStartDate ? new Date(showcase.registrationStartDate) : null;
-  const registrationEnd = showcase.registrationEndDate ? new Date(showcase.registrationEndDate) : null;
+  const registrationStart = showcase.registrationStartDate
+    ? new Date(showcase.registrationStartDate)
+    : null;
+  const registrationEnd = showcase.registrationEndDate
+    ? new Date(showcase.registrationEndDate)
+    : null;
   const raffleDate = showcase.raffleScheduledDate ? new Date(showcase.raffleScheduledDate) : null;
 
   // If manually set to certain statuses, respect them
-  if (showcase.status === 'cancelled') {
-    return 'cancelled';
+  if (showcase.status === "cancelled") {
+    return "cancelled";
   }
 
   // Calculate automatic status based on timeline
   if (registrationStart && now < registrationStart) {
-    return 'draft'; // Before registration opens
-  } else if (registrationStart && registrationEnd && now >= registrationStart && now <= registrationEnd) {
-    return 'nomination'; // Registration is open
+    return "draft"; // Before registration opens
+  } else if (
+    registrationStart &&
+    registrationEnd &&
+    now >= registrationStart &&
+    now <= registrationEnd
+  ) {
+    return "nomination"; // Registration is open
   } else if (registrationEnd && raffleDate && now > registrationEnd && now < raffleDate) {
-    return 'upcoming'; // Between registration close and raffle
+    return "upcoming"; // Between registration close and raffle
   } else if (raffleDate && eventDate && now >= raffleDate && now < eventDate) {
-    return 'upcoming'; // After raffle, before event
+    return "upcoming"; // After raffle, before event
   } else if (now >= eventDate) {
     // Check if event has ended (assume 2 hours duration if not specified)
     const eventDuration = 2 * 60 * 60 * 1000; // 2 hours in milliseconds
     const eventEndTime = new Date(eventDate.getTime() + eventDuration);
 
     if (now >= eventDate && now < eventEndTime) {
-      return 'live'; // Event is currently happening
+      return "live"; // Event is currently happening
     } else if (now >= eventEndTime) {
-      return 'completed'; // Event has ended
+      return "completed"; // Event has ended
     }
   }
 
-  return 'upcoming'; // Default fallback
+  return "upcoming"; // Default fallback
 };
 
 // ============ SHOWCASE MANAGEMENT ============
@@ -57,15 +66,15 @@ exports.createShowcase = async (req, res) => {
     const showcase = new TalentShowcase(req.body);
 
     // Calculate and set automatic status if not manually set to cancelled
-    if (!req.body.status || req.body.status !== 'cancelled') {
+    if (!req.body.status || req.body.status !== "cancelled") {
       showcase.status = calculateShowcaseStatus(showcase);
     }
 
     await showcase.save();
 
     // If this is a LIVE event, automatically create the event timeline
-    if (req.body.title && req.body.title.includes('LIVE')) {
-      const ShowcaseEventTimeline = require('../models/ShowcaseEventTimeline');
+    if (req.body.title && req.body.title.includes("LIVE")) {
+      const ShowcaseEventTimeline = require("../models/ShowcaseEventTimeline");
 
       // Calculate total duration dynamically
       const welcomeDuration = showcase.welcomeDuration ?? 5;
@@ -77,7 +86,13 @@ exports.createShowcase = async (req, res) => {
       const countdownDuration = showcase.countdownDuration ?? 5;
 
       // Total will be recalculated when performances are scheduled with actual video lengths
-      const estimatedTotalDuration = welcomeDuration + commercialDuration + votingDuration + winnerDeclarationDuration + thankYouDuration + countdownDuration;
+      const estimatedTotalDuration =
+        welcomeDuration +
+        commercialDuration +
+        votingDuration +
+        winnerDeclarationDuration +
+        thankYouDuration +
+        countdownDuration;
 
       const timeline = new ShowcaseEventTimeline({
         showcase: showcase._id,
@@ -91,23 +106,23 @@ exports.createShowcase = async (req, res) => {
           votingDuration,
           winnerDeclarationDuration,
           thankYouDuration,
-          countdownDuration
+          countdownDuration,
         },
-        eventStatus: 'scheduled',
+        eventStatus: "scheduled",
         isLive: false,
         welcomeMessage: {
           title: `Welcome to ${showcase.title}!`,
           message: `Get ready for an amazing hour of talent! Watch incredible performers compete for amazing prizes.`,
           rules: [
-            'Each contestant will perform for 5 minutes',
-            'After all performances, voting will open for 15 minutes',
-            'Each user can vote once (Premium users get bonus votes)',
-            'Winner will be announced at the end',
-            'Be respectful and enjoy the show!'
-          ]
+            "Each contestant will perform for 5 minutes",
+            "After all performances, voting will open for 15 minutes",
+            "Each user can vote once (Premium users get bonus votes)",
+            "Winner will be announced at the end",
+            "Be respectful and enjoy the show!",
+          ],
         },
         thankYouMessage: {
-          title: 'Thank You for Joining Us!',
+          title: "Thank You for Joining Us!",
           message: `Thank you for being part of ${showcase.title}! See you next month!`,
           nextEventDate: (() => {
             // Calculate next month same day and time
@@ -116,42 +131,46 @@ exports.createShowcase = async (req, res) => {
             // Handle edge case: if current day is 31 and next month has fewer days,
             // JavaScript automatically adjusts to the last day of that month
             return nextMonth;
-          })()
-        }
+          })(),
+        },
       });
 
+      // Ensure generateTimeline() can access showcase.commercials if present
+      timeline.showcase = showcase;
       timeline.generateTimeline();
 
       // Schedule performances with selected contestants (if any exist)
-      const TalentContestant = require('../models/TalentContestant');
+      const TalentContestant = require("../models/TalentContestant");
       const selectedContestants = await TalentContestant.find({
         showcase: showcase._id,
-        status: { $in: ['approved', 'selected'] }
+        status: { $in: ["approved", "selected"] },
       }).sort({ rafflePosition: 1, voteCount: -1 });
 
       if (selectedContestants.length > 0) {
         console.log(`🎬 Scheduling ${selectedContestants.length} performances for new timeline`);
         timeline.schedulePerformances(selectedContestants);
       } else {
-        console.log('⚠️ No contestants yet - performances will be scheduled when contestants are selected');
+        console.log(
+          "⚠️ No contestants yet - performances will be scheduled when contestants are selected"
+        );
       }
 
       await timeline.save();
 
-      console.log('✅ Event timeline created automatically for:', showcase.title);
+      console.log("✅ Event timeline created automatically for:", showcase.title);
     }
 
     res.status(201).json({
       success: true,
-      message: 'Talent showcase created successfully',
-      showcase
+      message: "Talent showcase created successfully",
+      showcase,
     });
   } catch (error) {
-    console.error('Error creating showcase:', error);
+    console.error("Error creating showcase:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to create showcase',
-      error: error.message
+      message: "Failed to create showcase",
+      error: error.message,
     });
   }
 };
@@ -169,22 +188,23 @@ exports.getShowcases = async (req, res) => {
 
     const showcases = await TalentShowcase.find(filter)
       .populate({
-        path: 'contestants',
-        match: { status: { $in: ['submitted', 'approved', 'selected'] } },
-        select: 'performanceTitle performanceDescription votes country thumbnailUrl videoUrl user status',
+        path: "contestants",
+        match: { status: { $in: ["submitted", "approved", "selected"] } },
+        select:
+          "performanceTitle performanceDescription votes country thumbnailUrl videoUrl user status",
         populate: {
-          path: 'user',
-          select: 'name username profilePhoto'
-        }
+          path: "user",
+          select: "name username profilePhoto",
+        },
       })
-      .populate('winner', 'performanceTitle user votes')
+      .populate("winner", "performanceTitle user votes")
       .sort({ eventDate: -1 })
       .skip(skip)
       .limit(parseInt(limit));
 
     // Update status for each showcase based on current time
     for (const showcase of showcases) {
-      if (showcase.status !== 'cancelled' && showcase.status !== 'completed') {
+      if (showcase.status !== "cancelled" && showcase.status !== "completed") {
         const newStatus = calculateShowcaseStatus(showcase);
         if (newStatus !== showcase.status) {
           showcase.status = newStatus;
@@ -198,7 +218,7 @@ exports.getShowcases = async (req, res) => {
     // If no showcases found, return next event date for countdown
     if (showcases.length === 0) {
       const lastCompletedEvent = await TalentShowcase.findOne({
-        status: 'completed'
+        status: "completed",
       }).sort({ eventDate: -1 });
 
       let nextEventDate = null;
@@ -235,17 +255,17 @@ exports.getShowcases = async (req, res) => {
         pagination: {
           total: 0,
           page: parseInt(page),
-          pages: 0
-        }
+          pages: 0,
+        },
       });
-    }    // Find the LIVE Monthly Talent Showcase event to use as reference for all countdowns
+    } // Find the LIVE Monthly Talent Showcase event to use as reference for all countdowns
     const liveEvent = await TalentShowcase.findOne({
       title: /LIVE.*Talent/i,
-      eventDate: { $gte: new Date() }
+      eventDate: { $gte: new Date() },
     }).sort({ eventDate: 1 });
 
     // Add server-side countdown for each showcase
-    const showcasesWithCountdown = showcases.map(showcase => {
+    const showcasesWithCountdown = showcases.map((showcase) => {
       const showcaseObj = showcase.toObject();
       const now = new Date();
 
@@ -255,11 +275,19 @@ exports.getShowcases = async (req, res) => {
 
       // Use calculated voting times from new flow or legacy fields
       const votingStart = useOwnDates
-        ? (showcase.votingStartTime ? new Date(showcase.votingStartTime) : showcase.calculateVotingStartTime())
-        : (liveEvent.votingStartTime ? new Date(liveEvent.votingStartTime) : liveEvent.calculateVotingStartTime());
+        ? showcase.votingStartTime
+          ? new Date(showcase.votingStartTime)
+          : showcase.calculateVotingStartTime()
+        : liveEvent.votingStartTime
+          ? new Date(liveEvent.votingStartTime)
+          : liveEvent.calculateVotingStartTime();
       const votingEnd = useOwnDates
-        ? (showcase.votingEndTime ? new Date(showcase.votingEndTime) : showcase.calculateVotingEndTime())
-        : (liveEvent.votingEndTime ? new Date(liveEvent.votingEndTime) : liveEvent.calculateVotingEndTime());
+        ? showcase.votingEndTime
+          ? new Date(showcase.votingEndTime)
+          : showcase.calculateVotingEndTime()
+        : liveEvent.votingEndTime
+          ? new Date(liveEvent.votingEndTime)
+          : liveEvent.calculateVotingEndTime();
 
       // Calculate time until event starts
       const timeUntilEvent = eventDate - now;
@@ -274,10 +302,10 @@ exports.getShowcases = async (req, res) => {
         millisecondsUntilEvent: Math.max(0, timeUntilEvent),
         millisecondsUntilVoting: Math.max(0, timeUntilVoting),
         millisecondsUntilVotingEnds: Math.max(0, timeUntilVotingEnds),
-        isLive: showcase.status === 'live' || showcase.status === 'voting',
+        isLive: showcase.status === "live" || showcase.status === "voting",
         isVotingOpen: now >= votingStart && now <= votingEnd,
         hasEnded: now > votingEnd,
-        syncedToLiveEvent: !useOwnDates // Flag to indicate countdown is synced to LIVE event
+        syncedToLiveEvent: !useOwnDates, // Flag to indicate countdown is synced to LIVE event
       };
 
       return showcaseObj;
@@ -286,14 +314,16 @@ exports.getShowcases = async (req, res) => {
     // If user is authenticated, fetch their registrations for all showcases
     let userRegistrations = {};
     if (req.user && req.user._id) {
-      const TalentContestant = require('../models/TalentContestant');
-      const showcaseIds = showcases.map(s => s._id);
+      const TalentContestant = require("../models/TalentContestant");
+      const showcaseIds = showcases.map((s) => s._id);
       const registrations = await TalentContestant.find({
         showcase: { $in: showcaseIds },
-        user: req.user._id
-      }).select('showcase performanceTitle performanceDescription themeTitle themeCreator country videoUrl status');
+        user: req.user._id,
+      }).select(
+        "showcase performanceTitle performanceDescription themeTitle themeCreator country videoUrl status"
+      );
 
-      registrations.forEach(reg => {
+      registrations.forEach((reg) => {
         userRegistrations[reg.showcase.toString()] = reg;
       });
     }
@@ -305,15 +335,15 @@ exports.getShowcases = async (req, res) => {
       pagination: {
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / limit)
-      }
+        pages: Math.ceil(total / limit),
+      },
     });
   } catch (error) {
-    console.error('Error fetching showcases:', error);
+    console.error("Error fetching showcases:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch showcases',
-      error: error.message
+      message: "Failed to fetch showcases",
+      error: error.message,
     });
   }
 };
@@ -323,24 +353,24 @@ exports.getShowcaseById = async (req, res) => {
   try {
     const showcase = await TalentShowcase.findById(req.params.id)
       .populate({
-        path: 'contestants',
+        path: "contestants",
         populate: {
-          path: 'user',
-          select: 'name username profilePhoto'
-        }
+          path: "user",
+          select: "name username profilePhoto",
+        },
       })
       .populate({
-        path: 'winner',
+        path: "winner",
         populate: {
-          path: 'user',
-          select: 'name username profilePhoto'
-        }
+          path: "user",
+          select: "name username profilePhoto",
+        },
       });
 
     if (!showcase) {
       return res.status(404).json({
         success: false,
-        message: 'Showcase not found'
+        message: "Showcase not found",
       });
     }
 
@@ -352,7 +382,7 @@ exports.getShowcaseById = async (req, res) => {
     // Find the LIVE Monthly Talent Showcase event to use as reference for countdown
     const liveEvent = await TalentShowcase.findOne({
       title: /LIVE.*Talent/i,
-      eventDate: { $gte: new Date() }
+      eventDate: { $gte: new Date() },
     }).sort({ eventDate: 1 });
 
     // Add server-side countdown
@@ -368,14 +398,22 @@ exports.getShowcaseById = async (req, res) => {
 
     try {
       votingStart = useOwnDates
-        ? (showcase.votingStartTime ? new Date(showcase.votingStartTime) : showcase.calculateVotingStartTime())
-        : (liveEvent.votingStartTime ? new Date(liveEvent.votingStartTime) : liveEvent.calculateVotingStartTime());
+        ? showcase.votingStartTime
+          ? new Date(showcase.votingStartTime)
+          : showcase.calculateVotingStartTime()
+        : liveEvent.votingStartTime
+          ? new Date(liveEvent.votingStartTime)
+          : liveEvent.calculateVotingStartTime();
       votingEnd = useOwnDates
-        ? (showcase.votingEndTime ? new Date(showcase.votingEndTime) : showcase.calculateVotingEndTime())
-        : (liveEvent.votingEndTime ? new Date(liveEvent.votingEndTime) : liveEvent.calculateVotingEndTime());
+        ? showcase.votingEndTime
+          ? new Date(showcase.votingEndTime)
+          : showcase.calculateVotingEndTime()
+        : liveEvent.votingEndTime
+          ? new Date(liveEvent.votingEndTime)
+          : liveEvent.calculateVotingEndTime();
     } catch (calcError) {
       // Fallback if calculation fails
-      console.error('Error calculating voting times:', calcError);
+      console.error("Error calculating voting times:", calcError);
       votingStart = new Date(eventDate.getTime() + 40 * 60 * 1000); // 40 min after event
       votingEnd = new Date(votingStart.getTime() + (showcase.votingDuration || 15) * 60 * 1000);
     }
@@ -385,14 +423,14 @@ exports.getShowcaseById = async (req, res) => {
     const timeUntilVotingEnds = votingEnd - now;
 
     // Check if we have a structured timeline for this showcase
-    const ShowcaseEventTimeline = require('../models/ShowcaseEventTimeline');
+    const ShowcaseEventTimeline = require("../models/ShowcaseEventTimeline");
     const timeline = await ShowcaseEventTimeline.findOne({ showcase: showcase._id });
     let isVotingOpenFromTimeline = false;
 
     if (timeline && timeline.phases) {
       // Check if current phase is 'voting'
       for (const phase of timeline.phases) {
-        if (phase.name === 'voting') {
+        if (phase.name === "voting") {
           const phaseStart = new Date(phase.startTime);
           const phaseEnd = new Date(phase.endTime);
           if (now >= phaseStart && now <= phaseEnd) {
@@ -411,22 +449,22 @@ exports.getShowcaseById = async (req, res) => {
       millisecondsUntilEvent: Math.max(0, timeUntilEvent),
       millisecondsUntilVoting: Math.max(0, timeUntilVoting),
       millisecondsUntilVotingEnds: Math.max(0, timeUntilVotingEnds),
-      isLive: showcase.status === 'live' || showcase.status === 'voting',
+      isLive: showcase.status === "live" || showcase.status === "voting",
       isVotingOpen: isVotingOpenFromTimeline || (now >= votingStart && now <= votingEnd),
       hasEnded: now > votingEnd,
-      syncedToLiveEvent: !useOwnDates // Flag to indicate countdown is synced to LIVE event
+      syncedToLiveEvent: !useOwnDates, // Flag to indicate countdown is synced to LIVE event
     };
 
     res.json({
       success: true,
-      showcase: showcaseObj
+      showcase: showcaseObj,
     });
   } catch (error) {
-    console.error('Error fetching showcase:', error);
+    console.error("Error fetching showcase:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch showcase',
-      error: error.message
+      message: "Failed to fetch showcase",
+      error: error.message,
     });
   }
 };
@@ -435,11 +473,15 @@ exports.getShowcaseById = async (req, res) => {
 exports.updateShowcase = async (req, res) => {
   try {
     // Log welcome phase timings if they're being updated
-    if (req.body.welcomeMessageDuration !== undefined || req.body.rulesDuration !== undefined || req.body.contestantsIntroDuration !== undefined) {
-      console.log('📝 Updating welcome phase timings:', {
+    if (
+      req.body.welcomeMessageDuration !== undefined ||
+      req.body.rulesDuration !== undefined ||
+      req.body.contestantsIntroDuration !== undefined
+    ) {
+      console.log("📝 Updating welcome phase timings:", {
         welcomeMessageDuration: req.body.welcomeMessageDuration,
         rulesDuration: req.body.rulesDuration,
-        contestantsIntroDuration: req.body.contestantsIntroDuration
+        contestantsIntroDuration: req.body.contestantsIntroDuration,
       });
     }
 
@@ -448,30 +490,33 @@ exports.updateShowcase = async (req, res) => {
       req.body.submissionDeadline = req.body.registrationEndDate;
     }
 
-    const showcase = await TalentShowcase.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true, runValidators: true }
-    );
+    const showcase = await TalentShowcase.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true,
+    });
 
     if (!showcase) {
       return res.status(404).json({
         success: false,
-        message: 'Showcase not found'
+        message: "Showcase not found",
       });
     }
 
     // Log the saved values
-    if (req.body.welcomeMessageDuration !== undefined || req.body.rulesDuration !== undefined || req.body.contestantsIntroDuration !== undefined) {
-      console.log('✅ Saved welcome phase timings:', {
+    if (
+      req.body.welcomeMessageDuration !== undefined ||
+      req.body.rulesDuration !== undefined ||
+      req.body.contestantsIntroDuration !== undefined
+    ) {
+      console.log("✅ Saved welcome phase timings:", {
         welcomeMessageDuration: showcase.welcomeMessageDuration,
         rulesDuration: showcase.rulesDuration,
-        contestantsIntroDuration: showcase.contestantsIntroDuration
+        contestantsIntroDuration: showcase.contestantsIntroDuration,
       });
     }
 
     // Calculate and update status automatically if not manually set to cancelled or completed
-    if (showcase.status !== 'cancelled' && showcase.status !== 'completed') {
+    if (showcase.status !== "cancelled" && showcase.status !== "completed") {
       showcase.status = calculateShowcaseStatus(showcase);
       await showcase.save();
     }
@@ -480,16 +525,16 @@ exports.updateShowcase = async (req, res) => {
     // reflects the configured minutes.
     if (req.body.welcomeDuration !== undefined) {
       try {
-        const ShowcaseEventTimeline = require('../models/ShowcaseEventTimeline');
+        const ShowcaseEventTimeline = require("../models/ShowcaseEventTimeline");
         const timeline = await ShowcaseEventTimeline.findOne({ showcase: showcase._id });
 
-        if (timeline && timeline.eventStatus !== 'completed') {
+        if (timeline && timeline.eventStatus !== "completed") {
           const desiredWelcomeMinutes = showcase.welcomeDuration ?? 5;
           const currentWelcomeMinutes = timeline.config?.welcomeDuration;
 
           if (currentWelcomeMinutes !== desiredWelcomeMinutes) {
             const welcomeIndex = Array.isArray(timeline.phases)
-              ? timeline.phases.findIndex(p => p.name === 'welcome')
+              ? timeline.phases.findIndex((p) => p.name === "welcome")
               : -1;
 
             if (welcomeIndex >= 0) {
@@ -502,23 +547,27 @@ exports.updateShowcase = async (req, res) => {
 
               if (startTime && !Number.isNaN(startTime.getTime())) {
                 const newEndTime = new Date(startTime.getTime() + desiredWelcomeMinutes * 60000);
-                const deltaMs = oldEndTime ? (newEndTime.getTime() - oldEndTime.getTime()) : 0;
+                const deltaMs = oldEndTime ? newEndTime.getTime() - oldEndTime.getTime() : 0;
                 welcomePhase.endTime = newEndTime;
 
                 if (deltaMs !== 0) {
                   // Shift subsequent phases
                   for (let i = welcomeIndex + 1; i < timeline.phases.length; i++) {
                     if (timeline.phases[i].startTime) {
-                      timeline.phases[i].startTime = new Date(new Date(timeline.phases[i].startTime).getTime() + deltaMs);
+                      timeline.phases[i].startTime = new Date(
+                        new Date(timeline.phases[i].startTime).getTime() + deltaMs
+                      );
                     }
                     if (timeline.phases[i].endTime) {
-                      timeline.phases[i].endTime = new Date(new Date(timeline.phases[i].endTime).getTime() + deltaMs);
+                      timeline.phases[i].endTime = new Date(
+                        new Date(timeline.phases[i].endTime).getTime() + deltaMs
+                      );
                     }
                   }
 
                   // Shift scheduled performances (if already scheduled)
                   if (Array.isArray(timeline.performances)) {
-                    timeline.performances.forEach(perf => {
+                    timeline.performances.forEach((perf) => {
                       if (perf.startTime) {
                         perf.startTime = new Date(new Date(perf.startTime).getTime() + deltaMs);
                       }
@@ -535,21 +584,21 @@ exports.updateShowcase = async (req, res) => {
           }
         }
       } catch (timelineSyncError) {
-        console.error('Error syncing timeline welcomeDuration:', timelineSyncError);
+        console.error("Error syncing timeline welcomeDuration:", timelineSyncError);
       }
     }
 
     res.json({
       success: true,
-      message: 'Showcase updated successfully',
-      showcase
+      message: "Showcase updated successfully",
+      showcase,
     });
   } catch (error) {
-    console.error('Error updating showcase:', error);
+    console.error("Error updating showcase:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to update showcase',
-      error: error.message
+      message: "Failed to update showcase",
+      error: error.message,
     });
   }
 };
@@ -562,7 +611,7 @@ exports.deleteShowcase = async (req, res) => {
     if (!showcase) {
       return res.status(404).json({
         success: false,
-        message: 'Showcase not found'
+        message: "Showcase not found",
       });
     }
 
@@ -570,15 +619,17 @@ exports.deleteShowcase = async (req, res) => {
     // Only delete contestants who are NOT winners
     const deleteResult = await TalentContestant.deleteMany({
       showcase: req.params.id,
-      isWinner: { $ne: true }  // Exclude winners from deletion
+      isWinner: { $ne: true }, // Exclude winners from deletion
     });
 
-    console.log(`🗑️  Deleted ${deleteResult.deletedCount} non-winner contestants from showcase ${req.params.id}`);
+    console.log(
+      `🗑️  Deleted ${deleteResult.deletedCount} non-winner contestants from showcase ${req.params.id}`
+    );
 
     // Count how many winners were preserved
     const preservedWinners = await TalentContestant.countDocuments({
       showcase: req.params.id,
-      isWinner: true
+      isWinner: true,
     });
 
     if (preservedWinners > 0) {
@@ -589,16 +640,16 @@ exports.deleteShowcase = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Showcase deleted successfully',
+      message: "Showcase deleted successfully",
       deletedContestants: deleteResult.deletedCount,
-      preservedWinners
+      preservedWinners,
     });
   } catch (error) {
-    console.error('Error deleting showcase:', error);
+    console.error("Error deleting showcase:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to delete showcase',
-      error: error.message
+      message: "Failed to delete showcase",
+      error: error.message,
     });
   }
 };
@@ -621,7 +672,7 @@ exports.registerContestant = async (req, res) => {
       listingId,
       socialMedia,
       paymentOrderId,
-      skipPayment // For admin or free entries
+      skipPayment, // For admin or free entries
     } = req.body;
 
     // Check if showcase exists and is accepting registrations
@@ -629,49 +680,49 @@ exports.registerContestant = async (req, res) => {
     if (!showcase) {
       return res.status(404).json({
         success: false,
-        message: 'Showcase not found'
+        message: "Showcase not found",
       });
     }
 
-    if (showcase.status !== 'upcoming' && showcase.status !== 'nomination') {
+    if (showcase.status !== "upcoming" && showcase.status !== "nomination") {
       return res.status(400).json({
         success: false,
-        message: 'Registration is closed for this showcase'
+        message: "Registration is closed for this showcase",
       });
     }
 
     // Check if user already registered
     const existing = await TalentContestant.findOne({
       showcase: showcaseId,
-      user: req.user._id
+      user: req.user._id,
     });
 
     if (existing) {
       // Allow editing only if not yet approved (status is pending)
-      if (existing.status === 'pending') {
+      if (existing.status === "pending") {
         return res.status(200).json({
           success: true,
-          message: 'You have already registered for this showcase. You can edit your registration.',
+          message: "You have already registered for this showcase. You can edit your registration.",
           contestant: existing,
-          canEdit: true
+          canEdit: true,
         });
       } else {
         return res.status(400).json({
           success: false,
           message: `You have already registered for this showcase and your status is "${existing.status}". Contact admin if you need to make changes.`,
           contestant: existing,
-          canEdit: false
+          canEdit: false,
         });
       }
     }
 
     // Prepare entry fee data
     const hasEntryFee = showcase.entryFee > 0;
-    const isAdmin = req.user?.role === 'admin';
+    const isAdmin = req.user?.role === "admin";
 
     let entryFeeData = {
       paid: false,
-      amount: showcase.entryFee || 0
+      amount: showcase.entryFee || 0,
     };
 
     // If there's an entry fee, verify payment was made
@@ -679,21 +730,51 @@ exports.registerContestant = async (req, res) => {
       if (!paymentOrderId) {
         return res.status(400).json({
           success: false,
-          message: 'Payment is required. Please complete payment before registration.',
+          message: "Payment is required. Please complete payment before registration.",
           entryFee: showcase.entryFee,
-          entryFeeCurrency: showcase.entryFeeCurrency || 'USD'
+          entryFeeCurrency: showcase.entryFeeCurrency || "USD",
         });
       }
 
-      // Verify payment with PayPal
+      // Verify payment with PayPal (amount/currency + approval state)
       try {
-        const { captureOrder } = require('../utils/paypal');
-        const capture = await captureOrder(paymentOrderId);
+        const { getOrder, captureOrder } = require("../utils/paypal");
 
-        if (capture.status !== 'COMPLETED') {
+        // Pre-check: validate order details before capturing
+        const order = await getOrder(paymentOrderId);
+        const unit = order?.purchase_units?.[0];
+        const orderCurrency = unit?.amount?.currency_code;
+        const orderAmount = parseFloat(unit?.amount?.value || "0");
+        const expectedCurrency = (showcase.entryFeeCurrency || "USD").toUpperCase();
+
+        if (orderCurrency && orderCurrency !== expectedCurrency) {
           return res.status(400).json({
             success: false,
-            message: 'Payment verification failed. Please complete payment first.'
+            message: "Payment currency mismatch. Please retry payment.",
+          });
+        }
+
+        if (orderAmount && Math.abs(orderAmount - showcase.entryFee) > 0.01) {
+          return res.status(400).json({
+            success: false,
+            message: "Payment amount mismatch. Please retry payment.",
+          });
+        }
+
+        if (order?.status && !["APPROVED", "COMPLETED"].includes(order.status)) {
+          return res.status(400).json({
+            success: false,
+            message: "Order not approved. Please complete payment first.",
+          });
+        }
+
+        // Capture the PayPal order
+        const capture = await captureOrder(paymentOrderId);
+
+        if (capture.status !== "COMPLETED") {
+          return res.status(400).json({
+            success: false,
+            message: "Payment verification failed. Please complete payment first.",
           });
         }
 
@@ -701,19 +782,19 @@ exports.registerContestant = async (req, res) => {
           paid: true,
           amount: showcase.entryFee,
           transactionId: paymentOrderId,
-          paidAt: new Date()
+          paidAt: new Date(),
         };
       } catch (error) {
-        console.error('Payment verification error:', error);
+        console.error("Payment verification error:", error);
         return res.status(400).json({
           success: false,
-          message: 'Payment verification failed. Please try again.'
+          message: "Payment verification failed. Please try again.",
         });
       }
     } else if (isAdmin || !hasEntryFee) {
       // Admin bypass or free entry
       entryFeeData.paid = true;
-      entryFeeData.transactionId = isAdmin ? `ADMIN-${Date.now()}` : 'FREE';
+      entryFeeData.transactionId = isAdmin ? `ADMIN-${Date.now()}` : "FREE";
       entryFeeData.paidAt = new Date();
     }
 
@@ -731,32 +812,34 @@ exports.registerContestant = async (req, res) => {
       videoDuration: videoDuration, // Use provided duration
       thumbnailUrl,
       socialMedia,
-      entryFee: entryFeeData
+      entryFee: entryFeeData,
     });
 
     await contestant.save();
 
     // Extract video duration in background if not provided (non-blocking)
     if (videoUrl && !videoDuration) {
-      const { isYouTubeUrl, getYouTubeDuration } = require('../utils/youtubeUtils');
+      const { isYouTubeUrl, getYouTubeDuration } = require("../utils/youtubeUtils");
 
       if (isYouTubeUrl(videoUrl)) {
         // Run in background without blocking response
         getYouTubeDuration(videoUrl)
-          .then(duration => {
+          .then((duration) => {
             if (duration) {
-              console.log(`✅ Background: Extracted YouTube duration: ${duration}s (${(duration/60).toFixed(2)} minutes)`);
+              console.log(
+                `✅ Background: Extracted YouTube duration: ${duration}s (${(duration / 60).toFixed(2)} minutes)`
+              );
               // Update contestant with extracted duration
               TalentContestant.findByIdAndUpdate(
                 contestant._id,
                 { videoDuration: duration },
                 { new: true }
-              ).catch(err => console.error('Error updating video duration:', err));
+              ).catch((err) => console.error("Error updating video duration:", err));
             } else {
-              console.log('⚠️ Background: Could not extract YouTube duration');
+              console.log("⚠️ Background: Could not extract YouTube duration");
             }
           })
-          .catch(err => console.error('Background YouTube extraction error:', err));
+          .catch((err) => console.error("Background YouTube extraction error:", err));
       }
     }
 
@@ -767,16 +850,16 @@ exports.registerContestant = async (req, res) => {
     res.status(201).json({
       success: true,
       message: hasEntryFee
-        ? 'Payment received! Your registration has been submitted for review.'
-        : 'Successfully registered for showcase',
-      contestant
+        ? "Payment received! Your registration has been submitted for review."
+        : "Successfully registered for showcase",
+      contestant,
     });
   } catch (error) {
-    console.error('Error registering contestant:', error);
+    console.error("Error registering contestant:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to register',
-      error: error.message
+      message: "Failed to register",
+      error: error.message,
     });
   }
 };
@@ -789,25 +872,25 @@ exports.getContestants = async (req, res) => {
 
     const filter = { showcase: showcaseId };
     // Only filter by status if it's explicitly provided and not empty
-    if (status && status.trim() !== '') {
+    if (status && status.trim() !== "") {
       filter.status = status;
     }
 
     const contestants = await TalentContestant.find(filter)
-      .populate('user', 'name username profilePhoto')
-      .populate('listing', 'title category')
+      .populate("user", "name username profilePhoto")
+      .populate("listing", "title category")
       .sort({ votes: -1 });
 
     res.json({
       success: true,
-      contestants
+      contestants,
     });
   } catch (error) {
-    console.error('Error fetching contestants:', error);
+    console.error("Error fetching contestants:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch contestants',
-      error: error.message
+      message: "Failed to fetch contestants",
+      error: error.message,
     });
   }
 };
@@ -818,14 +901,14 @@ exports.uploadTalentVideo = async (req, res) => {
     if (!req.file) {
       return res.status(400).json({
         success: false,
-        message: 'No video file uploaded'
+        message: "No video file uploaded",
       });
     }
 
     // Get video duration using ffprobe if available
     let videoDuration = null;
     try {
-      const ffprobe = require('fluent-ffmpeg').ffprobe;
+      const ffprobe = require("fluent-ffmpeg").ffprobe;
       const videoPath = req.file.path;
 
       // Make ffprobe async with Promise
@@ -833,16 +916,18 @@ exports.uploadTalentVideo = async (req, res) => {
         ffprobe(videoPath, (err, metadata) => {
           if (!err && metadata && metadata.format && metadata.format.duration) {
             const duration = Math.round(metadata.format.duration);
-            console.log(`✅ Video duration detected: ${duration} seconds (${(duration/60).toFixed(2)} minutes)`);
+            console.log(
+              `✅ Video duration detected: ${duration} seconds (${(duration / 60).toFixed(2)} minutes)`
+            );
             resolve(duration);
           } else {
-            console.log('⚠️ Could not detect video duration');
+            console.log("⚠️ Could not detect video duration");
             resolve(null);
           }
         });
       });
     } catch (error) {
-      console.log('⚠️ ffprobe not available, video duration will not be auto-detected');
+      console.log("⚠️ ffprobe not available, video duration will not be auto-detected");
     }
 
     // Return the uploaded file path
@@ -850,18 +935,18 @@ exports.uploadTalentVideo = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Video uploaded successfully',
+      message: "Video uploaded successfully",
       videoUrl: videoUrl,
       videoDuration: videoDuration,
       filename: req.file.filename,
-      size: req.file.size
+      size: req.file.size,
     });
   } catch (error) {
-    console.error('Error uploading talent video:', error);
+    console.error("Error uploading talent video:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to upload video',
-      error: error.message
+      message: "Failed to upload video",
+      error: error.message,
     });
   }
 };
@@ -879,7 +964,7 @@ exports.updateContestantRegistration = async (req, res) => {
       videoUrl,
       videoDuration, // Video duration in seconds from upload
       thumbnailUrl,
-      socialMedia
+      socialMedia,
     } = req.body;
 
     // Find the contestant
@@ -888,7 +973,7 @@ exports.updateContestantRegistration = async (req, res) => {
     if (!contestant) {
       return res.status(404).json({
         success: false,
-        message: 'Registration not found'
+        message: "Registration not found",
       });
     }
 
@@ -896,15 +981,15 @@ exports.updateContestantRegistration = async (req, res) => {
     if (contestant.user.toString() !== req.user._id.toString()) {
       return res.status(403).json({
         success: false,
-        message: 'You can only edit your own registration'
+        message: "You can only edit your own registration",
       });
     }
 
     // Only allow editing if status is pending
-    if (contestant.status !== 'pending') {
+    if (contestant.status !== "pending") {
       return res.status(400).json({
         success: false,
-        message: `Cannot edit registration with status "${contestant.status}". Contact admin if you need to make changes.`
+        message: `Cannot edit registration with status "${contestant.status}". Contact admin if you need to make changes.`,
       });
     }
 
@@ -913,14 +998,14 @@ exports.updateContestantRegistration = async (req, res) => {
     if (!showcase) {
       return res.status(404).json({
         success: false,
-        message: 'Showcase not found'
+        message: "Showcase not found",
       });
     }
 
-    if (showcase.status !== 'upcoming' && showcase.status !== 'nomination') {
+    if (showcase.status !== "upcoming" && showcase.status !== "nomination") {
       return res.status(400).json({
         success: false,
-        message: 'Registration period has ended for this showcase'
+        message: "Registration period has ended for this showcase",
       });
     }
 
@@ -932,7 +1017,8 @@ exports.updateContestantRegistration = async (req, res) => {
     contestant.themeCreator = themeCreator || contestant.themeCreator;
     contestant.country = country || contestant.country;
     contestant.videoUrl = videoUrl || contestant.videoUrl;
-    if (videoDuration !== undefined) contestant.videoDuration = Math.min(videoDuration, MAX_PERFORMANCE_DURATION); // Cap at 5 minutes
+    if (videoDuration !== undefined)
+      contestant.videoDuration = Math.min(videoDuration, MAX_PERFORMANCE_DURATION); // Cap at 5 minutes
     contestant.thumbnailUrl = thumbnailUrl || contestant.thumbnailUrl;
     if (socialMedia) contestant.socialMedia = socialMedia;
 
@@ -940,15 +1026,15 @@ exports.updateContestantRegistration = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Registration updated successfully',
-      contestant
+      message: "Registration updated successfully",
+      contestant,
     });
   } catch (error) {
-    console.error('Error updating contestant registration:', error);
+    console.error("Error updating contestant registration:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to update registration',
-      error: error.message
+      message: "Failed to update registration",
+      error: error.message,
     });
   }
 };
@@ -963,19 +1049,19 @@ exports.updateContestantStatus = async (req, res) => {
       id,
       { status },
       { new: true }
-    ).populate('showcase');
+    ).populate("showcase");
 
     if (!contestant) {
       return res.status(404).json({
         success: false,
-        message: 'Contestant not found'
+        message: "Contestant not found",
       });
     }
 
     // If approved, check if we need to update the event timeline
-    if (status === 'approved' && contestant.showcase) {
-      const ShowcaseEventTimeline = require('../models/ShowcaseEventTimeline');
-      const TalentContestant = require('../models/TalentContestant');
+    if (status === "approved" && contestant.showcase) {
+      const ShowcaseEventTimeline = require("../models/ShowcaseEventTimeline");
+      const TalentContestant = require("../models/TalentContestant");
 
       const timeline = await ShowcaseEventTimeline.findOne({ showcase: contestant.showcase._id });
 
@@ -983,45 +1069,54 @@ exports.updateContestantStatus = async (req, res) => {
         // Get all approved/selected contestants
         const approvedContestants = await TalentContestant.find({
           showcase: contestant.showcase._id,
-          status: { $in: ['approved', 'selected'] }
+          status: { $in: ["approved", "selected"] },
         });
 
         // Reschedule performances with updated contestant list
         timeline.schedulePerformances(approvedContestants);
         await timeline.save();
 
-        console.log(`✅ Updated timeline with ${approvedContestants.length} approved/selected contestants`);
+        console.log(
+          `✅ Updated timeline with ${approvedContestants.length} approved/selected contestants`
+        );
       }
 
       // If there's an entry fee and it hasn't been paid, notify user about payment
       if (contestant.entryFee?.amount > 0 && !contestant.entryFee.paid) {
         // TODO: Send email/notification with payment instructions
         // For now, we'll include payment info in the response
-        console.log(`💰 Payment required: ${contestant.showcase.entryFeeCurrency} ${contestant.entryFee.amount}`);
+        console.log(
+          `💰 Payment required: ${contestant.showcase.entryFeeCurrency} ${contestant.entryFee.amount}`
+        );
       }
     }
 
-    const responseMessage = status === 'approved' && contestant.entryFee?.amount > 0 && !contestant.entryFee.paid
-      ? `Contestant approved. Payment of ${contestant.showcase.entryFeeCurrency || 'USD'} ${contestant.entryFee.amount} is required to complete registration.`
-      : `Contestant ${status}`;
+    const responseMessage =
+      status === "approved" && contestant.entryFee?.amount > 0 && !contestant.entryFee.paid
+        ? `Contestant approved. Payment of ${contestant.showcase.entryFeeCurrency || "USD"} ${contestant.entryFee.amount} is required to complete registration.`
+        : `Contestant ${status}`;
 
     res.json({
       success: true,
       message: responseMessage,
       contestant,
-      paymentRequired: status === 'approved' && contestant.entryFee?.amount > 0 && !contestant.entryFee.paid,
-      paymentDetails: contestant.entryFee?.amount > 0 ? {
-        amount: contestant.entryFee.amount,
-        currency: contestant.showcase.entryFeeCurrency || 'USD',
-        paid: contestant.entryFee.paid
-      } : null
+      paymentRequired:
+        status === "approved" && contestant.entryFee?.amount > 0 && !contestant.entryFee.paid,
+      paymentDetails:
+        contestant.entryFee?.amount > 0
+          ? {
+              amount: contestant.entryFee.amount,
+              currency: contestant.showcase.entryFeeCurrency || "USD",
+              paid: contestant.entryFee.paid,
+            }
+          : null,
     });
   } catch (error) {
-    console.error('Error updating contestant status:', error);
+    console.error("Error updating contestant status:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to update contestant status',
-      error: error.message
+      message: "Failed to update contestant status",
+      error: error.message,
     });
   }
 };
@@ -1041,7 +1136,7 @@ exports.castVote = async (req, res) => {
     if (!showcase) {
       return res.status(404).json({
         success: false,
-        message: 'Showcase not found'
+        message: "Showcase not found",
       });
     }
 
@@ -1051,8 +1146,8 @@ exports.castVote = async (req, res) => {
     // Also check timeline for live events
     const timeline = await ShowcaseEventTimeline.findOne({ showcase: showcaseId });
     if (timeline && timeline.isLive) {
-      const votingPhase = timeline.phases.find(p => p.name === 'voting');
-      if (votingPhase && votingPhase.status === 'active') {
+      const votingPhase = timeline.phases.find((p) => p.name === "voting");
+      if (votingPhase && votingPhase.status === "active") {
         isVotingAllowed = true;
       }
     }
@@ -1060,7 +1155,7 @@ exports.castVote = async (req, res) => {
     if (!isVotingAllowed) {
       return res.status(400).json({
         success: false,
-        message: 'Voting is not currently open for this showcase'
+        message: "Voting is not currently open for this showcase",
       });
     }
 
@@ -1068,13 +1163,13 @@ exports.castVote = async (req, res) => {
     const contestant = await TalentContestant.findOne({
       _id: contestantId,
       showcase: showcaseId,
-      status: { $in: ['approved', 'selected'] }
+      status: { $in: ["approved", "selected"] },
     });
 
     if (!contestant) {
       return res.status(404).json({
         success: false,
-        message: 'Contestant not found or not approved'
+        message: "Contestant not found or not approved",
       });
     }
 
@@ -1089,14 +1184,15 @@ exports.castVote = async (req, res) => {
         ? await ShowcaseVote.countDocuments({ showcase: showcaseId, user: userId })
         : await ShowcaseVote.countDocuments({ showcase: showcaseId, ipAddress });
 
-      const maxVotes = userId && req.user.tier && req.user.tier !== 'Free'
-        ? showcase.rules.maxVotesPerUser + showcase.rules.premiumBonusVotes
-        : showcase.rules.maxVotesPerUser;
+      const maxVotes =
+        userId && req.user.tier && req.user.tier !== "Free"
+          ? showcase.rules.maxVotesPerUser + showcase.rules.premiumBonusVotes
+          : showcase.rules.maxVotesPerUser;
 
       if (userVotes >= maxVotes) {
         return res.status(400).json({
           success: false,
-          message: `You have reached the maximum number of votes (${maxVotes})`
+          message: `You have reached the maximum number of votes (${maxVotes})`,
         });
       }
     }
@@ -1110,9 +1206,9 @@ exports.castVote = async (req, res) => {
       contestant: contestantId,
       user: userId,
       ipAddress,
-      userAgent: req.get('user-agent'),
+      userAgent: req.get("user-agent"),
       voteWeight,
-      country: req.body.country
+      country: req.body.country,
     });
 
     await vote.save();
@@ -1127,25 +1223,28 @@ exports.castVote = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Vote cast successfully',
-      votesRemaining: userId && req.user.tier && req.user.tier !== 'Free'
-        ? showcase.rules.maxVotesPerUser + showcase.rules.premiumBonusVotes - (existingVote ? userVotes + 1 : 1)
-        : showcase.rules.maxVotesPerUser - (existingVote ? userVotes + 1 : 1)
+      message: "Vote cast successfully",
+      votesRemaining:
+        userId && req.user.tier && req.user.tier !== "Free"
+          ? showcase.rules.maxVotesPerUser +
+            showcase.rules.premiumBonusVotes -
+            (existingVote ? userVotes + 1 : 1)
+          : showcase.rules.maxVotesPerUser - (existingVote ? userVotes + 1 : 1),
     });
   } catch (error) {
-    console.error('Error casting vote:', error);
+    console.error("Error casting vote:", error);
 
     if (error.code === 11000) {
       return res.status(400).json({
         success: false,
-        message: 'You have already voted for this contestant'
+        message: "You have already voted for this contestant",
       });
     }
 
     res.status(500).json({
       success: false,
-      message: 'Failed to cast vote',
-      error: error.message
+      message: "Failed to cast vote",
+      error: error.message,
     });
   }
 };
@@ -1157,22 +1256,22 @@ exports.getLeaderboard = async (req, res) => {
 
     const contestants = await TalentContestant.find({
       showcase: showcaseId,
-      status: { $in: ['approved', 'selected'] }
+      status: { $in: ["approved", "selected"] },
     })
-      .populate('user', 'name username profilePhoto')
+      .populate("user", "name username profilePhoto")
       .sort({ votes: -1, finalScore: -1 })
       .limit(20);
 
     res.json({
       success: true,
-      leaderboard: contestants
+      leaderboard: contestants,
     });
   } catch (error) {
-    console.error('Error fetching leaderboard:', error);
+    console.error("Error fetching leaderboard:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch leaderboard',
-      error: error.message
+      message: "Failed to fetch leaderboard",
+      error: error.message,
     });
   }
 };
@@ -1184,20 +1283,19 @@ exports.getUserVotes = async (req, res) => {
 
     const votes = await ShowcaseVote.find({
       showcase: showcaseId,
-      user: req.user._id
-    })
-      .populate('contestant', 'performanceTitle votes');
+      user: req.user._id,
+    }).populate("contestant", "performanceTitle votes");
 
     res.json({
       success: true,
-      votes
+      votes,
     });
   } catch (error) {
-    console.error('Error fetching user votes:', error);
+    console.error("Error fetching user votes:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch votes',
-      error: error.message
+      message: "Failed to fetch votes",
+      error: error.message,
     });
   }
 };
@@ -1213,18 +1311,18 @@ exports.setWinner = async (req, res) => {
     if (!showcase) {
       return res.status(404).json({
         success: false,
-        message: 'Showcase not found'
+        message: "Showcase not found",
       });
     }
 
     const contestant = await TalentContestant.findById(contestantId)
-      .populate('user')
-      .populate('listing');
+      .populate("user")
+      .populate("listing");
 
     if (!contestant) {
       return res.status(404).json({
         success: false,
-        message: 'Contestant not found'
+        message: "Contestant not found",
       });
     }
 
@@ -1234,27 +1332,27 @@ exports.setWinner = async (req, res) => {
     await contestant.save();
 
     showcase.winner = contestantId;
-    showcase.status = 'completed';
+    showcase.status = "completed";
     await showcase.save();
 
     // Auto-feature the winner on homepage for 30 days
-    const { autoFeatureWinner } = require('../utils/featuredHelper');
+    const { autoFeatureWinner } = require("../utils/featuredHelper");
     const featured = await autoFeatureWinner(contestant);
 
     console.log(`✅ Winner set and featured: ${contestant.performanceTitle}`);
 
     res.json({
       success: true,
-      message: 'Winner set and auto-featured successfully',
+      message: "Winner set and auto-featured successfully",
       showcase,
-      featured
+      featured,
     });
   } catch (error) {
-    console.error('Error setting winner:', error);
+    console.error("Error setting winner:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to set winner',
-      error: error.message
+      message: "Failed to set winner",
+      error: error.message,
     });
   }
 };
@@ -1268,14 +1366,14 @@ exports.addJudgeScore = async (req, res) => {
     if (!contestant) {
       return res.status(404).json({
         success: false,
-        message: 'Contestant not found'
+        message: "Contestant not found",
       });
     }
 
     contestant.judgeScores.push({
       judge: judgeName,
       score,
-      comment
+      comment,
     });
 
     // Calculate total judge score
@@ -1290,15 +1388,15 @@ exports.addJudgeScore = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Judge score added successfully',
-      contestant
+      message: "Judge score added successfully",
+      contestant,
     });
   } catch (error) {
-    console.error('Error adding judge score:', error);
+    console.error("Error adding judge score:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to add judge score',
-      error: error.message
+      message: "Failed to add judge score",
+      error: error.message,
     });
   }
 };
@@ -1312,15 +1410,15 @@ exports.getShowcaseAnalytics = async (req, res) => {
     if (!showcase) {
       return res.status(404).json({
         success: false,
-        message: 'Showcase not found'
+        message: "Showcase not found",
       });
     }
 
     // Get vote distribution by country
     const votesByCountry = await ShowcaseVote.aggregate([
       { $match: { showcase: showcase._id } },
-      { $group: { _id: '$country', count: { $sum: 1 } } },
-      { $sort: { count: -1 } }
+      { $group: { _id: "$country", count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
     ]);
 
     // Get votes over time
@@ -1329,20 +1427,20 @@ exports.getShowcaseAnalytics = async (req, res) => {
       {
         $group: {
           _id: {
-            $dateToString: { format: '%Y-%m-%d %H:%M', date: '$votedAt' }
+            $dateToString: { format: "%Y-%m-%d %H:%M", date: "$votedAt" },
           },
-          count: { $sum: 1 }
-        }
+          count: { $sum: 1 },
+        },
       },
-      { $sort: { _id: 1 } }
+      { $sort: { _id: 1 } },
     ]);
 
     // Get top contestants
     const topContestants = await TalentContestant.find({
       showcase: showcaseId,
-      status: 'approved'
+      status: "approved",
     })
-      .populate('user', 'name username')
+      .populate("user", "name username")
       .sort({ votes: -1 })
       .limit(10);
 
@@ -1354,15 +1452,15 @@ exports.getShowcaseAnalytics = async (req, res) => {
         totalContestants: showcase.contestants.length,
         votesByCountry,
         votesOverTime,
-        topContestants
-      }
+        topContestants,
+      },
     });
   } catch (error) {
-    console.error('Error fetching analytics:', error);
+    console.error("Error fetching analytics:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch analytics',
-      error: error.message
+      message: "Failed to fetch analytics",
+      error: error.message,
     });
   }
 };
@@ -1370,27 +1468,64 @@ exports.getShowcaseAnalytics = async (req, res) => {
 // Submit sponsorship request
 exports.submitSponsorshipRequest = async (req, res) => {
   try {
-    const {
-      name,
-      email,
-      companyName,
-      contributionAmount,
-      currency,
-      message,
-      phone,
-      website
-    } = req.body;
+    const { name, email, companyName, contributionAmount, currency, message, phone, website } =
+      req.body;
 
     // Validate required fields
     if (!name || !email || !contributionAmount) {
       return res.status(400).json({
         success: false,
-        message: 'Name, email, and contribution amount are required'
+        message: "Name, email, and contribution amount are required",
       });
     }
 
-    // Check if payment was already completed (from frontend)
-    const { paymentOrderId, paymentStatus } = req.body;
+    // Verify payment on the server (never trust client-side paymentStatus)
+    const { paymentOrderId } = req.body;
+    if (!paymentOrderId) {
+      return res.status(400).json({
+        success: false,
+        message: "Payment is required before submitting sponsorship.",
+      });
+    }
+
+    const Payment = require("../models/Payment");
+    const expectedCurrency = String(currency || "USD").toUpperCase();
+    const expectedAmount = parseFloat(contributionAmount);
+
+    if (!Number.isFinite(expectedAmount) || expectedAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid contribution amount",
+      });
+    }
+
+    const payment = await Payment.findOne({
+      orderId: paymentOrderId,
+      status: "completed",
+      paymentType: "showcase",
+      user: req.user._id,
+    }).select("amount user paymentType status");
+
+    if (!payment) {
+      return res.status(400).json({
+        success: false,
+        message: "Payment verification failed. Please complete payment first.",
+      });
+    }
+
+    if (payment.amount?.currency && payment.amount.currency !== expectedCurrency) {
+      return res.status(400).json({
+        success: false,
+        message: "Payment currency mismatch",
+      });
+    }
+
+    if (payment.amount?.value && Math.abs(payment.amount.value - expectedAmount) > 0.01) {
+      return res.status(400).json({
+        success: false,
+        message: "Payment amount mismatch",
+      });
+    }
 
     // Create and save sponsorship request
     const sponsorshipRequest = await SponsorshipRequest.create({
@@ -1399,28 +1534,28 @@ exports.submitSponsorshipRequest = async (req, res) => {
       email,
       companyName,
       contributionAmount,
-      currency: currency || 'USD',
+      currency: currency || "USD",
       message,
       phone,
       website,
-      status: 'completed', // Payment completed successfully
+      status: "completed", // Payment completed successfully
       viewedByAdmin: false, // Mark as unread so admin can see new sponsorships
-      paymentOrderId: paymentOrderId || null
+      paymentOrderId: paymentOrderId || null,
     });
 
-    console.log('Sponsorship Request Created:', sponsorshipRequest._id);
+    console.log("Sponsorship Request Created:", sponsorshipRequest._id);
 
     res.json({
       success: true,
-      message: 'Sponsorship request submitted successfully. We will contact you soon!',
-      sponsorshipId: sponsorshipRequest._id
+      message: "Sponsorship request submitted successfully. We will contact you soon!",
+      sponsorshipId: sponsorshipRequest._id,
     });
   } catch (error) {
-    console.error('Error submitting sponsorship request:', error);
+    console.error("Error submitting sponsorship request:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to submit sponsorship request',
-      error: error.message
+      message: "Failed to submit sponsorship request",
+      error: error.message,
     });
   }
 };
@@ -1436,7 +1571,7 @@ exports.getSponsorshipRequests = async (req, res) => {
     const skip = (page - 1) * limit;
 
     const requests = await SponsorshipRequest.find(filter)
-      .populate('user', 'name email profilePhoto')
+      .populate("user", "name email profilePhoto")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
@@ -1451,16 +1586,16 @@ exports.getSponsorshipRequests = async (req, res) => {
         total,
         page: parseInt(page),
         limit: parseInt(limit),
-        pages: Math.ceil(total / limit)
+        pages: Math.ceil(total / limit),
       },
-      unreadCount
+      unreadCount,
     });
   } catch (error) {
-    console.error('Error fetching sponsorship requests:', error);
+    console.error("Error fetching sponsorship requests:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch sponsorship requests',
-      error: error.message
+      message: "Failed to fetch sponsorship requests",
+      error: error.message,
     });
   }
 };
@@ -1474,28 +1609,28 @@ exports.markSponsorshipViewed = async (req, res) => {
       id,
       {
         viewedByAdmin: true,
-        viewedAt: new Date()
+        viewedAt: new Date(),
       },
       { new: true }
-    ).populate('user', 'name email profilePhoto');
+    ).populate("user", "name email profilePhoto");
 
     if (!request) {
       return res.status(404).json({
         success: false,
-        message: 'Sponsorship request not found'
+        message: "Sponsorship request not found",
       });
     }
 
     res.json({
       success: true,
-      request
+      request,
     });
   } catch (error) {
-    console.error('Error marking sponsorship as viewed:', error);
+    console.error("Error marking sponsorship as viewed:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to update sponsorship request',
-      error: error.message
+      message: "Failed to update sponsorship request",
+      error: error.message,
     });
   }
 };
@@ -1512,29 +1647,29 @@ exports.updateSponsorshipStatus = async (req, res) => {
         status,
         adminNotes,
         viewedByAdmin: true,
-        viewedAt: new Date()
+        viewedAt: new Date(),
       },
       { new: true }
-    ).populate('user', 'name email profilePhoto');
+    ).populate("user", "name email profilePhoto");
 
     if (!request) {
       return res.status(404).json({
         success: false,
-        message: 'Sponsorship request not found'
+        message: "Sponsorship request not found",
       });
     }
 
     res.json({
       success: true,
-      message: 'Sponsorship request updated successfully',
-      request
+      message: "Sponsorship request updated successfully",
+      request,
     });
   } catch (error) {
-    console.error('Error updating sponsorship status:', error);
+    console.error("Error updating sponsorship status:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to update sponsorship request',
-      error: error.message
+      message: "Failed to update sponsorship request",
+      error: error.message,
     });
   }
 };
@@ -1549,20 +1684,20 @@ exports.deleteSponsorshipRequest = async (req, res) => {
     if (!request) {
       return res.status(404).json({
         success: false,
-        message: 'Sponsorship request not found'
+        message: "Sponsorship request not found",
       });
     }
 
     res.json({
       success: true,
-      message: 'Sponsorship request deleted successfully'
+      message: "Sponsorship request deleted successfully",
     });
   } catch (error) {
-    console.error('Error deleting sponsorship request:', error);
+    console.error("Error deleting sponsorship request:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to delete sponsorship request',
-      error: error.message
+      message: "Failed to delete sponsorship request",
+      error: error.message,
     });
   }
 };
@@ -1574,14 +1709,14 @@ exports.getUnreadSponsorshipCount = async (req, res) => {
 
     res.json({
       success: true,
-      count
+      count,
     });
   } catch (error) {
-    console.error('Error getting unread count:', error);
+    console.error("Error getting unread count:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get unread count',
-      error: error.message
+      message: "Failed to get unread count",
+      error: error.message,
     });
   }
 };
@@ -1590,14 +1725,14 @@ exports.getUnreadSponsorshipCount = async (req, res) => {
 exports.createEntryFeePayPalOrder = async (req, res) => {
   try {
     const { showcaseId } = req.body;
-    const { createOrder } = require('../utils/paypal');
+    const { createOrder } = require("../utils/paypal");
 
     const showcase = await TalentShowcase.findById(showcaseId);
 
     if (!showcase) {
       return res.status(404).json({
         success: false,
-        message: 'Showcase not found'
+        message: "Showcase not found",
       });
     }
 
@@ -1605,52 +1740,62 @@ exports.createEntryFeePayPalOrder = async (req, res) => {
     if (!showcase.entryFee || showcase.entryFee <= 0) {
       return res.status(400).json({
         success: false,
-        message: 'This showcase does not require an entry fee'
+        message: "This showcase does not require an entry fee",
       });
     }
 
     // Check if user already registered
     const existing = await TalentContestant.findOne({
       showcase: showcaseId,
-      user: req.user._id
+      user: req.user._id,
     });
 
     if (existing) {
       return res.status(400).json({
         success: false,
-        message: 'You have already registered for this showcase'
+        message: "You have already registered for this showcase",
       });
     }
 
     const amount = showcase.entryFee;
-    const currency = showcase.entryFeeCurrency || 'USD';
+    const currency = showcase.entryFeeCurrency || "USD";
 
     // Admin bypass
-    if (req.user?.role === 'admin') {
+    if (req.user?.role === "admin") {
       const fakeOrderId = `ADMIN-ENTRY-${Date.now()}`;
 
       return res.json({
-        id: fakeOrderId,
+        success: true,
+        orderId: fakeOrderId,
         adminBypass: true,
-        message: 'Admin bypass - you can register without payment'
+        message: "Admin bypass - you can register without payment",
       });
     }
 
-    // Create PayPal order
-    const order = await createOrder(amount, currency);
+    // Create PayPal order (authoritative server amount)
+    const order = await createOrder(
+      amount,
+      `showcase-entry-${showcaseId}`,
+      currency,
+      req.user._id,
+      {
+        returnUrl: process.env.PAYPAL_RETURN_URL || "http://localhost:3001",
+        cancelUrl: process.env.PAYPAL_CANCEL_URL || "http://localhost:3001",
+      }
+    );
 
     res.json({
       success: true,
       orderId: order.id,
       amount,
-      currency
+      currency,
     });
   } catch (error) {
-    console.error('Error creating PayPal order for entry fee:', error);
+    console.error("Error creating PayPal order for entry fee:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to create payment order',
-      error: error.message
+      message: "Failed to create payment order",
+      error: error.message,
     });
   }
 };
@@ -1667,10 +1812,10 @@ exports.executeRaffle = async (req, res) => {
     const { customSeed } = req.body; // Optional: for testing/verification
 
     // Verify admin
-    if (req.user?.role !== 'admin') {
+    if (req.user?.role !== "admin") {
       return res.status(403).json({
         success: false,
-        message: 'Only admins can execute raffle'
+        message: "Only admins can execute raffle",
       });
     }
 
@@ -1678,7 +1823,7 @@ exports.executeRaffle = async (req, res) => {
     if (!showcase) {
       return res.status(404).json({
         success: false,
-        message: 'Showcase not found'
+        message: "Showcase not found",
       });
     }
 
@@ -1687,7 +1832,7 @@ exports.executeRaffle = async (req, res) => {
     if (now < showcase.registrationEndDate) {
       return res.status(400).json({
         success: false,
-        message: `Registration is still open until ${showcase.registrationEndDate.toLocaleString()}. Raffle cannot be executed yet.`
+        message: `Registration is still open until ${showcase.registrationEndDate.toLocaleString()}. Raffle cannot be executed yet.`,
       });
     }
 
@@ -1695,22 +1840,22 @@ exports.executeRaffle = async (req, res) => {
     if (showcase.raffleExecutedDate) {
       return res.status(400).json({
         success: false,
-        message: 'Raffle has already been executed for this showcase',
+        message: "Raffle has already been executed for this showcase",
         executedAt: showcase.raffleExecutedDate,
-        executedBy: showcase.raffleExecutedBy
+        executedBy: showcase.raffleExecutedBy,
       });
     }
 
     // Get all submitted contestants (status: 'submitted' or 'pending-raffle')
     const contestants = await TalentContestant.find({
       showcase: showcaseId,
-      status: { $in: ['submitted', 'pending-raffle'] }
-    }).populate('user', 'name email country');
+      status: { $in: ["submitted", "pending-raffle"] },
+    }).populate("user", "name email country");
 
     if (contestants.length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'No contestants have registered for this showcase'
+        message: "No contestants have registered for this showcase",
       });
     }
 
@@ -1726,7 +1871,7 @@ exports.executeRaffle = async (req, res) => {
     showcase.raffleExecutedBy = req.user._id;
     showcase.raffleResults = raffleResults.selected;
     showcase.waitlist = raffleResults.waitlist;
-    showcase.status = 'raffle-completed';
+    showcase.status = "raffle-completed";
 
     // Update selected contestants
     const updatePromises = [];
@@ -1734,10 +1879,10 @@ exports.executeRaffle = async (req, res) => {
     for (const selected of raffleResults.selected) {
       updatePromises.push(
         TalentContestant.findByIdAndUpdate(selected.contestant, {
-          raffleStatus: 'selected',
+          raffleStatus: "selected",
           rafflePosition: selected.position,
           raffleRandomNumber: selected.randomNumber,
-          status: 'selected'
+          status: "selected",
         })
       );
     }
@@ -1746,10 +1891,10 @@ exports.executeRaffle = async (req, res) => {
     for (const waitlisted of raffleResults.waitlist) {
       updatePromises.push(
         TalentContestant.findByIdAndUpdate(waitlisted.contestant, {
-          raffleStatus: 'waitlisted',
+          raffleStatus: "waitlisted",
           rafflePosition: waitlisted.position,
           raffleRandomNumber: waitlisted.randomNumber,
-          status: 'waitlisted'
+          status: "waitlisted",
         })
       );
     }
@@ -1758,59 +1903,73 @@ exports.executeRaffle = async (req, res) => {
 
     // Delete all unselected AND waitlisted contestants immediately after raffle
     // Only keep the selected contestants
-    const selectedIds = raffleResults.selected.map(s => s.contestant.toString());
+    const selectedIds = raffleResults.selected.map((s) => s.contestant.toString());
 
     // Find all non-selected contestants before deleting for logging
     const nonSelectedContestants = await TalentContestant.find({
       showcase: showcaseId,
-      _id: { $nin: selectedIds }
-    }).populate('user', 'name email');
+      _id: { $nin: selectedIds },
+    }).populate("user", "name email");
 
-    console.log(`🗑️  Preparing to delete ${nonSelectedContestants.length} non-selected contestants (waitlisted + unselected) from showcase ${showcaseId}`);
-    nonSelectedContestants.forEach(c => {
-      console.log(`   - Deleting: ${c.user?.name || 'Unknown'} (${c.user?.email || 'No email'}) - Status: ${c.status}`);
+    console.log(
+      `🗑️  Preparing to delete ${nonSelectedContestants.length} non-selected contestants (waitlisted + unselected) from showcase ${showcaseId}`
+    );
+    nonSelectedContestants.forEach((c) => {
+      console.log(
+        `   - Deleting: ${c.user?.name || "Unknown"} (${c.user?.email || "No email"}) - Status: ${c.status}`
+      );
     });
 
     // Permanently delete all contestants except selected ones
     const deleteResult = await TalentContestant.deleteMany({
       showcase: showcaseId,
-      _id: { $nin: selectedIds }
+      _id: { $nin: selectedIds },
     });
 
-    console.log(`✅ Successfully deleted ${deleteResult.deletedCount} non-selected contestants from showcase ${showcaseId}`);
+    console.log(
+      `✅ Successfully deleted ${deleteResult.deletedCount} non-selected contestants from showcase ${showcaseId}`
+    );
 
     // Update showcase with raffle info and save
-    showcase.contestants = raffleResults.selected.map(s => s.contestant);
+    showcase.contestants = raffleResults.selected.map((s) => s.contestant);
     // Clear waitlist since we're deleting them
     showcase.waitlist = [];
     await showcase.save();
 
     // ✨ IMPORTANT: Schedule performances in timeline now that contestants are selected
-    const ShowcaseEventTimeline = require('../models/ShowcaseEventTimeline');
+    const ShowcaseEventTimeline = require("../models/ShowcaseEventTimeline");
     const timeline = await ShowcaseEventTimeline.findOne({ showcase: showcaseId });
 
     if (timeline) {
       // Get the selected contestants with full data
       const selectedContestants = await TalentContestant.find({
         showcase: showcaseId,
-        status: 'selected'
+        status: "selected",
       }).sort({ rafflePosition: 1 });
 
       if (selectedContestants.length > 0) {
-        console.log(`🎬 [RAFFLE] Scheduling ${selectedContestants.length} performances in timeline after raffle`);
+        console.log(
+          `🎬 [RAFFLE] Scheduling ${selectedContestants.length} performances in timeline after raffle`
+        );
 
         // Clear any existing performances and schedule new ones
         timeline.performances = [];
         timeline.schedulePerformances(selectedContestants);
         await timeline.save();
 
-        console.log(`✅ [RAFFLE] Successfully scheduled ${timeline.performances.length} performances`);
+        console.log(
+          `✅ [RAFFLE] Successfully scheduled ${timeline.performances.length} performances`
+        );
         timeline.performances.forEach((perf, idx) => {
-          console.log(`   ${idx + 1}. Duration: ${perf.videoDuration}s - ${selectedContestants[idx]?.performanceTitle || 'Unknown'}`);
+          console.log(
+            `   ${idx + 1}. Duration: ${perf.videoDuration}s - ${selectedContestants[idx]?.performanceTitle || "Unknown"}`
+          );
         });
       }
     } else {
-      console.log('⚠️ [RAFFLE] No timeline found - performances will be scheduled when timeline is created');
+      console.log(
+        "⚠️ [RAFFLE] No timeline found - performances will be scheduled when timeline is created"
+      );
     }
 
     // Generate public report
@@ -1819,16 +1978,14 @@ exports.executeRaffle = async (req, res) => {
     // Send notifications to selected contestants
     // 1) Real-time in-app popup (Socket.io) if they are online
     // 2) Persistent announcement so they can see it later even if offline
-    const Announcement = require('../models/Announcement');
-    const { getIO } = require('../utils/socket');
+    const Announcement = require("../models/Announcement");
+    const { getIO } = require("../utils/socket");
 
     const selectedContestantsForNotify = await TalentContestant.find({
-      _id: { $in: selectedIds }
-    }).populate('user', '_id name email');
+      _id: { $in: selectedIds },
+    }).populate("user", "_id name email");
 
-    const selectedUserIds = selectedContestantsForNotify
-      .map(c => c.user?._id)
-      .filter(Boolean);
+    const selectedUserIds = selectedContestantsForNotify.map((c) => c.user?._id).filter(Boolean);
 
     // Persistent announcement (shows in Profile -> Announcements)
     if (selectedUserIds.length > 0) {
@@ -1837,11 +1994,11 @@ exports.executeRaffle = async (req, res) => {
         message: `Next Steps: Start reaching out to friends, family, and supporters to solicit their votes during the live event. The more support you gather now, the better your chances!`,
         sender: req.user._id,
         recipients: {
-          type: 'individual',
+          type: "individual",
           value: selectedUserIds,
         },
-        priority: 'high',
-        status: 'sent',
+        priority: "high",
+        status: "sent",
       });
     }
 
@@ -1849,7 +2006,7 @@ exports.executeRaffle = async (req, res) => {
     const io = getIO?.();
     if (io && selectedUserIds.length > 0) {
       selectedUserIds.forEach((userId) => {
-        io.to(userId.toString()).emit('raffle-selected', {
+        io.to(userId.toString()).emit("raffle-selected", {
           showcaseId: showcaseId,
           showcaseTitle: showcase.title,
         });
@@ -1858,8 +2015,12 @@ exports.executeRaffle = async (req, res) => {
 
     // Log selections
     selectedContestantsForNotify.forEach((contestantDoc) => {
-      const match = raffleResults.selected.find(s => s.contestant.toString() === contestantDoc._id.toString());
-      console.log(`✅ Selected: ${contestantDoc.user?.name || 'Unknown'} - Position ${match?.position ?? 'N/A'}`);
+      const match = raffleResults.selected.find(
+        (s) => s.contestant.toString() === contestantDoc._id.toString()
+      );
+      console.log(
+        `✅ Selected: ${contestantDoc.user?.name || "Unknown"} - Position ${match?.position ?? "N/A"}`
+      );
     });
 
     res.json({
@@ -1872,16 +2033,16 @@ exports.executeRaffle = async (req, res) => {
         unselectedDeleted: deleteResult.deletedCount,
         keptTotal: raffleResults.selected.length,
         executedAt: raffleResults.raffleTimestamp,
-        executedBy: req.user.email
+        executedBy: req.user.email,
       },
-      publicReport
+      publicReport,
     });
   } catch (error) {
-    console.error('Error executing raffle:', error);
+    console.error("Error executing raffle:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to execute raffle',
-      error: error.message
+      message: "Failed to execute raffle",
+      error: error.message,
     });
   }
 };
@@ -1895,33 +2056,33 @@ exports.getRaffleResults = async (req, res) => {
 
     const showcase = await TalentShowcase.findById(showcaseId)
       .populate({
-        path: 'raffleResults.contestant',
+        path: "raffleResults.contestant",
         populate: {
-          path: 'user',
-          select: 'name country profilePhoto'
-        }
+          path: "user",
+          select: "name country profilePhoto",
+        },
       })
       .populate({
-        path: 'waitlist.contestant',
+        path: "waitlist.contestant",
         populate: {
-          path: 'user',
-          select: 'name country'
-        }
+          path: "user",
+          select: "name country",
+        },
       });
 
     if (!showcase) {
       return res.status(404).json({
         success: false,
-        message: 'Showcase not found'
+        message: "Showcase not found",
       });
     }
 
     if (!showcase.raffleExecutedDate) {
       return res.status(400).json({
         success: false,
-        message: 'Raffle has not been executed yet',
+        message: "Raffle has not been executed yet",
         registrationEndDate: showcase.registrationEndDate,
-        raffleScheduledDate: showcase.raffleScheduledDate
+        raffleScheduledDate: showcase.raffleScheduledDate,
       });
     }
 
@@ -1930,61 +2091,62 @@ exports.getRaffleResults = async (req, res) => {
       showcase: {
         title: showcase.title,
         category: showcase.category,
-        maxContestants: showcase.maxContestants
+        maxContestants: showcase.maxContestants,
       },
       raffle: {
         executedDate: showcase.raffleExecutedDate,
         raffleSeed: showcase.raffleSeed, // Public for verification
-        algorithm: 'SHA-256 Deterministic Random Selection'
+        algorithm: "SHA-256 Deterministic Random Selection",
       },
       statistics: {
         totalApplicants: showcase.raffleResults.length + showcase.waitlist.length,
         selected: showcase.raffleResults.length,
-        waitlisted: showcase.waitlist.length
+        waitlisted: showcase.waitlist.length,
       },
-      selectedContestants: showcase.raffleResults.map(result => ({
+      selectedContestants: showcase.raffleResults.map((result) => ({
         position: result.position,
         randomNumber: result.randomNumber,
         selectedAt: result.selectedAt,
         contestant: {
           id: result.contestant._id,
-          name: result.contestant.user?.name || 'Unknown',
+          name: result.contestant.user?.name || "Unknown",
           country: result.contestant.user?.country || result.contestant.country,
           performanceTitle: result.contestant.performanceTitle,
-          thumbnailUrl: result.contestant.thumbnailUrl
-        }
+          thumbnailUrl: result.contestant.thumbnailUrl,
+        },
       })),
-      waitlist: showcase.waitlist.slice(0, 10).map(result => ({ // Show top 10
+      waitlist: showcase.waitlist.slice(0, 10).map((result) => ({
+        // Show top 10
         position: result.position,
         randomNumber: result.randomNumber,
         contestant: {
           id: result.contestant._id,
-          name: result.contestant.user?.name || 'Unknown',
-          country: result.contestant.user?.country || result.contestant.country
-        }
+          name: result.contestant.user?.name || "Unknown",
+          country: result.contestant.user?.country || result.contestant.country,
+        },
       })),
       verification: {
         howToVerify: [
-          '1. Use the raffle seed provided above',
+          "1. Use the raffle seed provided above",
           '2. Apply SHA-256 hash to "seed-contestantIndex" for each contestant',
-          '3. Sort all contestants by their random numbers (ascending)',
-          '4. The top N contestants with the lowest random numbers are selected',
-          '5. Compare the contestant IDs with the selected list above'
+          "3. Sort all contestants by their random numbers (ascending)",
+          "4. The top N contestants with the lowest random numbers are selected",
+          "5. Compare the contestant IDs with the selected list above",
         ],
-        note: 'This raffle used cryptographically secure random number generation to ensure fairness and transparency.'
-      }
+        note: "This raffle used cryptographically secure random number generation to ensure fairness and transparency.",
+      },
     };
 
     res.json({
       success: true,
-      results
+      results,
     });
   } catch (error) {
-    console.error('Error getting raffle results:', error);
+    console.error("Error getting raffle results:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get raffle results',
-      error: error.message
+      message: "Failed to get raffle results",
+      error: error.message,
     });
   }
 };
@@ -2001,14 +2163,14 @@ exports.verifyRaffleResults = async (req, res) => {
     if (!showcase) {
       return res.status(404).json({
         success: false,
-        message: 'Showcase not found'
+        message: "Showcase not found",
       });
     }
 
     if (!showcase.raffleExecutedDate) {
       return res.status(400).json({
         success: false,
-        message: 'Raffle has not been executed yet'
+        message: "Raffle has not been executed yet",
       });
     }
 
@@ -2016,17 +2178,17 @@ exports.verifyRaffleResults = async (req, res) => {
     // We need ALL contestants who were part of the raffle, not just selected/waitlisted
     const allContestants = await TalentContestant.find({
       showcase: showcaseId,
-      status: { $in: ['selected', 'waitlisted'] }
+      status: { $in: ["selected", "waitlisted"] },
     }).sort({ createdAt: 1 }); // Sort by creation time to maintain original order
 
     if (allContestants.length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'No contestants found for this raffle'
+        message: "No contestants found for this raffle",
       });
     }
 
-    const expectedSelected = showcase.raffleResults.map(r => r.contestant.toString());
+    const expectedSelected = showcase.raffleResults.map((r) => r.contestant.toString());
 
     // Verify raffle
     const isValid = verifyRaffle(
@@ -2040,21 +2202,21 @@ exports.verifyRaffleResults = async (req, res) => {
       success: true,
       verified: isValid,
       message: isValid
-        ? 'Raffle results are valid and verifiable'
-        : 'Raffle results verification failed',
+        ? "Raffle results are valid and verifiable"
+        : "Raffle results verification failed",
       details: {
         raffleSeed: showcase.raffleSeed,
         totalContestants: allContestants.length,
         selectedContestants: expectedSelected.length,
-        executedDate: showcase.raffleExecutedDate
-      }
+        executedDate: showcase.raffleExecutedDate,
+      },
     });
   } catch (error) {
-    console.error('Error verifying raffle:', error);
+    console.error("Error verifying raffle:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to verify raffle',
-      error: error.message
+      message: "Failed to verify raffle",
+      error: error.message,
     });
   }
 };
@@ -2071,7 +2233,7 @@ exports.getRaffleStatus = async (req, res) => {
     if (!showcase) {
       return res.status(404).json({
         success: false,
-        message: 'Showcase not found'
+        message: "Showcase not found",
       });
     }
 
@@ -2080,14 +2242,14 @@ exports.getRaffleStatus = async (req, res) => {
     // Count current registrations
     const registrationCount = await TalentContestant.countDocuments({
       showcase: showcaseId,
-      status: { $in: ['submitted', 'pending-raffle', 'selected', 'waitlisted'] }
+      status: { $in: ["submitted", "pending-raffle", "selected", "waitlisted"] },
     });
 
     const status = {
       showcase: {
         title: showcase.title,
         category: showcase.category,
-        maxContestants: showcase.maxContestants
+        maxContestants: showcase.maxContestants,
       },
       registration: {
         startDate: showcase.registrationStartDate,
@@ -2096,34 +2258,39 @@ exports.getRaffleStatus = async (req, res) => {
         isOpen: now >= showcase.registrationStartDate && now <= showcase.registrationEndDate,
         hasEnded: now > showcase.registrationEndDate,
         currentRegistrations: registrationCount,
-        spotsAvailable: showcase.maxContestants
+        spotsAvailable: showcase.maxContestants,
       },
       raffle: {
         scheduledDate: showcase.raffleScheduledDate,
         executedDate: showcase.raffleExecutedDate,
         isExecuted: !!showcase.raffleExecutedDate,
-        isPending: now > showcase.registrationEndDate && !showcase.raffleExecutedDate
+        isPending: now > showcase.registrationEndDate && !showcase.raffleExecutedDate,
       },
       timeline: {
         current: now,
-        phase: now < showcase.registrationStartDate ? 'before-registration' :
-               now <= showcase.registrationEndDate ? 'registration-open' :
-               now <= showcase.submissionDeadline ? 'submission-period' :
-               !showcase.raffleExecutedDate ? 'awaiting-raffle' :
-               'raffle-completed'
-      }
+        phase:
+          now < showcase.registrationStartDate
+            ? "before-registration"
+            : now <= showcase.registrationEndDate
+              ? "registration-open"
+              : now <= showcase.submissionDeadline
+                ? "submission-period"
+                : !showcase.raffleExecutedDate
+                  ? "awaiting-raffle"
+                  : "raffle-completed",
+      },
     };
 
     res.json({
       success: true,
-      status
+      status,
     });
   } catch (error) {
-    console.error('Error getting raffle status:', error);
+    console.error("Error getting raffle status:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get raffle status',
-      error: error.message
+      message: "Failed to get raffle status",
+      error: error.message,
     });
   }
 };
@@ -2137,7 +2304,7 @@ exports.uploadCommercialVideo = async (req, res) => {
     if (!req.file) {
       return res.status(400).json({
         success: false,
-        message: 'No video file provided'
+        message: "No video file provided",
       });
     }
 
@@ -2145,7 +2312,7 @@ exports.uploadCommercialVideo = async (req, res) => {
     if (!showcase) {
       return res.status(404).json({
         success: false,
-        message: 'Showcase not found'
+        message: "Showcase not found",
       });
     }
 
@@ -2153,25 +2320,35 @@ exports.uploadCommercialVideo = async (req, res) => {
     const videoUrl = `/uploads/listings/${req.file.filename}`;
 
     // Get video/audio duration using get-video-duration
-    const path = require('path');
-    const { getVideoDurationInSeconds } = require('get-video-duration');
+    const { getVideoDurationInSeconds } = require("get-video-duration");
 
-    const MAX_COMMERCIAL_SECONDS = 180;
+    const MAX_COMMERCIAL_SECONDS = Number(process.env.COMMERCIAL_MAX_SECONDS || 600); // 10 min default
+    const requestedDuration = Number(req.body?.duration);
     let duration = 30; // Default 30 seconds
 
     // Try to get actual duration
     try {
-      const filePath = path.join(__dirname, '..', videoUrl);
+      // Multer provides a safe on-disk path; avoids Windows/leading-slash join issues.
+      const filePath = req.file.path;
       const durationInSeconds = await getVideoDurationInSeconds(filePath);
       duration = Math.ceil(durationInSeconds);
       if (duration > MAX_COMMERCIAL_SECONDS) {
-        console.log(`⚠️ Detected commercial duration ${duration}s exceeds ${MAX_COMMERCIAL_SECONDS}s; capping to ${MAX_COMMERCIAL_SECONDS}s`);
+        console.log(
+          `⚠️ Detected commercial duration ${duration}s exceeds ${MAX_COMMERCIAL_SECONDS}s; capping to ${MAX_COMMERCIAL_SECONDS}s`
+        );
         duration = MAX_COMMERCIAL_SECONDS;
       }
       console.log(`✅ Detected commercial duration: ${duration} seconds for ${req.file.filename}`);
     } catch (err) {
-      console.warn('⚠️ Could not detect video duration, using default 30s:', err.message);
-      duration = 30; // Fallback to 30 seconds
+      console.warn("⚠️ Could not detect video duration:", err.message);
+      if (Number.isFinite(requestedDuration) && requestedDuration > 0) {
+        duration = Math.ceil(requestedDuration);
+        if (duration > MAX_COMMERCIAL_SECONDS) duration = MAX_COMMERCIAL_SECONDS;
+        console.log(`✅ Using client-provided commercial duration: ${duration}s`);
+      } else {
+        console.warn("⚠️ No valid client duration provided, using default 30s");
+        duration = 30;
+      }
     }
 
     // Initialize commercials array if it doesn't exist
@@ -2185,31 +2362,34 @@ exports.uploadCommercialVideo = async (req, res) => {
       title: title || `Advertisement ${showcase.commercials.length + 1}`,
       duration: duration,
       order: showcase.commercials.length,
-      uploadedAt: new Date()
+      uploadedAt: new Date(),
     };
 
     showcase.commercials.push(newCommercial);
 
     // Auto-calculate total commercial duration (in minutes)
-    const totalDurationSeconds = showcase.commercials.reduce((sum, c) => sum + (c.duration || 0), 0);
+    const totalDurationSeconds = showcase.commercials.reduce(
+      (sum, c) => sum + (c.duration || 0),
+      0
+    );
     showcase.commercialDuration = Math.ceil(totalDurationSeconds / 60);
 
     await showcase.save();
 
     res.json({
       success: true,
-      message: 'Commercial uploaded successfully',
+      message: "Commercial uploaded successfully",
       videoUrl: videoUrl,
       commercials: showcase.commercials,
       totalDuration: totalDurationSeconds,
-      commercialDuration: showcase.commercialDuration
+      commercialDuration: showcase.commercialDuration,
     });
   } catch (error) {
-    console.error('Error uploading commercial video:', error);
+    console.error("Error uploading commercial video:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to upload commercial video',
-      error: error.message
+      message: "Failed to upload commercial video",
+      error: error.message,
     });
   }
 };
@@ -2224,21 +2404,21 @@ exports.deleteCommercialVideo = async (req, res) => {
     if (!showcase) {
       return res.status(404).json({
         success: false,
-        message: 'Showcase not found'
+        message: "Showcase not found",
       });
     }
 
     if (!showcase.commercials || showcase.commercials.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'No commercials found'
+        message: "No commercials found",
       });
     }
 
     if (index < 0 || index >= showcase.commercials.length) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid commercial index'
+        message: "Invalid commercial index",
       });
     }
 
@@ -2254,36 +2434,40 @@ exports.deleteCommercialVideo = async (req, res) => {
     });
 
     // Auto-calculate total commercial duration (in minutes)
-    const totalDurationSeconds = showcase.commercials.reduce((sum, c) => sum + (c.duration || 0), 0);
+    const totalDurationSeconds = showcase.commercials.reduce(
+      (sum, c) => sum + (c.duration || 0),
+      0
+    );
     showcase.commercialDuration = Math.ceil(totalDurationSeconds / 60);
 
     await showcase.save();
 
     // Optional: Delete the file from filesystem
     try {
-      const path = require('path');
-      const fs = require('fs');
-      const filePath = path.join(__dirname, '..', commercialToDelete.videoUrl);
+      const path = require("path");
+      const fs = require("fs");
+      const relativeVideoPath = (commercialToDelete.videoUrl || "").replace(/^\/+/, "");
+      const filePath = path.join(__dirname, "..", relativeVideoPath);
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
       }
     } catch (err) {
-      console.warn('Could not delete commercial file:', err.message);
+      console.warn("Could not delete commercial file:", err.message);
     }
 
     res.json({
       success: true,
-      message: 'Commercial deleted successfully',
+      message: "Commercial deleted successfully",
       commercials: showcase.commercials,
       totalDuration: totalDurationSeconds,
-      commercialDuration: showcase.commercialDuration
+      commercialDuration: showcase.commercialDuration,
     });
   } catch (error) {
-    console.error('Error deleting commercial video:', error);
+    console.error("Error deleting commercial video:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to delete commercial video',
-      error: error.message
+      message: "Failed to delete commercial video",
+      error: error.message,
     });
   }
 };
@@ -2294,7 +2478,7 @@ exports.uploadStreamVideo = async (req, res) => {
     if (!req.file) {
       return res.status(400).json({
         success: false,
-        message: 'No video file provided'
+        message: "No video file provided",
       });
     }
 
@@ -2303,15 +2487,15 @@ exports.uploadStreamVideo = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Stream video uploaded successfully',
-      streamUrl: videoUrl
+      message: "Stream video uploaded successfully",
+      streamUrl: videoUrl,
     });
   } catch (error) {
-    console.error('Error uploading stream video:', error);
+    console.error("Error uploading stream video:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to upload stream video',
-      error: error.message
+      message: "Failed to upload stream video",
+      error: error.message,
     });
   }
 };
@@ -2322,7 +2506,7 @@ exports.uploadStaticImage = async (req, res) => {
     if (!req.file) {
       return res.status(400).json({
         success: false,
-        message: 'No image file provided'
+        message: "No image file provided",
       });
     }
 
@@ -2331,15 +2515,15 @@ exports.uploadStaticImage = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Image uploaded successfully',
-      imageUrl: imageUrl
+      message: "Image uploaded successfully",
+      imageUrl: imageUrl,
     });
   } catch (error) {
-    console.error('Error uploading static image:', error);
+    console.error("Error uploading static image:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to upload image',
-      error: error.message
+      message: "Failed to upload image",
+      error: error.message,
     });
   }
 };
@@ -2347,35 +2531,36 @@ exports.uploadStaticImage = async (req, res) => {
 // Get structured timeline for a showcase
 exports.getStructuredTimeline = async (req, res) => {
   try {
-    const ShowcaseEventTimeline = require('../models/ShowcaseEventTimeline');
-    const TalentContestant = require('../models/TalentContestant');
+    const ShowcaseEventTimeline = require("../models/ShowcaseEventTimeline");
+    const TalentContestant = require("../models/TalentContestant");
 
     // First, get the showcase to check if auto-initialization is needed
     const showcase = await TalentShowcase.findById(req.params.id);
     if (!showcase) {
       return res.status(404).json({
         success: false,
-        message: 'Showcase not found'
+        message: "Showcase not found",
       });
     }
 
     let timeline = await ShowcaseEventTimeline.findOne({
-      showcase: req.params.id
-    }).populate('showcase')
+      showcase: req.params.id,
+    })
+      .populate("showcase")
       .populate({
-        path: 'performances.contestant',
+        path: "performances.contestant",
         populate: {
-          path: 'user',
-          select: 'name username profilePhoto'
-        }
+          path: "user",
+          select: "name username profilePhoto",
+        },
       })
       .populate({
-        path: 'winnerAnnouncement.winner',
-        select: 'performanceTitle performanceDescription user votes country thumbnailUrl videoUrl',
+        path: "winnerAnnouncement.winner",
+        select: "performanceTitle performanceDescription user votes country thumbnailUrl videoUrl",
         populate: {
-          path: 'user',
-          select: 'name username profilePhoto'
-        }
+          path: "user",
+          select: "name username profilePhoto",
+        },
       });
 
     // AUTO-INITIALIZE: If no timeline exists and event time has passed, create it
@@ -2383,14 +2568,16 @@ exports.getStructuredTimeline = async (req, res) => {
       const eventTime = new Date(showcase.eventDate).getTime();
       const currentTime = Date.now();
 
-      if (currentTime >= eventTime && showcase.status !== 'completed') {
-        console.log(`🚀 AUTO-INITIALIZE (via timeline fetch): Event "${showcase.title}" should be live, creating timeline...`);
+      if (currentTime >= eventTime && showcase.status !== "completed") {
+        console.log(
+          `🚀 AUTO-INITIALIZE (via timeline fetch): Event "${showcase.title}" should be live, creating timeline...`
+        );
 
         try {
           // Get selected contestants
           const contestants = await TalentContestant.find({
             showcase: req.params.id,
-            status: 'selected'
+            status: "selected",
           }).sort({ rafflePosition: 1 });
 
           if (contestants.length > 0) {
@@ -2403,21 +2590,27 @@ exports.getStructuredTimeline = async (req, res) => {
                 commercialDuration: showcase.commercialDuration || 0,
                 votingDuration: showcase.votingDisplayDuration || 3,
                 winnerDeclarationDuration: showcase.winnerDisplayDuration || 3,
-                thankYouDuration: showcase.thankYouDuration || 2
+                thankYouDuration: showcase.thankYouDuration || 2,
               },
               welcomeMessage: {
                 title: showcase.welcomeMessage || `Welcome to ${showcase.title}!`,
-                message: showcase.rulesMessage || `Get ready for amazing talent! We have ${contestants.length} incredible contestants competing.`,
-                rules: showcase.rulesMessage ? showcase.rulesMessage.split('\n') : []
+                message:
+                  showcase.rulesMessage ||
+                  `Get ready for amazing talent! We have ${contestants.length} incredible contestants competing.`,
+                rules: showcase.rulesMessage ? showcase.rulesMessage.split("\n") : [],
               },
               thankYouMessage: {
-                title: 'Thank You for Joining Us!',
-                message: showcase.thankYouMessage || `Thank you for being part of ${showcase.title}! See you next month!`,
-                nextEventDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-              }
+                title: "Thank You for Joining Us!",
+                message:
+                  showcase.thankYouMessage ||
+                  `Thank you for being part of ${showcase.title}! See you next month!`,
+                nextEventDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+              },
             });
 
             // Generate timeline phases
+            // Ensure generateTimeline() can access showcase.commercials if present
+            timeline.showcase = showcase;
             timeline.generateTimeline();
 
             // CRITICAL: Initialize phase start/end times BEFORE scheduling performances
@@ -2428,42 +2621,46 @@ exports.getStructuredTimeline = async (req, res) => {
               phase.startTime = new Date(currentTime);
               phase.endTime = new Date(currentTime.getTime() + phase.duration * 60000);
               currentTime = new Date(phase.endTime);
-              phase.status = index === 0 ? 'active' : 'pending'; // First phase is active
+              phase.status = index === 0 ? "active" : "pending"; // First phase is active
             });
 
             // Now schedule contestant performances (requires phase times to be set)
             timeline.schedulePerformances(contestants);
-            console.log(`🎬 AUTO-INITIALIZE: Scheduled ${timeline.performances.length} performances`);
+            console.log(
+              `🎬 AUTO-INITIALIZE: Scheduled ${timeline.performances.length} performances`
+            );
 
             // Auto-start the event
             timeline.isLive = true;
             timeline.actualStartTime = eventStartTime;
-            timeline.currentPhase = 'welcome';
-            timeline.eventStatus = 'live';
+            timeline.currentPhase = "welcome";
+            timeline.eventStatus = "live";
 
             await timeline.save();
 
             // Update showcase status
-            if (showcase.status !== 'live') {
-              showcase.status = 'live';
+            if (showcase.status !== "live") {
+              showcase.status = "live";
               await showcase.save();
             }
 
-            console.log(`✅ AUTO-INITIALIZE: Timeline created and event started for "${showcase.title}"`);
+            console.log(
+              `✅ AUTO-INITIALIZE: Timeline created and event started for "${showcase.title}"`
+            );
 
             // Populate the timeline for response
             timeline = await ShowcaseEventTimeline.findById(timeline._id)
-              .populate('showcase')
+              .populate("showcase")
               .populate({
-                path: 'performances.contestant',
+                path: "performances.contestant",
                 populate: {
-                  path: 'user',
-                  select: 'name username profilePhoto'
-                }
+                  path: "user",
+                  select: "name username profilePhoto",
+                },
               });
           }
         } catch (initError) {
-          console.error('❌ AUTO-INITIALIZE ERROR:', initError);
+          console.error("❌ AUTO-INITIALIZE ERROR:", initError);
         }
       }
     }
@@ -2471,16 +2668,76 @@ exports.getStructuredTimeline = async (req, res) => {
     if (!timeline) {
       return res.status(404).json({
         success: false,
-        message: 'Timeline not found for this showcase'
+        message: "Timeline not found for this showcase",
       });
     }
 
     // Get approved contestants
     const contestants = await TalentContestant.find({
       showcase: req.params.id,
-      status: 'selected'
-    }).populate('user', 'name username profilePhoto')
+      status: "selected",
+    })
+      .populate("user", "name username profilePhoto")
       .sort({ rafflePosition: 1 }); // Sort by raffle position for performance order
+
+    // If contestants selection changed after timeline creation, ensure performances includes ALL selected.
+    // This prevents the performance phase from only ever playing the contestants that were selected at
+    // the time the timeline was first created.
+    try {
+      const shouldEnsurePerformances =
+        timeline &&
+        Array.isArray(timeline.performances) &&
+        Array.isArray(contestants) &&
+        (timeline.currentPhase === "welcome" || timeline.currentPhase === "performance");
+
+      if (shouldEnsurePerformances) {
+        const existingContestantIds = new Set(
+          timeline.performances
+            .map((p) => (p?.contestant?._id || p?.contestant)?.toString())
+            .filter(Boolean)
+        );
+
+        const missing = contestants.filter((c) => !existingContestantIds.has(c?._id?.toString()));
+
+        if (missing.length > 0) {
+          const maxOrder = timeline.performances.reduce((max, p) => {
+            const n = Number(p?.performanceOrder);
+            return Number.isFinite(n) ? Math.max(max, n) : max;
+          }, 0);
+
+          const fallbackSeconds = (timeline.config?.performanceSlotDuration || 5) * 60;
+
+          console.log(
+            `🎬 [TIMELINE] Appending ${missing.length} missing performances (had ${timeline.performances.length}, selected ${contestants.length})`
+          );
+
+          missing.forEach((contestant, idx) => {
+            const raw = Number(contestant?.videoDuration);
+            const videoDurationSeconds = Number.isFinite(raw) && raw > 0 ? raw : fallbackSeconds;
+
+            timeline.performances.push({
+              contestant: contestant._id,
+              performanceOrder: maxOrder + idx + 1,
+              videoDuration: videoDurationSeconds,
+              status: "pending",
+            });
+          });
+
+          await timeline.save();
+
+          // Re-populate so response has full contestant objects
+          await timeline.populate({
+            path: "performances.contestant",
+            populate: { path: "user", select: "name username profilePhoto" },
+          });
+        }
+      }
+    } catch (ensureErr) {
+      console.error(
+        "⚠️ [TIMELINE] Failed to ensure performances include all selected contestants:",
+        ensureErr
+      );
+    }
 
     // Get current phase and time remaining
     const now = new Date();
@@ -2489,7 +2746,7 @@ exports.getStructuredTimeline = async (req, res) => {
     let currentPerformer = null;
 
     // Find current active phase
-    const activePhase = timeline.phases.find(p => p.status === 'active');
+    const activePhase = timeline.phases.find((p) => p.status === "active");
     if (activePhase) {
       currentPhaseObj = activePhase;
       const phaseEnd = new Date(activePhase.endTime);
@@ -2498,44 +2755,56 @@ exports.getStructuredTimeline = async (req, res) => {
 
     // If we're in the performance phase, find the current performer
     let activePerformance = null;
-    const currentPhaseName = typeof timeline.currentPhase === 'object'
-      ? timeline.currentPhase.name
-      : timeline.currentPhase;
+    const currentPhaseName =
+      typeof timeline.currentPhase === "object"
+        ? timeline.currentPhase.name
+        : timeline.currentPhase;
 
-    if (currentPhaseName === 'performance' && timeline.performances && timeline.performances.length > 0) {
+    if (
+      currentPhaseName === "performance" &&
+      timeline.performances &&
+      timeline.performances.length > 0
+    ) {
       // CRITICAL: Sort performances by performanceOrder to ensure correct playback sequence
       timeline.performances.sort((a, b) => a.performanceOrder - b.performanceOrder);
 
-      console.log('🎭 [DEBUG] Performance phase - checking for active performer');
-      console.log('🎭 [DEBUG] Total performances:', timeline.performances.length);
-      console.log('🎭 [DEBUG] Performances status:', timeline.performances.map((p, i) => `#${i+1}: ${p.status} - ${p.contestant?.performanceTitle || 'NO CONTESTANT'}`));
+      console.log("🎭 [DEBUG] Performance phase - checking for active performer");
+      console.log("🎭 [DEBUG] Total performances:", timeline.performances.length);
+      console.log(
+        " [DEBUG] Performances status:",
+        timeline.performances.map(
+          (p, i) => `#${i + 1}: ${p.status} - ${p.contestant?.performanceTitle || "NO CONTESTANT"}`
+        )
+      );
 
       // DEBUG: Log all performance videoDurations AND contestant population status
-      console.log('🎭 [DEBUG] Performance videoDurations:');
+      console.log("🎭 [DEBUG] Performance videoDurations:");
       timeline.performances.forEach((p, i) => {
-        console.log(`  Performance #${i+1}:`, {
+        console.log(`  Performance #${i + 1}:`, {
           order: p.performanceOrder,
           status: p.status,
           videoDuration: p.videoDuration,
-          contestantId: p.contestant?._id || 'NULL CONTESTANT ID',
+          contestantId: p.contestant?._id || "NULL CONTESTANT ID",
           contestantPopulated: !!p.contestant,
           contestantVideoDuration: p.contestant?.videoDuration,
-          title: p.contestant?.performanceTitle
+          title: p.contestant?.performanceTitle,
         });
       });
 
       // Find the active performance
-      activePerformance = timeline.performances.find(p => p.status === 'active');
+      activePerformance = timeline.performances.find((p) => p.status === "active");
 
       // CRITICAL: Ensure only ONE performance is active at a time
-      const multipleActive = timeline.performances.filter(p => p.status === 'active');
+      const multipleActive = timeline.performances.filter((p) => p.status === "active");
       if (multipleActive.length > 1) {
-        console.error('❌ CRITICAL: Multiple performances marked as active! Fixing...');
+        console.error("❌ CRITICAL: Multiple performances marked as active! Fixing...");
         // Keep only the first one active, mark others as pending
         multipleActive.forEach((perf, idx) => {
           if (idx > 0) {
-            console.log(`⚠️ Resetting duplicate active performance #${perf.performanceOrder} to pending`);
-            perf.status = 'pending';
+            console.log(
+              `⚠️ Resetting duplicate active performance #${perf.performanceOrder} to pending`
+            );
+            perf.status = "pending";
           }
         });
         activePerformance = multipleActive[0];
@@ -2543,19 +2812,48 @@ exports.getStructuredTimeline = async (req, res) => {
 
       // If no active performance found but we're in performance phase, use the first pending one
       if (!activePerformance) {
-        activePerformance = timeline.performances.find(p => p.status === 'pending');
-        console.log('⚠️ [TIMELINE] No active performance found, using first pending:', activePerformance?.contestant?.performanceTitle);
+        activePerformance = timeline.performances.find((p) => p.status === "pending");
+        console.log(
+          "⚠️ [TIMELINE] No active performance found, using first pending:",
+          activePerformance?.contestant?.performanceTitle
+        );
+      }
+
+      // If we had to fall back to a pending performance, promote it to active so auto-advance works.
+      if (
+        activePerformance &&
+        activePerformance.status === "pending" &&
+        timeline.performances.filter((p) => p.status === "active").length === 0
+      ) {
+        const durationSeconds =
+          Number(activePerformance.videoDuration) > 0
+            ? Number(activePerformance.videoDuration)
+            : Number(activePerformance.contestant?.videoDuration) > 0
+              ? Number(activePerformance.contestant.videoDuration)
+              : (timeline.config?.performanceSlotDuration || 5) * 60;
+
+        activePerformance.status = "active";
+        activePerformance.startTime = new Date();
+        activePerformance.endTime = new Date(Date.now() + durationSeconds * 1000);
+        timeline.currentPerformance = {
+          contestant: activePerformance.contestant?._id || activePerformance.contestant,
+          performanceOrder: activePerformance.performanceOrder,
+          startTime: activePerformance.startTime,
+          timeRemaining: durationSeconds,
+        };
+
+        await timeline.save();
       }
 
       if (activePerformance) {
-        console.log('🎭 [DEBUG] Found performance:', {
+        console.log("🎭 [DEBUG] Found performance:", {
           status: activePerformance.status,
           hasContestant: !!activePerformance.contestant,
           contestantId: activePerformance.contestant?._id,
           title: activePerformance.contestant?.performanceTitle,
           videoUrl: activePerformance.contestant?.videoUrl,
           performanceVideoDuration: activePerformance.videoDuration,
-          contestantVideoDuration: activePerformance.contestant?.videoDuration
+          contestantVideoDuration: activePerformance.contestant?.videoDuration,
         });
       }
 
@@ -2573,47 +2871,68 @@ exports.getStructuredTimeline = async (req, res) => {
           console.log(`✅ Using performance.videoDuration: ${perfDuration}s`);
         } else if (contestantDuration && contestantDuration > 0) {
           currentPerformer.videoDuration = contestantDuration;
-          console.log(`⚠️ Performance.videoDuration missing, using contestant.videoDuration: ${contestantDuration}s`);
+          console.log(
+            `⚠️ Performance.videoDuration missing, using contestant.videoDuration: ${contestantDuration}s`
+          );
         } else {
-          console.error(`❌ CRITICAL: No videoDuration found for ${currentPerformer.performanceTitle}!`);
+          console.error(
+            `❌ CRITICAL: No videoDuration found for ${currentPerformer.performanceTitle}!`
+          );
           // Don't set a fallback - let it be null/undefined to surface the issue
         }
 
-        console.log('✅ [TIMELINE] Current performer set:', currentPerformer.performanceTitle, 'URL:', currentPerformer.videoUrl, 'Duration:', currentPerformer.videoDuration);
+        console.log(
+          "✅ [TIMELINE] Current performer set:",
+          currentPerformer.performanceTitle,
+          "URL:",
+          currentPerformer.videoUrl,
+          "Duration:",
+          currentPerformer.videoDuration
+        );
       } else {
-        console.log('❌ [TIMELINE] No currentPerformer found - activePerformance:', !!activePerformance, 'contestant:', !!activePerformance?.contestant);
+        console.log(
+          "❌ [TIMELINE] No currentPerformer found - activePerformance:",
+          !!activePerformance,
+          "contestant:",
+          !!activePerformance?.contestant
+        );
       }
     }
 
-    console.log('📤 [TIMELINE API RESPONSE]:', {
+    console.log("📤 [TIMELINE API RESPONSE]:", {
       currentPhase: currentPhaseName,
       hasCurrentPerformer: !!currentPerformer,
       currentPerformerTitle: currentPerformer?.performanceTitle,
       currentPerformerVideoUrl: currentPerformer?.videoUrl,
       performancesCount: timeline.performances?.length || 0,
-      activePerformanceIndex: timeline.performances?.findIndex(p => p.status === 'active'),
+      activePerformanceIndex: timeline.performances?.findIndex((p) => p.status === "active"),
       performancesExist: !!timeline.performances,
-      rawPerformances: timeline.performances?.map(p => ({
+      rawPerformances: timeline.performances?.map((p) => ({
         order: p.performanceOrder,
         status: p.status,
         hasContestant: !!p.contestant,
-        contestantId: p.contestant?._id?.toString() || 'NULL'
-      }))
+        contestantId: p.contestant?._id?.toString() || "NULL",
+      })),
     });
 
     // CRITICAL: Check if we're in performance phase but have no performer
-    if (currentPhaseName === 'performance' && !currentPerformer) {
-      console.error('❌❌❌ CRITICAL ERROR: Performance phase active but NO currentPerformer!');
-      console.error('Timeline ID:', timeline._id);
-      console.error('Showcase ID:', timeline.showcase?._id);
-      console.error('Performances count:', timeline.performances?.length || 0);
-      console.error('Active performance:', activePerformance ? 'EXISTS' : 'NULL');
-      console.error('Active performance has contestant:', activePerformance?.contestant ? 'YES' : 'NO');
+    if (currentPhaseName === "performance" && !currentPerformer) {
+      console.error("❌❌❌ CRITICAL ERROR: Performance phase active but NO currentPerformer!");
+      console.error("Timeline ID:", timeline._id);
+      console.error("Showcase ID:", timeline.showcase?._id);
+      console.error("Performances count:", timeline.performances?.length || 0);
+      console.error("Active performance:", activePerformance ? "EXISTS" : "NULL");
+      console.error(
+        "Active performance has contestant:",
+        activePerformance?.contestant ? "YES" : "NO"
+      );
 
       if (timeline.performances && timeline.performances.length > 0) {
-        console.error('All performance records:');
+        console.error("All performance records:");
         timeline.performances.forEach((p, i) => {
-          console.error(`  [${i}] Order: ${p.performanceOrder}, Status: ${p.status}, Contestant ID in DB: ${p.contestant}, Populated: ${!!p.contestant?._id}`);
+          console.error(
+            `  [${i}] Order: ${p.performanceOrder}, Status: ${p.status}, Contestant ID in DB: ${p.contestant}, Populated: ${!!p.contestant?._id}`
+          );
         });
       }
     }
@@ -2622,13 +2941,17 @@ exports.getStructuredTimeline = async (req, res) => {
     const baseViewers = Number.isFinite(Number(timeline.viewerCountBase))
       ? Math.max(0, Number(timeline.viewerCountBase))
       : 2000;
-    const activeViewersCount = Array.isArray(timeline.activeViewers) ? timeline.activeViewers.length : 0;
+    const activeViewersCount = Array.isArray(timeline.activeViewers)
+      ? timeline.activeViewers.length
+      : 0;
     const shouldShowLiveViewers =
       timeline.isLive ||
-      timeline.eventStatus === 'live' ||
-      timeline.showcase?.status === 'live' ||
-      timeline.showcase?.status === 'voting';
-    const computedViewerCount = shouldShowLiveViewers ? baseViewers + activeViewersCount : activeViewersCount;
+      timeline.eventStatus === "live" ||
+      timeline.showcase?.status === "live" ||
+      timeline.showcase?.status === "voting";
+    const computedViewerCount = shouldShowLiveViewers
+      ? baseViewers + activeViewersCount
+      : activeViewersCount;
     const computedPeakViewerCount = Math.max(timeline.peakViewerCount || 0, computedViewerCount);
 
     res.json({
@@ -2640,19 +2963,23 @@ exports.getStructuredTimeline = async (req, res) => {
         currentPhase: currentPhaseObj || timeline.currentPhase,
         currentPhaseStartTime: currentPhaseObj?.startTime,
         currentPerformanceStartTime: activePerformance?.startTime,
-        currentPerformer: currentPerformer ? {
-          _id: currentPerformer._id,
-          performanceTitle: currentPerformer.performanceTitle,
-          performanceDescription: currentPerformer.performanceDescription,
-          videoUrl: currentPerformer.videoUrl,
-          videoDuration: currentPerformer.videoDuration, // Already set from performance record above
-          thumbnailUrl: currentPerformer.thumbnailUrl,
-          country: currentPerformer.country,
-          votes: currentPerformer.votes || currentPerformer.voteCount || 0,
-          user: currentPerformer.user
-        } : null,
+        currentPerformer: currentPerformer
+          ? {
+              _id: currentPerformer._id,
+              performanceTitle: currentPerformer.performanceTitle,
+              performanceDescription: currentPerformer.performanceDescription,
+              videoUrl: currentPerformer.videoUrl,
+              videoDuration: currentPerformer.videoDuration, // Already set from performance record above
+              thumbnailUrl: currentPerformer.thumbnailUrl,
+              country: currentPerformer.country,
+              votes: currentPerformer.votes || currentPerformer.voteCount || 0,
+              user: currentPerformer.user,
+            }
+          : null,
         timeRemaining,
         isLive: timeline.isLive,
+        isPaused: !!timeline.isPaused,
+        pausedAt: timeline.pausedAt || null,
         eventStatus: timeline.eventStatus,
         viewerCountBase: baseViewers,
         viewerCount: computedViewerCount,
@@ -2662,23 +2989,23 @@ exports.getStructuredTimeline = async (req, res) => {
         commercialVideoUrl: timeline.showcase.commercialVideoUrl,
         winnerAnnouncement: timeline.winnerAnnouncement,
         thankYouMessage: timeline.thankYouMessage,
-        contestants: contestants.map(c => ({
+        contestants: contestants.map((c) => ({
           _id: c._id,
           performanceTitle: c.performanceTitle,
           performanceDescription: c.performanceDescription,
           videoUrl: c.videoUrl,
           thumbnailUrl: c.thumbnailUrl,
           votes: c.votes || c.voteCount || 0,
-          user: c.user
-        }))
-      }
+          user: c.user,
+        })),
+      },
     });
   } catch (error) {
-    console.error('Error fetching structured timeline:', error);
+    console.error("Error fetching structured timeline:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch timeline',
-      error: error.message
+      message: "Failed to fetch timeline",
+      error: error.message,
     });
   }
 };
@@ -2693,29 +3020,37 @@ exports.pauseResumeEvent = async (req, res) => {
 
     console.log(`🎮 Pause/Resume request - ID: ${id}, Action: ${action}`);
 
-    const ShowcaseEventTimeline = require('../models/ShowcaseEventTimeline');
+    const ShowcaseEventTimeline = require("../models/ShowcaseEventTimeline");
 
     const showcase = await TalentShowcase.findById(id);
     if (!showcase) {
-      console.error('❌ Showcase not found:', id);
+      console.error("❌ Showcase not found:", id);
       return res.status(404).json({
         success: false,
-        message: 'Showcase not found'
+        message: "Showcase not found",
       });
     }
 
     const timeline = await ShowcaseEventTimeline.findOne({ showcase: id });
 
     if (timeline) {
-      console.log('✅ Timeline found, current phase:', timeline.currentPhase);
+      console.log("✅ Timeline found, current phase:", timeline.currentPhase);
+      // Keep legacy control state in sync for admin UI/other processes
+      showcase.liveEventControl = showcase.liveEventControl || {};
       // Use timeline pause/resume
-      if (action === 'pause') {
+      if (action === "pause") {
         timeline.isPaused = true;
         timeline.pausedAt = new Date();
         if (req.user && req.user._id) {
           timeline.pausedBy = req.user._id;
         }
-      } else if (action === 'resume') {
+
+        showcase.liveEventControl.isPaused = true;
+        showcase.liveEventControl.pausedAt = timeline.pausedAt;
+        if (req.user && req.user._id) {
+          showcase.liveEventControl.pausedBy = req.user._id;
+        }
+      } else if (action === "resume") {
         const pausedAt = timeline.pausedAt;
         timeline.isPaused = false;
 
@@ -2724,34 +3059,44 @@ exports.pauseResumeEvent = async (req, res) => {
           const pauseDuration = new Date() - pausedAt;
 
           // Extend all remaining phases by pause duration
-          const currentPhaseIndex = timeline.phases.findIndex(p => p.name === timeline.currentPhase);
+          const currentPhaseIndex = timeline.phases.findIndex(
+            (p) => p.name === timeline.currentPhase
+          );
           if (currentPhaseIndex >= 0) {
             for (let i = currentPhaseIndex; i < timeline.phases.length; i++) {
               if (timeline.phases[i].startTime) {
-                timeline.phases[i].startTime = new Date(timeline.phases[i].startTime.getTime() + pauseDuration);
+                timeline.phases[i].startTime = new Date(
+                  timeline.phases[i].startTime.getTime() + pauseDuration
+                );
               }
               if (timeline.phases[i].endTime) {
-                timeline.phases[i].endTime = new Date(timeline.phases[i].endTime.getTime() + pauseDuration);
+                timeline.phases[i].endTime = new Date(
+                  timeline.phases[i].endTime.getTime() + pauseDuration
+                );
               }
             }
           }
 
           // Extend performances if in performance phase
-          if (timeline.currentPhase === 'performance' && timeline.performances) {
-            const activePerformance = timeline.performances.find(p => p.status === 'active');
+          if (timeline.currentPhase === "performance" && timeline.performances) {
+            const activePerformance = timeline.performances.find((p) => p.status === "active");
             if (activePerformance) {
               // Extend the active performance times
               if (activePerformance.startTime) {
-                activePerformance.startTime = new Date(activePerformance.startTime.getTime() + pauseDuration);
+                activePerformance.startTime = new Date(
+                  activePerformance.startTime.getTime() + pauseDuration
+                );
               }
               if (activePerformance.endTime) {
-                activePerformance.endTime = new Date(activePerformance.endTime.getTime() + pauseDuration);
+                activePerformance.endTime = new Date(
+                  activePerformance.endTime.getTime() + pauseDuration
+                );
               }
             }
 
             // Extend all pending performances
-            timeline.performances.forEach(perf => {
-              if (perf.status === 'pending') {
+            timeline.performances.forEach((perf) => {
+              if (perf.status === "pending") {
                 if (perf.startTime) {
                   perf.startTime = new Date(perf.startTime.getTime() + pauseDuration);
                 }
@@ -2765,30 +3110,35 @@ exports.pauseResumeEvent = async (req, res) => {
 
         timeline.pausedAt = null;
         timeline.pausedBy = null;
+
+        showcase.liveEventControl.isPaused = false;
+        showcase.liveEventControl.pausedAt = null;
+        showcase.liveEventControl.pausedBy = null;
       }
 
       await timeline.save();
+      await showcase.save();
 
       res.json({
         success: true,
-        message: action === 'pause' ? 'Event paused' : 'Event resumed',
+        message: action === "pause" ? "Event paused" : "Event resumed",
         liveEventControl: {
           isPaused: timeline.isPaused,
           pausedAt: timeline.pausedAt,
-          currentStage: timeline.currentPhase
-        }
+          currentStage: timeline.currentPhase,
+        },
       });
     } else {
       // Legacy fallback
       showcase.liveEventControl = showcase.liveEventControl || {};
 
-      if (action === 'pause') {
+      if (action === "pause") {
         showcase.liveEventControl.isPaused = true;
         showcase.liveEventControl.pausedAt = new Date();
         if (req.user && req.user._id) {
           showcase.liveEventControl.pausedBy = req.user._id;
         }
-      } else if (action === 'resume') {
+      } else if (action === "resume") {
         showcase.liveEventControl.isPaused = false;
         showcase.liveEventControl.pausedAt = null;
       }
@@ -2797,18 +3147,18 @@ exports.pauseResumeEvent = async (req, res) => {
 
       res.json({
         success: true,
-        message: action === 'pause' ? 'Event paused' : 'Event resumed',
-        liveEventControl: showcase.liveEventControl
+        message: action === "pause" ? "Event paused" : "Event resumed",
+        liveEventControl: showcase.liveEventControl,
       });
     }
   } catch (error) {
-    console.error('❌ Error pausing/resuming event:', error);
-    console.error('Stack trace:', error.stack);
+    console.error("❌ Error pausing/resuming event:", error);
+    console.error("Stack trace:", error.stack);
     res.status(500).json({
       success: false,
-      message: 'Failed to pause/resume event',
+      message: "Failed to pause/resume event",
       error: error.message,
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      details: process.env.NODE_ENV === "development" ? error.stack : undefined,
     });
   }
 };
@@ -2818,13 +3168,13 @@ exports.skipToStage = async (req, res) => {
   try {
     const { id } = req.params;
     const { stage } = req.body; // 'welcome', 'performance', 'commercial', 'voting', 'winner', 'thankyou', 'countdown'
-    const ShowcaseEventTimeline = require('../models/ShowcaseEventTimeline');
+    const ShowcaseEventTimeline = require("../models/ShowcaseEventTimeline");
 
     const showcase = await TalentShowcase.findById(id);
     if (!showcase) {
       return res.status(404).json({
         success: false,
-        message: 'Showcase not found'
+        message: "Showcase not found",
       });
     }
 
@@ -2832,26 +3182,26 @@ exports.skipToStage = async (req, res) => {
 
     if (timeline) {
       // Update all phase statuses
-      const targetPhaseIndex = timeline.phases.findIndex(p => p.name === stage);
+      const targetPhaseIndex = timeline.phases.findIndex((p) => p.name === stage);
       if (targetPhaseIndex === -1) {
         return res.status(400).json({
           success: false,
-          message: 'Invalid stage name'
+          message: "Invalid stage name",
         });
       }
 
       // Set previous phases to completed
       for (let i = 0; i < targetPhaseIndex; i++) {
-        timeline.phases[i].status = 'completed';
+        timeline.phases[i].status = "completed";
       }
 
       // Set target phase to active
-      timeline.phases[targetPhaseIndex].status = 'active';
+      timeline.phases[targetPhaseIndex].status = "active";
       timeline.phases[targetPhaseIndex].startTime = new Date();
 
       // Set future phases to pending
       for (let i = targetPhaseIndex + 1; i < timeline.phases.length; i++) {
-        timeline.phases[i].status = 'pending';
+        timeline.phases[i].status = "pending";
       }
 
       // Update timeline to skip to the requested phase
@@ -2866,12 +3216,12 @@ exports.skipToStage = async (req, res) => {
       timeline.manualOverride.overriddenBy = req.user._id;
 
       // If skipping to performance phase, reset to first performance
-      if (stage === 'performance' && timeline.performances && timeline.performances.length > 0) {
+      if (stage === "performance" && timeline.performances && timeline.performances.length > 0) {
         timeline.currentPerformerIndex = 0;
         // Reset all performances to pending
-        timeline.performances.forEach(p => p.status = 'pending');
+        timeline.performances.forEach((p) => (p.status = "pending"));
         // Set first to active
-        timeline.performances[0].status = 'active';
+        timeline.performances[0].status = "active";
         timeline.performances[0].startTime = new Date();
       }
 
@@ -2883,8 +3233,8 @@ exports.skipToStage = async (req, res) => {
         liveEventControl: {
           currentStage: timeline.currentPhase,
           stageStartedAt: timeline.currentPhaseStartTime,
-          manualOverride: timeline.manualOverride
-        }
+          manualOverride: timeline.manualOverride,
+        },
       });
     } else {
       // Legacy fallback
@@ -2893,7 +3243,7 @@ exports.skipToStage = async (req, res) => {
         active: true,
         stage,
         setBy: req.user._id,
-        setAt: new Date()
+        setAt: new Date(),
       };
       showcase.liveEventControl.currentStage = stage;
       showcase.liveEventControl.stageStartedAt = new Date();
@@ -2903,15 +3253,15 @@ exports.skipToStage = async (req, res) => {
       res.json({
         success: true,
         message: `Skipped to ${stage} stage`,
-        liveEventControl: showcase.liveEventControl
+        liveEventControl: showcase.liveEventControl,
       });
     }
   } catch (error) {
-    console.error('Error skipping to stage:', error);
+    console.error("Error skipping to stage:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to skip to stage',
-      error: error.message
+      message: "Failed to skip to stage",
+      error: error.message,
     });
   }
 };
@@ -2921,13 +3271,13 @@ exports.extendStageTime = async (req, res) => {
   try {
     const { id } = req.params;
     const { stage, additionalMinutes } = req.body;
-    const ShowcaseEventTimeline = require('../models/ShowcaseEventTimeline');
+    const ShowcaseEventTimeline = require("../models/ShowcaseEventTimeline");
 
     const showcase = await TalentShowcase.findById(id);
     if (!showcase) {
       return res.status(404).json({
         success: false,
-        message: 'Showcase not found'
+        message: "Showcase not found",
       });
     }
 
@@ -2935,11 +3285,11 @@ exports.extendStageTime = async (req, res) => {
 
     if (timeline) {
       // Find the current active phase
-      const currentPhaseIndex = timeline.phases.findIndex(p => p.status === 'active');
+      const currentPhaseIndex = timeline.phases.findIndex((p) => p.status === "active");
       if (currentPhaseIndex === -1) {
         return res.status(400).json({
           success: false,
-          message: 'No active phase to modify'
+          message: "No active phase to modify",
         });
       }
 
@@ -2954,7 +3304,7 @@ exports.extendStageTime = async (req, res) => {
       if (newEndTime < now && additionalMinutes < 0) {
         return res.status(400).json({
           success: false,
-          message: `Cannot reduce time by ${Math.abs(additionalMinutes)} minutes. This would make the phase end time (${newEndTime.toISOString()}) earlier than current time (${now.toISOString()}). Maximum reduction: ${Math.floor((currentPhase.endTime - now) / 60000)} minutes.`
+          message: `Cannot reduce time by ${Math.abs(additionalMinutes)} minutes. This would make the phase end time (${newEndTime.toISOString()}) earlier than current time (${now.toISOString()}). Maximum reduction: ${Math.floor((currentPhase.endTime - now) / 60000)} minutes.`,
         });
       }
 
@@ -2966,9 +3316,7 @@ exports.extendStageTime = async (req, res) => {
         timeline.phases[i].startTime = new Date(
           timeline.phases[i].startTime.getTime() + adjustmentMs
         );
-        timeline.phases[i].endTime = new Date(
-          timeline.phases[i].endTime.getTime() + adjustmentMs
-        );
+        timeline.phases[i].endTime = new Date(timeline.phases[i].endTime.getTime() + adjustmentMs);
       }
 
       // Track the adjustment
@@ -2978,15 +3326,15 @@ exports.extendStageTime = async (req, res) => {
       timeline.timeExtensions.push({
         phase: timeline.currentPhase,
         extensionMinutes: additionalMinutes,
-        action: additionalMinutes > 0 ? 'extended' : 'reduced',
+        action: additionalMinutes > 0 ? "extended" : "reduced",
         extendedAt: new Date(),
-        extendedBy: req.user._id
+        extendedBy: req.user._id,
       });
 
       await timeline.save();
 
-      const action = additionalMinutes > 0 ? 'Extended' : 'Reduced';
-      const actionPast = additionalMinutes > 0 ? 'extended by' : 'reduced by';
+      const action = additionalMinutes > 0 ? "Extended" : "Reduced";
+      const actionPast = additionalMinutes > 0 ? "extended by" : "reduced by";
 
       res.json({
         success: true,
@@ -2994,14 +3342,14 @@ exports.extendStageTime = async (req, res) => {
         adjustment: {
           phase: timeline.currentPhase,
           minutes: additionalMinutes,
-          action: additionalMinutes > 0 ? 'extend' : 'reduce',
+          action: additionalMinutes > 0 ? "extend" : "reduce",
           newEndTime: newEndTime.toISOString(),
-          timeRemaining: Math.floor((newEndTime - now) / 1000) // seconds
+          timeRemaining: Math.floor((newEndTime - now) / 1000), // seconds
         },
         liveEventControl: {
           currentStage: timeline.currentPhase,
-          timeExtensions: timeline.timeExtensions
-        }
+          timeExtensions: timeline.timeExtensions,
+        },
       });
     } else {
       // Legacy fallback
@@ -3015,28 +3363,28 @@ exports.extendStageTime = async (req, res) => {
       showcase.liveEventControl.timeExtensions.push({
         stage,
         additionalMinutes,
-        action: additionalMinutes > 0 ? 'extended' : 'reduced',
+        action: additionalMinutes > 0 ? "extended" : "reduced",
         addedBy: req.user._id,
-        addedAt: new Date()
+        addedAt: new Date(),
       });
 
       await showcase.save();
 
-      const action = additionalMinutes > 0 ? 'Extended' : 'Reduced';
-      const actionPast = additionalMinutes > 0 ? 'extended by' : 'reduced by';
+      const action = additionalMinutes > 0 ? "Extended" : "Reduced";
+      const actionPast = additionalMinutes > 0 ? "extended by" : "reduced by";
 
       res.json({
         success: true,
         message: `${action} ${stage} stage ${actionPast} ${Math.abs(additionalMinutes)} minutes`,
-        liveEventControl: showcase.liveEventControl
+        liveEventControl: showcase.liveEventControl,
       });
     }
   } catch (error) {
-    console.error('Error adjusting stage time:', error);
+    console.error("Error adjusting stage time:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to adjust stage time',
-      error: error.message
+      message: "Failed to adjust stage time",
+      error: error.message,
     });
   }
 };
@@ -3051,7 +3399,7 @@ exports.stopEvent = async (req, res) => {
     if (!showcase) {
       return res.status(404).json({
         success: false,
-        message: 'Showcase not found'
+        message: "Showcase not found",
       });
     }
 
@@ -3059,33 +3407,33 @@ exports.stopEvent = async (req, res) => {
       showcase.winner = winnerId;
 
       // Update winner in contestant
-      const TalentContestant = require('../models/TalentContestant');
+      const TalentContestant = require("../models/TalentContestant");
       await TalentContestant.findByIdAndUpdate(winnerId, {
         isWinner: true,
-        wonAt: new Date()
+        wonAt: new Date(),
       });
     }
 
-    showcase.status = 'completed';
+    showcase.status = "completed";
     showcase.liveEventControl.isPaused = false;
     showcase.liveEventControl.manualOverride = {
       active: false,
-      stage: null
+      stage: null,
     };
 
     await showcase.save();
 
     res.json({
       success: true,
-      message: 'Event stopped successfully',
-      showcase
+      message: "Event stopped successfully",
+      showcase,
     });
   } catch (error) {
-    console.error('Error stopping event:', error);
+    console.error("Error stopping event:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to stop event',
-      error: error.message
+      message: "Failed to stop event",
+      error: error.message,
     });
   }
 };
@@ -3094,14 +3442,14 @@ exports.stopEvent = async (req, res) => {
 exports.restartEvent = async (req, res) => {
   try {
     const { id } = req.params;
-    const ShowcaseEventTimeline = require('../models/ShowcaseEventTimeline');
-    const TalentContestant = require('../models/TalentContestant');
+    const ShowcaseEventTimeline = require("../models/ShowcaseEventTimeline");
+    const TalentContestant = require("../models/TalentContestant");
 
     const showcase = await TalentShowcase.findById(id);
     if (!showcase) {
       return res.status(404).json({
         success: false,
-        message: 'Showcase not found'
+        message: "Showcase not found",
       });
     }
 
@@ -3110,27 +3458,28 @@ exports.restartEvent = async (req, res) => {
     if (!timeline) {
       return res.status(404).json({
         success: false,
-        message: 'Event timeline not found'
+        message: "Event timeline not found",
       });
     }
 
     // Get selected contestants
     const contestants = await TalentContestant.find({
       showcase: id,
-      status: 'selected'
-    }).populate('user', 'name username profilePhoto')
+      status: "selected",
+    })
+      .populate("user", "name username profilePhoto")
       .sort({ rafflePosition: 1 });
 
     console.log(`🔄 [RESTART] Found ${contestants.length} selected contestants`);
 
     // If timeline has no performances, reschedule them from contestants
     if (!timeline.performances || timeline.performances.length === 0) {
-      console.log('⚠️ [RESTART] Timeline has no performances, rescheduling from contestants');
+      console.log("⚠️ [RESTART] Timeline has no performances, rescheduling from contestants");
 
       if (contestants.length === 0) {
         return res.status(400).json({
           success: false,
-          message: 'Cannot restart event: No contestants found'
+          message: "Cannot restart event: No contestants found",
         });
       }
 
@@ -3144,28 +3493,28 @@ exports.restartEvent = async (req, res) => {
     timeline.phases.forEach((phase, index) => {
       if (index === 0) {
         // Welcome phase - set it active
-        phase.status = 'active';
+        phase.status = "active";
         phase.startTime = now;
         phase.endTime = new Date(now.getTime() + phase.duration * 60 * 1000);
       } else {
         // All other phases - reset to pending
-        phase.status = 'pending';
+        phase.status = "pending";
         phase.startTime = null;
         phase.endTime = null;
       }
     });
 
     // Reset performances to pending
-    timeline.performances.forEach(performance => {
-      performance.status = 'pending';
+    timeline.performances.forEach((performance) => {
+      performance.status = "pending";
       performance.startTime = null;
       performance.endTime = null;
     });
 
     // Reset event state
     timeline.isLive = true;
-    timeline.eventStatus = 'live';
-    timeline.currentPhase = 'welcome';
+    timeline.eventStatus = "live";
+    timeline.currentPhase = "welcome";
     timeline.currentPerformance = null;
     timeline.actualStartTime = now;
     timeline.actualEndTime = null;
@@ -3173,14 +3522,14 @@ exports.restartEvent = async (req, res) => {
     await timeline.save();
 
     // Update showcase status
-    showcase.status = 'live';
+    showcase.status = "live";
     showcase.liveEventControl = {
       isPaused: false,
-      currentStage: 'welcome',
+      currentStage: "welcome",
       manualOverride: {
         active: false,
-        stage: null
-      }
+        stage: null,
+      },
     };
 
     await showcase.save();
@@ -3189,18 +3538,17 @@ exports.restartEvent = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Event restarted successfully',
+      message: "Event restarted successfully",
       showcase,
       timeline,
-      performancesScheduled: timeline.performances.length
+      performancesScheduled: timeline.performances.length,
     });
-
   } catch (error) {
-    console.error('Error restarting event:', error);
+    console.error("Error restarting event:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to restart event',
-      error: error.message
+      message: "Failed to restart event",
+      error: error.message,
     });
   }
 };
@@ -3209,14 +3557,14 @@ exports.restartEvent = async (req, res) => {
 exports.resumePerformancePhase = async (req, res) => {
   try {
     const { id } = req.params;
-    const ShowcaseEventTimeline = require('../models/ShowcaseEventTimeline');
-    const TalentContestant = require('../models/TalentContestant');
+    const ShowcaseEventTimeline = require("../models/ShowcaseEventTimeline");
+    const TalentContestant = require("../models/TalentContestant");
 
     const showcase = await TalentShowcase.findById(id);
     if (!showcase) {
       return res.status(404).json({
         success: false,
-        message: 'Showcase not found'
+        message: "Showcase not found",
       });
     }
 
@@ -3225,15 +3573,16 @@ exports.resumePerformancePhase = async (req, res) => {
     if (!timeline) {
       return res.status(404).json({
         success: false,
-        message: 'Event timeline not found'
+        message: "Event timeline not found",
       });
     }
 
     // Get selected contestants
     const contestants = await TalentContestant.find({
       showcase: id,
-      status: 'selected'
-    }).populate('user', 'name username profilePhoto')
+      status: "selected",
+    })
+      .populate("user", "name username profilePhoto")
       .sort({ rafflePosition: 1 });
 
     console.log(`🎭 [RESUME PERFORMANCE] Found ${contestants.length} selected contestants`);
@@ -3241,24 +3590,26 @@ exports.resumePerformancePhase = async (req, res) => {
     if (contestants.length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'Cannot resume performances: No contestants found'
+        message: "Cannot resume performances: No contestants found",
       });
     }
 
     // If timeline has no performances, reschedule them from contestants
     if (!timeline.performances || timeline.performances.length === 0) {
-      console.log('⚠️ [RESUME PERFORMANCE] Timeline has no performances, scheduling from contestants');
+      console.log(
+        "⚠️ [RESUME PERFORMANCE] Timeline has no performances, scheduling from contestants"
+      );
       timeline.schedulePerformances(contestants);
       console.log(`✅ [RESUME PERFORMANCE] Scheduled ${timeline.performances.length} performances`);
     }
 
     // Find the performance phase
-    const performancePhaseIndex = timeline.phases.findIndex(p => p.name === 'performance');
+    const performancePhaseIndex = timeline.phases.findIndex((p) => p.name === "performance");
 
     if (performancePhaseIndex === -1) {
       return res.status(400).json({
         success: false,
-        message: 'Performance phase not found in timeline'
+        message: "Performance phase not found in timeline",
       });
     }
 
@@ -3267,10 +3618,10 @@ exports.resumePerformancePhase = async (req, res) => {
     // Set all phases before performance to completed
     timeline.phases.forEach((phase, index) => {
       if (index < performancePhaseIndex) {
-        phase.status = 'completed';
+        phase.status = "completed";
       } else if (index === performancePhaseIndex) {
         // Performance phase - set it active
-        phase.status = 'active';
+        phase.status = "active";
         phase.startTime = now;
         // Calculate end time based on total performance duration
         const totalDuration = timeline.performances.reduce((sum, perf) => {
@@ -3279,65 +3630,68 @@ exports.resumePerformancePhase = async (req, res) => {
         phase.endTime = new Date(now.getTime() + totalDuration * 1000);
       } else {
         // Future phases - keep pending
-        phase.status = 'pending';
+        phase.status = "pending";
         phase.startTime = null;
         phase.endTime = null;
       }
     });
 
     // Reset all performances to pending
-    timeline.performances.forEach(perf => {
-      perf.status = 'pending';
+    timeline.performances.forEach((perf) => {
+      perf.status = "pending";
       perf.startTime = null;
       perf.endTime = null;
     });
 
     // Set first performance as active
     if (timeline.performances.length > 0) {
-      timeline.performances[0].status = 'active';
+      timeline.performances[0].status = "active";
       timeline.performances[0].startTime = now;
       const videoDuration = timeline.performances[0].videoDuration || 300;
       timeline.performances[0].endTime = new Date(now.getTime() + videoDuration * 1000);
-      console.log(`✅ [RESUME PERFORMANCE] First performance activated: ${timeline.performances[0].contestant}`);
+      console.log(
+        `✅ [RESUME PERFORMANCE] First performance activated: ${timeline.performances[0].contestant}`
+      );
     }
 
     // Update timeline state
     timeline.isLive = true;
-    timeline.eventStatus = 'live';
-    timeline.currentPhase = 'performance';
+    timeline.eventStatus = "live";
+    timeline.currentPhase = "performance";
     timeline.isPaused = false;
 
     await timeline.save();
 
     // Update showcase status
-    showcase.status = 'live';
+    showcase.status = "live";
     showcase.liveEventControl = {
       isPaused: false,
-      currentStage: 'performance',
+      currentStage: "performance",
       manualOverride: {
         active: false,
-        stage: null
-      }
+        stage: null,
+      },
     };
 
     await showcase.save();
 
-    console.log(`🎭 Event resumed at Performance phase: ${id} with ${timeline.performances.length} performances`);
+    console.log(
+      ` Event resumed at Performance phase: ${id} with ${timeline.performances.length} performances`
+    );
 
     res.json({
       success: true,
-      message: 'Event resumed at Performance phase successfully',
+      message: "Event resumed at Performance phase successfully",
       showcase,
       timeline,
-      performancesScheduled: timeline.performances.length
+      performancesScheduled: timeline.performances.length,
     });
-
   } catch (error) {
-    console.error('Error resuming performance phase:', error);
+    console.error("Error resuming performance phase:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to resume performance phase',
-      error: error.message
+      message: "Failed to resume performance phase",
+      error: error.message,
     });
   }
 };
@@ -3346,15 +3700,16 @@ exports.resumePerformancePhase = async (req, res) => {
 exports.getLiveEventControl = async (req, res) => {
   try {
     const { id } = req.params;
-    const ShowcaseEventTimeline = require('../models/ShowcaseEventTimeline');
+    const ShowcaseEventTimeline = require("../models/ShowcaseEventTimeline");
 
-    const showcase = await TalentShowcase.findById(id)
-      .select('title status eventDate showcaseType contestants musicUrl musicPlaying');
+    const showcase = await TalentShowcase.findById(id).select(
+      "title status eventDate showcaseType contestants musicUrl musicPlaying"
+    );
 
     if (!showcase) {
       return res.status(404).json({
         success: false,
-        message: 'Showcase not found'
+        message: "Showcase not found",
       });
     }
 
@@ -3363,8 +3718,8 @@ exports.getLiveEventControl = async (req, res) => {
 
     if (timeline) {
       // Auto-update showcase status if timeline has ended
-      if (timeline.eventStatus === 'completed' && showcase.status !== 'completed') {
-        showcase.status = 'completed';
+      if (timeline.eventStatus === "completed" && showcase.status !== "completed") {
+        showcase.status = "completed";
         await showcase.save();
       }
 
@@ -3374,9 +3729,9 @@ exports.getLiveEventControl = async (req, res) => {
         showcase: {
           _id: showcase._id,
           title: showcase.title,
-          status: timeline.eventStatus === 'completed' ? 'completed' : showcase.status,
+          status: timeline.eventStatus === "completed" ? "completed" : showcase.status,
           eventDate: showcase.eventDate,
-          showcaseType: 'structured',
+          showcaseType: "structured",
           musicUrl: showcase.musicUrl,
           musicPlaying: showcase.musicPlaying,
           liveEventControl: {
@@ -3386,15 +3741,16 @@ exports.getLiveEventControl = async (req, res) => {
             currentStage: timeline.currentPhase,
             stageStartedAt: timeline.currentPhaseStartTime,
             manualOverride: timeline.manualOverride || { active: false },
-            timeExtensions: timeline.timeExtensions || []
+            timeExtensions: timeline.timeExtensions || [],
           },
           timeline: {
             currentPhase: timeline.currentPhase,
             currentPerformer: timeline.currentPerformer,
             totalPerformances: timeline.performances?.length || 0,
-            completedPerformances: timeline.performances?.filter(p => p.status === 'completed').length || 0
-          }
-        }
+            completedPerformances:
+              timeline.performances?.filter((p) => p.status === "completed").length || 0,
+          },
+        },
       });
     } else {
       // Return legacy control state
@@ -3405,23 +3761,23 @@ exports.getLiveEventControl = async (req, res) => {
           title: showcase.title,
           status: showcase.status,
           eventDate: showcase.eventDate,
-          showcaseType: 'legacy',
+          showcaseType: "legacy",
           musicUrl: showcase.musicUrl,
           musicPlaying: showcase.musicPlaying,
           liveEventControl: showcase.liveEventControl || {
             isPaused: false,
             currentStage: null,
-            timeExtensions: []
-          }
-        }
+            timeExtensions: [],
+          },
+        },
       });
     }
   } catch (error) {
-    console.error('Error getting live event control:', error);
+    console.error("Error getting live event control:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get live event control',
-      error: error.message
+      message: "Failed to get live event control",
+      error: error.message,
     });
   }
 };
@@ -3430,15 +3786,16 @@ exports.getLiveEventControl = async (req, res) => {
 exports.advancePerformance = async (req, res) => {
   try {
     const { id } = req.params;
-    const ShowcaseEventTimeline = require('../models/ShowcaseEventTimeline');
+    const ShowcaseEventTimeline = require("../models/ShowcaseEventTimeline");
 
-    const timeline = await ShowcaseEventTimeline.findOne({ showcase: id })
-      .populate('performances.contestant');
+    const timeline = await ShowcaseEventTimeline.findOne({ showcase: id }).populate(
+      "performances.contestant"
+    );
 
     if (!timeline) {
       return res.status(404).json({
         success: false,
-        message: 'Timeline not found'
+        message: "Timeline not found",
       });
     }
 
@@ -3446,32 +3803,50 @@ exports.advancePerformance = async (req, res) => {
     timeline.performances.sort((a, b) => a.performanceOrder - b.performanceOrder);
 
     // Find current active performance
-    let currentIndex = timeline.performances.findIndex(p => p.status === 'active');
+    let currentIndex = timeline.performances.findIndex((p) => p.status === "active");
 
-    console.log(`📡 [ADVANCE] Current active index: ${currentIndex}, Total performances: ${timeline.performances.length}`);
+    console.log(
+      `📡 [ADVANCE] Current active index: ${currentIndex}, Total performances: ${timeline.performances.length}`
+    );
 
     // If no active performance found, find the last completed one to determine next
     if (currentIndex === -1) {
-      const completedPerformances = timeline.performances.filter(p => p.status === 'completed');
+      const completedPerformances = timeline.performances.filter((p) => p.status === "completed");
       if (completedPerformances.length > 0) {
         // Find the highest index among completed performances
-        currentIndex = timeline.performances.findIndex(p => p._id.equals(completedPerformances[completedPerformances.length - 1]._id));
-        console.log(`⚠️ [ADVANCE] No active performance, using last completed at index ${currentIndex}`);
+        currentIndex = timeline.performances.findIndex((p) =>
+          p._id.equals(completedPerformances[completedPerformances.length - 1]._id)
+        );
+        console.log(
+          `⚠️ [ADVANCE] No active performance, using last completed at index ${currentIndex}`
+        );
       } else {
-        // No active and no completed means we haven't started - should not happen in normal flow
-        console.error(`❌ [ADVANCE] No active or completed performances found - invalid state`);
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid performance state - no active or completed performances'
-        });
+        // No active and no completed: treat as "not started yet" and start the first pending.
+        const firstPendingIndex = timeline.performances.findIndex((p) => p.status === "pending");
+        if (firstPendingIndex >= 0) {
+          console.warn(
+            `⚠️ [ADVANCE] No active/completed performances found; starting first pending at index ${firstPendingIndex}`
+          );
+          currentIndex = firstPendingIndex - 1; // so nextIndex becomes firstPendingIndex
+        } else {
+          console.error(
+            `❌ [ADVANCE] No active, completed, or pending performances found - invalid state`
+          );
+          return res.status(400).json({
+            success: false,
+            message: "Invalid performance state - no performances available",
+          });
+        }
       }
     }
 
     // CRITICAL: Mark ALL active performances as completed (in case of duplicates)
     timeline.performances.forEach((perf, idx) => {
-      if (perf.status === 'active') {
-        perf.status = 'completed';
-        console.log(`✅ [ADVANCE] Marked performance #${perf.performanceOrder} as completed (index ${idx})`);
+      if (perf.status === "active") {
+        perf.status = "completed";
+        console.log(
+          `✅ [ADVANCE] Marked performance #${perf.performanceOrder} as completed (index ${idx})`
+        );
       }
     });
 
@@ -3481,38 +3856,42 @@ exports.advancePerformance = async (req, res) => {
     if (nextIndex < timeline.performances.length) {
       // Start next performance
       const nextPerf = timeline.performances[nextIndex];
-      nextPerf.status = 'active';
+      nextPerf.status = "active";
       nextPerf.startTime = new Date();
 
       // Ensure videoDuration is set - if not, get from contestant
       if (!nextPerf.videoDuration) {
         const contestant = nextPerf.contestant;
         nextPerf.videoDuration = contestant.videoDuration || 300; // 5 min fallback
-        console.log(`⚠️ videoDuration was missing, set to: ${nextPerf.videoDuration}s from contestant`);
+        console.log(
+          `⚠️ videoDuration was missing, set to: ${nextPerf.videoDuration}s from contestant`
+        );
       }
 
-      nextPerf.endTime = new Date(Date.now() + (nextPerf.videoDuration * 1000));
+      nextPerf.endTime = new Date(Date.now() + nextPerf.videoDuration * 1000);
 
       timeline.currentPerformance = {
         contestant: nextPerf.contestant._id,
         performanceOrder: nextPerf.performanceOrder,
         startTime: new Date(),
-        timeRemaining: nextPerf.videoDuration
+        timeRemaining: nextPerf.videoDuration,
       };
 
-      console.log(`✅ Advanced to performance #${nextPerf.performanceOrder}: ${nextPerf.contestant.performanceTitle} (${nextPerf.videoDuration}s)`);
+      console.log(
+        `✅ Advanced to performance #${nextPerf.performanceOrder}: ${nextPerf.contestant.performanceTitle} (${nextPerf.videoDuration}s)`
+      );
 
       await timeline.save();
 
       // Re-populate to get full contestant data
-      await timeline.populate('performances.contestant');
+      await timeline.populate("performances.contestant");
 
       res.json({
         success: true,
-        message: 'Advanced to next performance',
+        message: "Advanced to next performance",
         currentPerformance: timeline.performances[nextIndex],
         currentPerformer: timeline.performances[nextIndex].contestant,
-        timeRemaining: timeline.performances[nextIndex].videoDuration
+        timeRemaining: timeline.performances[nextIndex].videoDuration,
       });
     } else {
       // All performances complete - advance to next phase (commercial)
@@ -3521,16 +3900,16 @@ exports.advancePerformance = async (req, res) => {
 
       res.json({
         success: true,
-        message: 'All performances complete, advancing to next phase',
-        nextPhase: timeline.currentPhase
+        message: "All performances complete, advancing to next phase",
+        nextPhase: timeline.currentPhase,
       });
     }
   } catch (error) {
-    console.error('Error advancing performance:', error);
+    console.error("Error advancing performance:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to advance performance',
-      error: error.message
+      message: "Failed to advance performance",
+      error: error.message,
     });
   }
 };
@@ -3539,47 +3918,50 @@ exports.advancePerformance = async (req, res) => {
 exports.commercialsComplete = async (req, res) => {
   try {
     const { id } = req.params;
-    const ShowcaseEventTimeline = require('../models/ShowcaseEventTimeline');
+    const ShowcaseEventTimeline = require("../models/ShowcaseEventTimeline");
 
     const timeline = await ShowcaseEventTimeline.findOne({ showcase: id });
 
     if (!timeline) {
       return res.status(404).json({
         success: false,
-        message: 'Timeline not found'
+        message: "Timeline not found",
       });
     }
 
     // Check if we're in commercial phase
-    if (timeline.currentPhase !== 'commercial') {
-      console.log('📺 Commercials complete signal received, but not in commercial phase:', timeline.currentPhase);
+    if (timeline.currentPhase !== "commercial") {
+      console.log(
+        "📺 Commercials complete signal received, but not in commercial phase:",
+        timeline.currentPhase
+      );
       return res.json({
         success: true,
-        message: 'Not in commercial phase, no action needed',
-        currentPhase: timeline.currentPhase
+        message: "Not in commercial phase, no action needed",
+        currentPhase: timeline.currentPhase,
       });
     }
 
-    console.log('📺 All commercials completed, advancing to next phase...');
+    console.log("📺 All commercials completed, advancing to next phase...");
 
     // Advance to next phase (voting)
     timeline.advancePhase();
     await timeline.save();
 
-    console.log('✅ Advanced from commercial to:', timeline.currentPhase);
+    console.log("✅ Advanced from commercial to:", timeline.currentPhase);
 
     res.json({
       success: true,
-      message: 'All commercials completed, advanced to next phase',
-      previousPhase: 'commercial',
-      nextPhase: timeline.currentPhase
+      message: "All commercials completed, advanced to next phase",
+      previousPhase: "commercial",
+      nextPhase: timeline.currentPhase,
     });
   } catch (error) {
-    console.error('❌ Error handling commercials complete:', error);
+    console.error("❌ Error handling commercials complete:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to process commercials completion',
-      error: error.message
+      message: "Failed to process commercials completion",
+      error: error.message,
     });
   }
 };

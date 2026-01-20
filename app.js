@@ -120,6 +120,22 @@ app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "SAMEORIGIN");
   res.setHeader("X-XSS-Protection", "1; mode=block");
+
+  // Additional hardening headers (kept conservative to avoid breaking existing frontend flows)
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader(
+    "Permissions-Policy",
+    "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
+  );
+  res.setHeader("X-Permitted-Cross-Domain-Policies", "none");
+
+  // Allow PayPal popups/redirect flows
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
+
+  // HSTS only when actually on HTTPS (production behind proxy/CDN)
+  if (process.env.NODE_ENV === 'production' && (req.secure || req.headers['x-forwarded-proto'] === 'https')) {
+    res.setHeader("Strict-Transport-Security", "max-age=15552000; includeSubDomains");
+  }
   next();
 });
 

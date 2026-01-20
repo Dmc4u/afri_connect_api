@@ -73,13 +73,9 @@ router.get('/', async (req, res) => {
     }
 
     // Update showcase status dynamically before returning
-    if (showcase && showcase.status !== 'cancelled' && showcase.status !== 'completed') {
-      const newStatus = calculateShowcaseStatus(showcase);
-      if (newStatus !== showcase.status) {
-        showcase.status = newStatus;
-        await showcase.save();
-      }
-    }
+    const computedShowcaseStatus = (showcase && showcase.status !== 'cancelled' && showcase.status !== 'completed')
+      ? calculateShowcaseStatus(showcase)
+      : (showcase?.status || null);
 
     // Get timeline if it exists
     let timeline = null;
@@ -87,130 +83,7 @@ router.get('/', async (req, res) => {
 
     if (showcase) {
       timeline = await ShowcaseEventTimeline.findOne({ showcase: showcase._id });
-
-      // AUTO-INITIALIZE AND AUTO-START: Check if event should start and isn't initialized/started yet
-      const eventTime = new Date(showcase.eventDate).getTime();
-      const currentTime = Date.now();
-      const timeUntilEvent = eventTime - currentTime;
-
-      // If event time has arrived and no timeline exists, auto-initialize (no time limit)
-      if (timeUntilEvent <= 0 && !timeline && showcase.status !== 'completed') {
-        console.log(`🚀 AUTO-INITIALIZE: Event "${showcase.title}" is starting, initializing timeline...`);
-
-        try {
-          // Get contestants
-          const TalentContestant = require('../models/TalentContestant');
-          const contestants = await TalentContestant.find({
-            showcase: showcase._id,
-            status: 'selected'
-          }).sort({ voteCount: -1 }).limit(showcase.maxContestants || 5);
-
-          if (contestants.length > 0) {
-            // Create new timeline
-            timeline = new ShowcaseEventTimeline({
-              showcase: showcase._id,
-              config: {
-                welcomeDuration: showcase.welcomeDuration ?? 5,
-                performanceSlotDuration: showcase.performanceDuration || 0,
-                commercialDuration: showcase.commercialDuration || 0,
-                votingDuration: showcase.votingDisplayDuration || 3,
-                winnerDeclarationDuration: showcase.winnerDisplayDuration || 3,
-                thankYouDuration: showcase.thankYouDuration || 2
-              },
-              welcomeMessage: {
-                title: showcase.welcomeMessage || `Welcome to ${showcase.title}!`,
-                message: showcase.rulesMessage || `Get ready for amazing talent! We have ${contestants.length} incredible contestants competing.`,
-                rules: showcase.rulesMessage ? showcase.rulesMessage.split('\n') : []
-              },
-              thankYouMessage: {
-                title: 'Thank You for Joining Us!',
-                message: showcase.thankYouMessage || `Thank you for being part of ${showcase.title}! See you next month!`,
-                nextEventDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-              }
-            });
-
-            // Generate timeline phases
-            timeline.generateTimeline();
-
-            // Schedule contestant performances
-            if (contestants.length > 0) {
-              timeline.schedulePerformances(contestants);
-              console.log(`🎬 AUTO-INITIALIZE: Scheduled ${timeline.performances.length} performances`);
-            }
-
-            await timeline.save();
-            console.log(`✅ AUTO-INITIALIZE: Timeline created for "${showcase.title}"`);
-          }
-        } catch (initError) {
-          console.error('❌ AUTO-INITIALIZE ERROR:', initError);
-        }
-      }
-
-      // SAFEGUARD: If timeline exists but has no performances, schedule them now
-      if (timeline && (!timeline.performances || timeline.performances.length === 0)) {
-        const TalentContestant = require('../models/TalentContestant');
-        const selectedContestants = await TalentContestant.find({
-          showcase: showcase._id,
-          status: 'selected'
-        }).sort({ rafflePosition: 1 });
-
-        if (selectedContestants.length > 0) {
-          console.log(`🔧 SAFEGUARD: Timeline exists but no performances! Scheduling ${selectedContestants.length} now...`);
-          timeline.performances = [];
-          timeline.schedulePerformances(selectedContestants);
-          await timeline.save();
-          console.log(`✅ SAFEGUARD: Scheduled ${timeline.performances.length} performances`);
-        }
-      }
-
-      // If event time has arrived and timeline exists but not started, auto-start
-      if (timeUntilEvent <= 0 && timeline && !timeline.isLive && timeline.eventStatus !== 'completed') {
-        const scheduledEventTime = new Date(showcase.eventDate);
-        const now = new Date();
-        const lateStartSeconds = Math.floor((now - scheduledEventTime) / 1000);
-
-        console.log(`🎬 AUTO-START: Starting live event "${showcase.title}" (${lateStartSeconds > 0 ? `${lateStartSeconds}s late` : 'on time'})...`);
-
-        try {
-          timeline.isLive = true;
-          timeline.actualStartTime = scheduledEventTime; // Use scheduled time, not current time
-          timeline.currentPhase = 'welcome';
-          timeline.eventStatus = 'live';
-
-          // Ensure all phases start as pending
-          timeline.phases.forEach(phase => {
-            phase.status = 'pending';
-          });
-
-          // Mark first phase (Welcome) as active - calculate from SCHEDULED event time
-          if (timeline.phases.length > 0 && timeline.phases[0].name === 'welcome') {
-            timeline.phases[0].status = 'active';
-            const originalDuration = timeline.phases[0].duration;
-
-            // Start time is the scheduled event time, not current time
-            timeline.phases[0].startTime = scheduledEventTime;
-            timeline.phases[0].endTime = new Date(scheduledEventTime.getTime() + originalDuration * 60000);
-
-            console.log(`✅ AUTO-START: Welcome phase activated at scheduled time (${originalDuration} min, ends at ${timeline.phases[0].endTime.toLocaleTimeString()})`);
-
-            if (lateStartSeconds > 0) {
-              console.log(`⚠️  Event started ${lateStartSeconds}s late - Welcome phase may have less time remaining`);
-            }
-          }
-
-          await timeline.save();
-
-          // Update showcase status to live
-          if (showcase.status !== 'live') {
-            showcase.status = 'live';
-            await showcase.save();
-          }
-
-          console.log(`✅ AUTO-START: Event "${showcase.title}" is now LIVE!`);
-        } catch (startError) {
-          console.error('❌ AUTO-START ERROR:', startError);
-        }
-      }
+      // NOTE: This endpoint is intentionally read-only. Timeline creation/starting is handled by the scheduler.
 
       // Determine status based on timeline phases if available
       if (timeline && timeline.phases && timeline.phases.length > 0) {
@@ -333,7 +206,7 @@ router.get('/', async (req, res) => {
       success: true,
       event: {
         showcaseId: showcase._id,
-        showcaseStatus: showcase.status,
+        showcaseStatus: computedShowcaseStatus,
         title: showcase.title,
         description: showcase.description,
         eventDate: showcase.eventDate,

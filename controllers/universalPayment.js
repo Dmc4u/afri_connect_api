@@ -6,7 +6,53 @@
 const Payment = require("../models/Payment");
 const PaypalTransaction = require("../models/PaypalTransaction");
 const User = require("../models/User");
-const { createOrder, captureOrder } = require("../utils/paypal");
+const PricingSettings = require("../models/PricingSettings");
+const { createOrder, captureOrder, getOrder } = require("../utils/paypal");
+
+const VALID_PAYMENT_TYPES = ['membership', 'showcase', 'advertising', 'donation', 'listing', 'featured'];
+const SUPPORTED_CURRENCIES = ["USD", "EUR", "GBP", "CAD", "AUD", "ILS"];
+
+const normalizeTier = (tier) => {
+  if (!tier) return null;
+  const t = String(tier).trim();
+  const normalized = t.charAt(0).toUpperCase() + t.slice(1).toLowerCase();
+  const allowed = new Set(["Starter", "Premium", "Pro"]);
+  return allowed.has(normalized) ? normalized : null;
+};
+
+const toFiniteNumber = (value) => {
+  const n = typeof value === 'number' ? value : parseFloat(value);
+  return Number.isFinite(n) ? n : null;
+};
+
+const computeAdvertisingPricing = ({ placement, durationDays, videoDurationSec }) => {
+  const placementDailyRates = {
+    'homepage-banner': 3.33,
+    'footer-banner': 3.33,
+  };
+
+  const days = Math.max(1, Math.min(90, parseInt(durationDays, 10) || 30));
+  const dailyRate = placementDailyRates[placement] || placementDailyRates['homepage-banner'];
+  const basePlanAmount = Math.round(dailyRate * days);
+
+  let videoDurationAddon = 0;
+  const vd = Math.max(0, parseInt(videoDurationSec, 10) || 0);
+  if (vd > 0) {
+    if (vd <= 15) videoDurationAddon = 0.5 * days;
+    else if (vd <= 30) videoDurationAddon = 1 * days;
+    else if (vd <= 60) videoDurationAddon = 2 * days;
+    else if (vd <= 120) videoDurationAddon = 3 * days;
+    else videoDurationAddon = 5 * days;
+  }
+
+  const totalAmount = basePlanAmount + Math.round(videoDurationAddon);
+  return {
+    days,
+    basePlanAmount,
+    videoDurationAddon: Math.round(videoDurationAddon),
+    totalAmount,
+  };
+};
 
 /**
  * Create a universal PayPal order
@@ -22,37 +68,136 @@ const createUniversalOrder = async (req, res) => {
       return res.status(401).json({ error: "Authentication required" });
     }
 
-    // Validate inputs
-    if (!amount || amount <= 0) {
-      return res.status(400).json({ error: "Invalid amount" });
-    }
-
     if (!type) {
       return res.status(400).json({ error: "Payment type is required" });
     }
 
-    const validTypes = ['membership', 'showcase', 'advertising', 'donation', 'listing', 'featured'];
-    if (!validTypes.includes(type)) {
+    if (!VALID_PAYMENT_TYPES.includes(type)) {
       return res.status(400).json({ error: "Invalid payment type" });
     }
 
-    console.log(`🔵 Creating ${type} order:`, { amount, currency, userId, metadata });
+    const requestedCurrency = String(currency || 'USD').toUpperCase();
+    if (!SUPPORTED_CURRENCIES.includes(requestedCurrency)) {
+      return res.status(400).json({ error: "Unsupported currency" });
+    }
+
+    // Build authoritative amount/currency/context. Never trust client values for privilege-granting purchases.
+    let authoritativeAmount = null;
+    let authoritativeCurrency = requestedCurrency;
+    let tierUpgrade = null;
+    // Persist a server-owned context object so capture does not need to trust any client-sent metadata.
+    // Keep the original client fields at top-level for compatibility with existing effect handlers.
+    const context = {
+      ...(metadata && typeof metadata === 'object' ? metadata : {}),
+      type,
+      description: description ? String(description).slice(0, 200) : undefined,
+      _server: {
+        createdAt: new Date().toISOString(),
+      },
+    };
+
+    if (type === 'membership') {
+      const tier = normalizeTier(metadata?.tier);
+      if (!tier) {
+        return res.status(400).json({ error: "Membership tier is required" });
+      }
+
+      const tierHierarchy = { Free: 0, Starter: 1, Premium: 2, Pro: 3 };
+      const currentTierLevel = tierHierarchy[req.user?.tier] ?? 0;
+      const requestedTierLevel = tierHierarchy[tier];
+      if (currentTierLevel >= requestedTierLevel) {
+        return res.status(400).json({ error: `Invalid tier upgrade request` });
+      }
+
+      const pricing = await PricingSettings.findOne({ tier }).lean();
+      if (!pricing || pricing.isActive === false) {
+        return res.status(400).json({ error: "Pricing unavailable for requested tier" });
+      }
+
+      authoritativeAmount = toFiniteNumber(pricing.basePrice);
+      authoritativeCurrency = 'USD';
+      tierUpgrade = {
+        from: req.user?.tier || 'Free',
+        to: tier,
+        duration: pricing.billingPeriod === 'year' ? 'yearly' : 'monthly',
+      };
+      context.tier = tier;
+      context.pricing = { tier, basePrice: pricing.basePrice, billingPeriod: pricing.billingPeriod };
+    } else if (type === 'advertising') {
+      // Compute advertising price on the server to prevent client-side manipulation.
+      const placement = String(metadata?.placement || '').trim();
+      const durationDays = metadata?.duration ?? metadata?.numberOfDays;
+      const videoDurationSec = metadata?.videoDuration;
+      if (!placement) {
+        return res.status(400).json({ error: "Advertising placement is required" });
+      }
+
+      const pricing = computeAdvertisingPricing({ placement, durationDays, videoDurationSec });
+      authoritativeAmount = pricing.totalAmount;
+      authoritativeCurrency = 'USD';
+      context.advertising = {
+        placement,
+        durationDays: pricing.days,
+        videoDuration: Math.max(0, parseInt(videoDurationSec, 10) || 0),
+        basePlanAmount: pricing.basePlanAmount,
+        videoDurationAddon: pricing.videoDurationAddon,
+        totalAmount: pricing.totalAmount,
+      };
+    } else {
+      // Donation/showcase/listing/featured: accept client amount but validate strictly.
+      const parsed = toFiniteNumber(amount);
+      if (!parsed || parsed <= 0) {
+        return res.status(400).json({ error: "Invalid amount" });
+      }
+
+      // Anti-abuse bounds (keep generous; adjust as needed)
+      const max = type === 'donation' ? 10000 : 50000;
+      if (parsed > max) {
+        return res.status(400).json({ error: "Amount exceeds maximum" });
+      }
+      authoritativeAmount = Math.round(parsed * 100) / 100;
+    }
+
+    if (!authoritativeAmount || authoritativeAmount <= 0) {
+      return res.status(400).json({ error: "Invalid amount" });
+    }
+
+    console.log(`🔵 Creating ${type} order:`, { amount: authoritativeAmount, currency: authoritativeCurrency, userId });
 
     // 🔑 Admin bypass (no PayPal call needed)
     if (req.user?.role === "admin") {
       const fakeOrderId = `ADMIN-${Date.now()}-${type}`;
+
+      const integrityHash = tierUpgrade?.to
+        ? Payment.computeIntegrityHash({
+            userId: String(userId),
+            tierTo: tierUpgrade.to,
+            priceValue: authoritativeAmount,
+            currency: authoritativeCurrency,
+            duration: tierUpgrade.duration,
+          })
+        : undefined;
 
       await Payment.create({
         user: userId,
         orderId: fakeOrderId,
         paypalOrderId: fakeOrderId,
         amount: {
-          currency: currency,
-          value: 0
+          currency: authoritativeCurrency,
+          value: authoritativeAmount
         },
         paymentType: type,
-        metadata: { ...metadata, adminBypass: true },
-        status: "completed"
+        tierUpgrade: tierUpgrade || undefined,
+        integrityHash,
+        paymentMethod: "manual",
+        status: "completed",
+        metadata: {
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'] || '',
+          referrer: req.get('referer') || null,
+          discount: 0,
+        },
+        context: { ...context, adminBypass: true },
       });
 
       await PaypalTransaction.create({
@@ -71,7 +216,8 @@ const createUniversalOrder = async (req, res) => {
     }
 
     // 🔒 Normal user flow - create PayPal order
-    const order = await createOrder(amount, type, currency, userId, {
+    const seatType = type === 'membership' && tierUpgrade?.to ? `membership-${tierUpgrade.to}` : type;
+    const order = await createOrder(authoritativeAmount, seatType, authoritativeCurrency, userId, {
       returnUrl: process.env.PAYPAL_RETURN_URL || 'http://localhost:3001',
       cancelUrl: process.env.PAYPAL_CANCEL_URL || 'http://localhost:3001'
     });
@@ -86,18 +232,37 @@ const createUniversalOrder = async (req, res) => {
       return res.status(409).json({ error: "Duplicate PayPal order ID" });
     }
 
-    // Store payment record
+    const integrityHash = tierUpgrade?.to
+      ? Payment.computeIntegrityHash({
+          userId: String(userId),
+          tierTo: tierUpgrade.to,
+          priceValue: authoritativeAmount,
+          currency: authoritativeCurrency,
+          duration: tierUpgrade.duration,
+        })
+      : undefined;
+
+    // Store payment record (including authoritative context)
     await Payment.create({
       user: userId || null, // Optional for donations
       orderId: order.id,
       paypalOrderId: order.id,
       amount: {
-        currency: currency,
-        value: amount
+        currency: authoritativeCurrency,
+        value: authoritativeAmount
       },
       paymentType: type,
-      metadata: metadata,
-      status: "pending"
+      tierUpgrade: tierUpgrade || undefined,
+      integrityHash,
+      paymentMethod: "paypal",
+      status: "pending",
+      metadata: {
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'] || '',
+        referrer: req.get('referer') || null,
+        discount: 0,
+      },
+      context,
     });
 
     console.log('✅ PayPal order created:', order.id);
@@ -125,16 +290,38 @@ const captureUniversalOrder = async (req, res) => {
 
     console.log(`💳 Capturing order: ${orderId}`);
 
-    // Find payment record
-    const payment = await Payment.findOne({ orderId });
+    // Idempotency guard: acquire capturing lock
+    let payment = await Payment.findOneAndUpdate(
+      { orderId, status: { $in: ['pending', 'failed'] }, capturing: { $ne: true } },
+      { $set: { capturing: true } },
+      { new: true }
+    );
 
     if (!payment) {
-      return res.status(404).json({ error: "Payment record not found" });
+      const existing = await Payment.findOne({ orderId });
+      if (existing?.status === 'completed') {
+        return res.json({ message: "Payment already processed", payment: existing });
+      }
+      return res.status(409).json({ error: "Payment is being processed or not found" });
     }
 
-    // Verify user owns this payment (or is admin, or it's a donation)
-    if (payment.user && userId) {
+    // For non-donation payments, require authentication
+    if (payment.paymentType !== 'donation' && !req.user) {
+      payment.capturing = false;
+      await payment.save();
+      return res.status(401).json({ error: "Authentication required" });
+    }
+
+    // Verify user owns this payment (or is admin)
+    if (payment.user) {
+      if (!req.user) {
+        payment.capturing = false;
+        await payment.save();
+        return res.status(401).json({ error: "Authentication required" });
+      }
       if (String(payment.user) !== String(userId) && req.user?.role !== 'admin') {
+        payment.capturing = false;
+        await payment.save();
         return res.status(403).json({ error: "Unauthorized" });
       }
     }
@@ -142,6 +329,8 @@ const captureUniversalOrder = async (req, res) => {
     // Check if already captured
     if (payment.status === "completed") {
       console.log('⚠️ Payment already captured');
+      payment.capturing = false;
+      await payment.save();
       return res.json({
         message: "Payment already processed",
         payment: payment
@@ -151,17 +340,38 @@ const captureUniversalOrder = async (req, res) => {
     // Admin bypass - mark as completed
     if (orderId.startsWith('ADMIN-')) {
       payment.status = "completed";
-      payment.capturedAt = new Date();
+      payment.capturing = false;
       await payment.save();
 
       // Apply payment effects based on type
-      await applyPaymentEffects(payment, req.user, metadata);
+      await applyPaymentEffects(payment, req.user, payment.context || metadata);
 
       console.log('✅ Admin payment marked as completed');
       return res.json({
         message: "Payment processed successfully (Admin)",
         payment: payment
       });
+    }
+
+    // Verify PayPal order details match expected amount/currency before capture
+    try {
+      const order = await getOrder(orderId);
+      const unit = order?.purchase_units?.[0];
+      const orderCurrency = unit?.amount?.currency_code;
+      const orderAmount = parseFloat(unit?.amount?.value || '0');
+      if (orderCurrency && orderCurrency !== payment.amount.currency) {
+        throw new Error('Invalid order currency');
+      }
+      if (orderAmount && Math.abs(orderAmount - payment.amount.value) > 0.01) {
+        throw new Error('Invalid order amount');
+      }
+      if (order?.status && !['APPROVED', 'COMPLETED'].includes(order.status)) {
+        throw new Error('Order not approved');
+      }
+    } catch (preErr) {
+      payment.capturing = false;
+      await payment.save();
+      return res.status(400).json({ error: preErr.message || 'Order verification failed' });
     }
 
     // 🔒 Normal flow - capture from PayPal
@@ -174,19 +384,40 @@ const captureUniversalOrder = async (req, res) => {
       throw new Error(`PayPal capture failed with status: ${captureResult?.status || 'unknown'}`);
     }
 
+    // Basic integrity check: ensure returned purchase unit amount matches expected
+    const purchaseUnit = captureResult?.purchase_units?.[0];
+    const returnedValue = parseFloat(
+      purchaseUnit?.amount?.value || purchaseUnit?.payments?.captures?.[0]?.amount?.value || '0'
+    );
+    if (returnedValue && Math.abs(returnedValue - payment.amount.value) > 0.01) {
+      payment.status = 'failed';
+      payment.capturing = false;
+      await payment.save();
+      return res.status(400).json({ error: 'Payment amount mismatch. Please contact support.' });
+    }
+
     // Update payment record
     payment.status = "completed";
-    payment.capturedAt = new Date();
-    payment.paypalResponse = captureResult;
+    payment.paymentDetails = {
+      ...(payment.paymentDetails || {}),
+      transactionId: captureResult.id,
+      payerInfo: {
+        email: captureResult.payer?.email_address,
+        payerId: captureResult.payer?.payer_id,
+      },
+    };
+    payment.capturing = false;
     await payment.save();
 
-    // Create transaction record (only for membership payments that have a tier)
-    if (payment.paymentType === 'membership' && metadata.tier) {
+    // Create transaction record for membership payments
+    const effectiveContext = payment.context || metadata;
+    const membershipTier = payment.tierUpgrade?.to || effectiveContext?.tier;
+    if (payment.paymentType === 'membership' && membershipTier) {
       await PaypalTransaction.create({
         orderId: orderId,
         status: "COMPLETED",
         payerEmail: captureResult.payer?.email_address || req.user.email,
-        tier: metadata.tier,
+        tier: membershipTier,
         payerId: captureResult.payer?.payer_id || "N/A",
         amount: payment.amount.value,
         currency: payment.amount.currency,
@@ -195,7 +426,7 @@ const captureUniversalOrder = async (req, res) => {
     }
 
     // Apply payment effects based on type
-    await applyPaymentEffects(payment, req.user, metadata);
+    await applyPaymentEffects(payment, req.user, effectiveContext);
 
     console.log('✅ Payment captured successfully');
     res.json({
@@ -219,10 +450,18 @@ const captureUniversalOrder = async (req, res) => {
 async function applyPaymentEffects(payment, user, metadata) {
   switch (payment.paymentType) {
     case 'membership':
-      if (metadata.tier) {
-        user.tier = metadata.tier;
+      if (!user) {
+        throw new Error('Authenticated user required for membership upgrades');
+      }
+      if (payment.tierUpgrade?.to) {
+        user.tier = payment.tierUpgrade.to;
+        // Default membership term: 30 days (only extend, never shorten)
+        const newExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+        if (!user.tierExpiresAt || user.tierExpiresAt < newExpiry) {
+          user.tierExpiresAt = newExpiry;
+        }
         await user.save();
-        console.log(`✅ User upgraded to ${metadata.tier}`);
+        console.log(`✅ User upgraded to ${payment.tierUpgrade.to}`);
       }
       break;
 
@@ -255,12 +494,22 @@ async function applyPaymentEffects(payment, user, metadata) {
           imageUrl = typeof firstMedia === 'string' ? firstMedia : firstMedia.url;
         }
 
-        // Determine plan based on amount (simple mapping)
+        // Compute authoritative dates and duration (do not trust client-sent endDate)
+        const requestedStart = adSource.startDate ? new Date(adSource.startDate) : new Date();
+        const durationDays = adSource.duration || adSource.numberOfDays || adSource.durationDays;
+        const pricing = computeAdvertisingPricing({
+          placement: adSource.placement,
+          durationDays,
+          videoDurationSec: adSource.videoDuration || 0,
+        });
+        const startDate = isNaN(requestedStart.getTime()) ? new Date() : requestedStart;
+        const endDate = new Date(startDate.getTime() + pricing.days * 24 * 60 * 60 * 1000);
+
+        // Determine plan based on paid amount (simple mapping)
         let plan = 'starter';
-        const amount = payment.amount.value;
-        if (amount >= 500) plan = 'enterprise';
-        else if (amount >= 300) plan = 'professional';
-        else plan = 'starter';
+        const paid = payment.amount.value;
+        if (paid >= 500) plan = 'enterprise';
+        else if (paid >= 300) plan = 'professional';
 
         const adData = {
           title: adSource.title,
@@ -276,15 +525,15 @@ async function applyPaymentEffects(payment, user, metadata) {
           },
           mediaFiles: adSource.mediaFiles || [],
           imageUrl: imageUrl,
-          startDate: adSource.startDate ? new Date(adSource.startDate) : new Date(),
-          endDate: adSource.endDate ? new Date(adSource.endDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          startDate,
+          endDate,
           videoDuration: adSource.videoDuration || 0,
           pricing: {
             amount: payment.amount.value,
             currency: payment.amount.currency,
             plan: plan,
-            basePlanAmount: adSource.basePlanAmount || payment.amount.value,
-            videoAddonAmount: adSource.videoDurationAddon || 0,
+            basePlanAmount: pricing.basePlanAmount,
+            videoAddonAmount: pricing.videoDurationAddon,
             billingCycle: 'monthly'
           },
           paymentDetails: {

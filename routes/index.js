@@ -23,6 +23,8 @@ const adminLiveEventRouter = require("./adminLiveEvent");
 const talentShowcaseRouter = require("./talentShowcase");
 const proxyRouter = require("./proxy");
 const aiSupportRouter = require("./aiSupport");
+const businessLeadersRouter = require("./businessLeaders");
+const adminBusinessLeadersRouter = require("./adminBusinessLeaders");
 const { NotFoundError } = require("../utils/errors");
 
 const router = express.Router();
@@ -32,6 +34,9 @@ router.use("/api/live-talent-event", liveTalentEventRouter);
 router.use("/api/admin/live-event", adminLiveEventRouter);
 router.use("/api/ai-support", aiSupportRouter);
 
+// Public content routes
+router.use("/business-leaders", businessLeadersRouter);
+
 router.use("/users", userRouter);
 router.use("/listings", listingRouter);
 router.use("/membership", membershipRouter);
@@ -39,6 +44,9 @@ router.use("/forum", forumRouter);
 router.use("/search", searchRouter);
 router.use("/api/proxy", proxyRouter);
 router.use("/api", apiRouter);
+
+// Admin sub-routes that must win over /admin router fallbacks
+router.use("/admin/business-leaders", adminBusinessLeadersRouter);
 router.use("/admin", adminRouter);
 router.use("/analytics", analyticsRouter);
 router.use("/migration", migrationRouter);

@@ -50,6 +50,12 @@ const userSchema = new mongoose.Schema(
       enum: ["Free", "Starter", "Premium", "Pro"],
       default: "Free",
     },
+
+    // Membership expiration (used by membership/payment controllers)
+    tierExpiresAt: {
+      type: Date,
+      default: null,
+    },
     role: {
       type: String,
       enum: ["user", "admin"],

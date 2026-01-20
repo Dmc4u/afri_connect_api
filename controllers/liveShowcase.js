@@ -1,6 +1,6 @@
-const ShowcaseEventTimeline = require('../models/ShowcaseEventTimeline');
-const TalentShowcase = require('../models/TalentShowcase');
-const TalentContestant = require('../models/TalentContestant');
+const ShowcaseEventTimeline = require("../models/ShowcaseEventTimeline");
+const TalentShowcase = require("../models/TalentShowcase");
+const TalentContestant = require("../models/TalentContestant");
 
 const DEFAULT_VIEWER_COUNT_BASE = 2000;
 
@@ -16,7 +16,7 @@ function computeDisplayedViewerCount(timeline) {
 }
 
 function isAdminUser(user) {
-  return !!user && (user.role === 'admin' || user.isAdmin === true);
+  return !!user && (user.role === "admin" || user.isAdmin === true);
 }
 
 /**
@@ -31,24 +31,26 @@ exports.initializeEventTimeline = async (req, res) => {
 
     const showcase = await TalentShowcase.findById(showcaseId);
     if (!showcase) {
-      return res.status(404).json({ message: 'Showcase not found' });
+      return res.status(404).json({ message: "Showcase not found" });
     }
 
     // Get all contestants for this showcase (sorted by votes for performance order)
     const contestants = await TalentContestant.find({
       showcase: showcaseId,
-      status: { $in: ['approved', 'selected'] }  // Accept both approved AND selected contestants
+      status: { $in: ["approved", "selected"] }, // Accept both approved AND selected contestants
     })
       .sort({ voteCount: -1 })
       .limit(5);
 
     if (contestants.length === 0) {
-      return res.status(400).json({ message: 'No approved or selected contestants found for this showcase' });
+      return res
+        .status(400)
+        .json({ message: "No approved or selected contestants found for this showcase" });
     }
 
     console.log(`🎬 Found ${contestants.length} contestants for initialization`);
     contestants.forEach((c, i) => {
-      console.log(`  ${i+1}. ${c.performanceTitle} - Duration: ${c.videoDuration}s`);
+      console.log(`  ${i + 1}. ${c.performanceTitle} - Duration: ${c.videoDuration}s`);
     });
 
     // Check if timeline already exists
@@ -57,17 +59,19 @@ exports.initializeEventTimeline = async (req, res) => {
     if (timeline && timeline.performances && timeline.performances.length > 0) {
       // Timeline exists with performances already scheduled
       return res.status(400).json({
-        message: 'Event timeline already exists with scheduled performances',
+        message: "Event timeline already exists with scheduled performances",
         timeline,
-        performancesCount: timeline.performances.length
+        performancesCount: timeline.performances.length,
       });
     }
 
     // If timeline exists but NO performances, we'll reschedule them
     if (timeline && (!timeline.performances || timeline.performances.length === 0)) {
-      console.log('⚠️  Timeline exists but no performances scheduled. Rescheduling...');
+      console.log("⚠️  Timeline exists but no performances scheduled. Rescheduling...");
 
       // Regenerate timeline
+      // Ensure generateTimeline() can access showcase.commercials if present
+      timeline.showcase = showcase;
       timeline.generateTimeline();
 
       // Schedule performances
@@ -78,10 +82,10 @@ exports.initializeEventTimeline = async (req, res) => {
       console.log(`✅ Rescheduled ${timeline.performances.length} performances`);
 
       return res.status(200).json({
-        message: 'Performances scheduled successfully',
+        message: "Performances scheduled successfully",
         timeline,
         totalContestants: contestants.length,
-        performancesScheduled: timeline.performances.length
+        performancesScheduled: timeline.performances.length,
       });
     }
 
@@ -94,21 +98,27 @@ exports.initializeEventTimeline = async (req, res) => {
         commercialDuration: showcase.commercialDuration || 0,
         votingDuration: showcase.votingDisplayDuration || 3,
         winnerDeclarationDuration: showcase.winnerDisplayDuration || 3,
-        thankYouDuration: showcase.thankYouDuration || 2
+        thankYouDuration: showcase.thankYouDuration || 2,
       },
       welcomeMessage: {
         title: showcase.welcomeMessage || `Welcome to ${showcase.title}!`,
-        message: showcase.rulesMessage || `Get ready for amazing talent! We have ${contestants.length} incredible contestants competing.`,
-        rules: showcase.rulesMessage ? showcase.rulesMessage.split('\n') : []
+        message:
+          showcase.rulesMessage ||
+          `Get ready for amazing talent! We have ${contestants.length} incredible contestants competing.`,
+        rules: showcase.rulesMessage ? showcase.rulesMessage.split("\n") : [],
       },
       thankYouMessage: {
-        title: 'Thank You for Joining Us!',
-        message: showcase.thankYouMessage || `Thank you for being part of ${showcase.title}! See you next month!`,
-        nextEventDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-      }
+        title: "Thank You for Joining Us!",
+        message:
+          showcase.thankYouMessage ||
+          `Thank you for being part of ${showcase.title}! See you next month!`,
+        nextEventDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      },
     });
 
     // Generate timeline phases
+    // Ensure generateTimeline() can access showcase.commercials if present
+    timeline.showcase = showcase;
     timeline.generateTimeline();
 
     // Schedule contestant performances
@@ -117,19 +127,18 @@ exports.initializeEventTimeline = async (req, res) => {
     await timeline.save();
 
     // Update showcase status to 'live'
-    showcase.status = 'live';
+    showcase.status = "live";
     await showcase.save();
 
     res.status(201).json({
-      message: 'Event timeline initialized successfully',
+      message: "Event timeline initialized successfully",
       timeline,
       totalContestants: contestants.length,
-      estimatedDuration: `${timeline.config.totalDuration} minutes`
+      estimatedDuration: `${timeline.config.totalDuration} minutes`,
     });
-
   } catch (error) {
-    console.error('Error initializing event timeline:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error("Error initializing event timeline:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
@@ -140,17 +149,21 @@ exports.reschedulePerformances = async (req, res) => {
 
     const timeline = await ShowcaseEventTimeline.findOne({ showcase: showcaseId });
     if (!timeline) {
-      return res.status(404).json({ message: 'Event timeline not found. Please initialize first.' });
+      return res
+        .status(404)
+        .json({ message: "Event timeline not found. Please initialize first." });
     }
 
     // Get all contestants for this showcase
     const contestants = await TalentContestant.find({
       showcase: showcaseId,
-      status: { $in: ['approved', 'selected'] }  // Accept both approved AND selected contestants
+      status: { $in: ["approved", "selected"] }, // Accept both approved AND selected contestants
     }).sort({ voteCount: -1 });
 
     if (contestants.length === 0) {
-      return res.status(400).json({ message: 'No approved or selected contestants found for this showcase' });
+      return res
+        .status(400)
+        .json({ message: "No approved or selected contestants found for this showcase" });
     }
 
     console.log(`🔄 Rescheduling performances for ${contestants.length} contestants...`);
@@ -167,17 +180,16 @@ exports.reschedulePerformances = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Performances rescheduled successfully',
+      message: "Performances rescheduled successfully",
       performancesCount: timeline.performances.length,
-      contestants: contestants.map(c => ({
+      contestants: contestants.map((c) => ({
         name: c.performanceTitle,
-        videoDuration: c.videoDuration
-      }))
+        videoDuration: c.videoDuration,
+      })),
     });
-
   } catch (error) {
-    console.error('Error rescheduling performances:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error("Error rescheduling performances:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
@@ -188,51 +200,54 @@ exports.startLiveEvent = async (req, res) => {
 
     const timeline = await ShowcaseEventTimeline.findOne({ showcase: showcaseId });
     if (!timeline) {
-      return res.status(404).json({ message: 'Event timeline not found. Please initialize first.' });
+      return res
+        .status(404)
+        .json({ message: "Event timeline not found. Please initialize first." });
     }
 
     if (timeline.isLive) {
-      return res.status(400).json({ message: 'Event is already live' });
+      return res.status(400).json({ message: "Event is already live" });
     }
 
     // Start the event
     timeline.actualStartTime = new Date();
     timeline.isLive = true;
-    timeline.eventStatus = 'live';
-    timeline.currentPhase = 'welcome';
+    timeline.eventStatus = "live";
+    timeline.currentPhase = "welcome";
 
     // Make sure ALL phases start as pending first
-    timeline.phases.forEach(phase => {
-      phase.status = 'pending';
+    timeline.phases.forEach((phase) => {
+      phase.status = "pending";
     });
 
     // Set first phase (welcome) to active - keep original timing from generateTimeline()
-    if (timeline.phases.length > 0 && timeline.phases[0].name === 'welcome') {
-      timeline.phases[0].status = 'active';
+    if (timeline.phases.length > 0 && timeline.phases[0].name === "welcome") {
+      timeline.phases[0].status = "active";
       // Only update startTime to now, keep the pre-calculated endTime to maintain full duration
       const originalDuration = timeline.phases[0].duration;
       timeline.phases[0].startTime = new Date();
       timeline.phases[0].endTime = new Date(Date.now() + originalDuration * 60000);
-      console.log(`✅ Welcome phase activated: ${originalDuration} minutes (ends at ${timeline.phases[0].endTime.toLocaleTimeString()})`);
+      console.log(
+        `✅ Welcome phase activated: ${originalDuration} minutes (ends at ${timeline.phases[0].endTime.toLocaleTimeString()})`
+      );
     }
 
     await timeline.save();
 
     // Update showcase status
     await TalentShowcase.findByIdAndUpdate(showcaseId, {
-      status: 'live',
-      liveStartTime: new Date()
+      status: "live",
+      liveStartTime: new Date(),
     });
 
     res.json({
-      message: 'Live event started successfully',
+      message: "Live event started successfully",
       timeline,
-      currentPhase: timeline.phases[0]
+      currentPhase: timeline.phases[0],
     });
-
   } catch (error) {
-    console.error('Error starting live event:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error("Error starting live event:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
@@ -247,15 +262,15 @@ exports.advanceToNextPhase = async (req, res) => {
 
     const timeline = await ShowcaseEventTimeline.findOne({ showcase: showcaseId });
     if (!timeline) {
-      return res.status(404).json({ message: 'Event timeline not found' });
+      return res.status(404).json({ message: "Event timeline not found" });
     }
 
     // Don't advance if event is already completed or not live
-    if (timeline.eventStatus === 'completed' || !timeline.isLive) {
+    if (timeline.eventStatus === "completed" || !timeline.isLive) {
       return res.status(400).json({
-        message: 'Cannot advance phases - event is not live',
+        message: "Cannot advance phases - event is not live",
         eventStatus: timeline.eventStatus,
-        isLive: timeline.isLive
+        isLive: timeline.isLive,
       });
     }
 
@@ -270,21 +285,21 @@ exports.advanceToNextPhase = async (req, res) => {
 
       // Update showcase to completed
       await TalentShowcase.findByIdAndUpdate(showcaseId, {
-        status: 'completed',
-        endDate: new Date()
+        status: "completed",
+        endDate: new Date(),
       });
 
       return res.json({
-        message: 'Event completed successfully',
-        timeline
+        message: "Event completed successfully",
+        timeline,
       });
     }
 
     // Special handling for voting phase
-    if (nextPhase.name === 'voting') {
+    if (nextPhase.name === "voting") {
       await TalentShowcase.findByIdAndUpdate(showcaseId, {
-        status: 'voting',
-        votingEndTime: nextPhase.endTime
+        status: "voting",
+        votingEndTime: nextPhase.endTime,
       });
     }
 
@@ -293,12 +308,11 @@ exports.advanceToNextPhase = async (req, res) => {
     res.json({
       message: `Advanced to ${nextPhase.name} phase`,
       currentPhase: nextPhase,
-      timeline
+      timeline,
     });
-
   } catch (error) {
-    console.error('Error advancing phase:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error("Error advancing phase:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
@@ -309,31 +323,31 @@ exports.declareWinner = async (req, res) => {
 
     const timeline = await ShowcaseEventTimeline.findOne({ showcase: showcaseId });
     if (!timeline) {
-      return res.status(404).json({ message: 'Event timeline not found' });
+      return res.status(404).json({ message: "Event timeline not found" });
     }
 
-    if (timeline.currentPhase !== 'winner') {
+    if (timeline.currentPhase !== "winner") {
       return res.status(400).json({
-        message: 'Can only declare winner during winner phase',
-        currentPhase: timeline.currentPhase
+        message: "Can only declare winner during winner phase",
+        currentPhase: timeline.currentPhase,
       });
     }
 
     // Get all contestants sorted by votes
     const contestants = await TalentContestant.find({ showcase: showcaseId })
       .sort({ votes: -1, _id: 1 })
-      .populate('listing')
-      .populate('user');
+      .populate("listing")
+      .populate("user");
 
     if (contestants.length === 0) {
       timeline.winnerAnnouncement = {
         totalVotes: 0,
-        prizeDetails: req.body.prizeDetails || 'Grand Prize Winner! - No contestants participated',
+        prizeDetails: req.body.prizeDetails || "Grand Prize Winner! - No contestants participated",
         announcementTime: new Date(),
-        noWinner: true
+        noWinner: true,
       };
       await timeline.save();
-      return res.status(404).json({ message: 'No contestants found' });
+      return res.status(404).json({ message: "No contestants found" });
     }
 
     // Check if there are any votes at all
@@ -341,7 +355,7 @@ exports.declareWinner = async (req, res) => {
     const highestVotes = contestants[0].votes || 0;
 
     // Check for tie at the top
-    const tiedContestants = contestants.filter(c => (c.votes || 0) === highestVotes);
+    const tiedContestants = contestants.filter((c) => (c.votes || 0) === highestVotes);
 
     if (tiedContestants.length > 1) {
       // TIE - No winner declared
@@ -351,25 +365,25 @@ exports.declareWinner = async (req, res) => {
         announcementTime: new Date(),
         isTie: true,
         noWinner: true,
-        tiedContestants: tiedContestants.map(c => ({
+        tiedContestants: tiedContestants.map((c) => ({
           id: c._id,
           name: c.performanceTitle,
           performer: c.user?.name,
-          votes: c.votes
-        }))
+          votes: c.votes,
+        })),
       };
       await timeline.save();
 
       return res.json({
-        message: 'Tie detected - No winner declared',
+        message: "Tie detected - No winner declared",
         tie: true,
-        tiedContestants: tiedContestants.map(c => ({
+        tiedContestants: tiedContestants.map((c) => ({
           id: c._id,
           name: c.performanceTitle,
           performer: c.user?.name,
-          votes: c.votes
+          votes: c.votes,
         })),
-        announcement: timeline.winnerAnnouncement
+        announcement: timeline.winnerAnnouncement,
       });
     }
 
@@ -377,16 +391,17 @@ exports.declareWinner = async (req, res) => {
     if (totalVotes === 0) {
       timeline.winnerAnnouncement = {
         totalVotes: 0,
-        prizeDetails: req.body.prizeDetails || 'Grand Prize Winner! - No votes were cast, no winner declared',
+        prizeDetails:
+          req.body.prizeDetails || "Grand Prize Winner! - No votes were cast, no winner declared",
         announcementTime: new Date(),
-        noWinner: true
+        noWinner: true,
       };
       await timeline.save();
 
       return res.json({
-        message: 'No votes cast - No winner declared',
+        message: "No votes cast - No winner declared",
         noWinner: true,
-        announcement: timeline.winnerAnnouncement
+        announcement: timeline.winnerAnnouncement,
       });
     }
 
@@ -397,8 +412,8 @@ exports.declareWinner = async (req, res) => {
     timeline.winnerAnnouncement = {
       winner: winner._id,
       totalVotes: winner.votes,
-      prizeDetails: req.body.prizeDetails || 'Grand Prize Winner!',
-      announcementTime: new Date()
+      prizeDetails: req.body.prizeDetails || "Grand Prize Winner!",
+      announcementTime: new Date(),
     };
 
     // Mark winner in contestant record
@@ -407,15 +422,15 @@ exports.declareWinner = async (req, res) => {
     await winner.save();
 
     // Auto-feature winner's listing on homepage if they have a Talent listing
-    if (winner.listing && winner.listing.category === 'Talent') {
-      const FeaturedPlacement = require('../models/FeaturedPlacement');
-      const Listing = require('../models/Listing');
+    if (winner.listing && winner.listing.category === "Talent") {
+      const FeaturedPlacement = require("../models/FeaturedPlacement");
+      const Listing = require("../models/Listing");
 
       // Check if listing is already featured
       const existingFeature = await FeaturedPlacement.findOne({
         listingId: winner.listing._id,
-        status: 'approved',
-        endAt: { $gt: new Date() }
+        status: "approved",
+        endAt: { $gt: new Date() },
       });
 
       if (!existingFeature) {
@@ -428,12 +443,12 @@ exports.declareWinner = async (req, res) => {
           showcaseId: showcaseId, // Include showcase reference for winner placements
           startAt: new Date(),
           endAt: endDate,
-          status: 'approved', // Auto-approved as prize
+          status: "approved", // Auto-approved as prize
           notes: `Automatically awarded as winner of talent showcase: ${showcaseId}`,
-          offerType: 'premium',
-          paymentStatus: 'captured', // Mark as paid (prize)
+          offerType: "premium",
+          paymentStatus: "captured", // Mark as paid (prize)
           amountPaid: 0, // Free as prize
-          priceBooked: 0
+          priceBooked: 0,
         });
 
         await featuredPlacement.save();
@@ -441,7 +456,7 @@ exports.declareWinner = async (req, res) => {
         // Update listing to mark as featured
         await Listing.findByIdAndUpdate(winner.listing._id, {
           featured: true,
-          featuredUntil: endDate
+          featuredUntil: endDate,
         });
 
         console.log(`✅ Auto-featured winner's listing: ${winner.listing.title} for 30 days`);
@@ -451,20 +466,19 @@ exports.declareWinner = async (req, res) => {
     await timeline.save();
 
     res.json({
-      message: 'Winner declared successfully',
+      message: "Winner declared successfully",
       winner: {
         id: winner._id,
         name: winner.name,
         votes: winner.voteCount,
         bio: winner.bio,
-        featured: winner.listing && winner.listing.category === 'Talent'
+        featured: winner.listing && winner.listing.category === "Talent",
       },
-      announcement: timeline.winnerAnnouncement
+      announcement: timeline.winnerAnnouncement,
     });
-
   } catch (error) {
-    console.error('Error declaring winner:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error("Error declaring winner:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
@@ -476,7 +490,7 @@ exports.updateViewerCount = async (req, res) => {
 
     const timeline = await ShowcaseEventTimeline.findOne({ showcase: showcaseId });
     if (!timeline) {
-      return res.status(404).json({ message: 'Event timeline not found' });
+      return res.status(404).json({ message: "Event timeline not found" });
     }
 
     // Allow manual override while still supporting "active sessions" reporting.
@@ -497,20 +511,19 @@ exports.updateViewerCount = async (req, res) => {
     // Emit viewer count update via WebSocket
     const io = req.app.locals.io;
     if (io) {
-      io.to(`showcase-${showcaseId}`).emit('viewerCountUpdate', {
+      io.to(`showcase-${showcaseId}`).emit("viewerCountUpdate", {
         viewerCount: timeline.viewerCount,
-        peakViewerCount: timeline.peakViewerCount
+        peakViewerCount: timeline.peakViewerCount,
       });
     }
 
     res.json({
       viewerCount: timeline.viewerCount,
-      peakViewerCount: timeline.peakViewerCount
+      peakViewerCount: timeline.peakViewerCount,
     });
-
   } catch (error) {
-    console.error('Error updating viewer count:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error("Error updating viewer count:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
@@ -522,11 +535,11 @@ exports.joinLiveEvent = async (req, res) => {
 
     const timeline = await ShowcaseEventTimeline.findOne({ showcase: showcaseId });
     if (!timeline) {
-      return res.status(404).json({ message: 'Event timeline not found' });
+      return res.status(404).json({ message: "Event timeline not found" });
     }
 
     if (!timeline.isLive) {
-      return res.status(400).json({ message: 'Event is not currently live' });
+      return res.status(400).json({ message: "Event is not currently live" });
     }
 
     // Initialize activeViewers array if it doesn't exist
@@ -553,21 +566,20 @@ exports.joinLiveEvent = async (req, res) => {
     // Emit viewer count update
     const io = req.app.locals.io;
     if (io) {
-      io.to(`showcase-${showcaseId}`).emit('viewerCountUpdate', {
+      io.to(`showcase-${showcaseId}`).emit("viewerCountUpdate", {
         viewerCount: timeline.viewerCount,
-        peakViewerCount: timeline.peakViewerCount
+        peakViewerCount: timeline.peakViewerCount,
       });
     }
 
     res.json({
       success: true,
       viewerCount: timeline.viewerCount,
-      message: 'Joined live event'
+      message: "Joined live event",
     });
-
   } catch (error) {
-    console.error('Error joining live event:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error("Error joining live event:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
@@ -579,7 +591,7 @@ exports.leaveLiveEvent = async (req, res) => {
 
     const timeline = await ShowcaseEventTimeline.findOne({ showcase: showcaseId });
     if (!timeline) {
-      return res.status(404).json({ message: 'Event timeline not found' });
+      return res.status(404).json({ message: "Event timeline not found" });
     }
 
     // Initialize activeViewers array if it doesn't exist
@@ -589,7 +601,7 @@ exports.leaveLiveEvent = async (req, res) => {
 
     // Remove viewer session from active viewers
     if (viewerSessionId) {
-      timeline.activeViewers = timeline.activeViewers.filter(id => id !== viewerSessionId);
+      timeline.activeViewers = timeline.activeViewers.filter((id) => id !== viewerSessionId);
     }
 
     // Update viewer count based on unique sessions + baseline
@@ -606,21 +618,20 @@ exports.leaveLiveEvent = async (req, res) => {
     // Emit viewer count update
     const io = req.app.locals.io;
     if (io) {
-      io.to(`showcase-${showcaseId}`).emit('viewerCountUpdate', {
+      io.to(`showcase-${showcaseId}`).emit("viewerCountUpdate", {
         viewerCount: timeline.viewerCount,
-        peakViewerCount: timeline.peakViewerCount
+        peakViewerCount: timeline.peakViewerCount,
       });
     }
 
     res.json({
       success: true,
       viewerCount: timeline.viewerCount,
-      message: 'Left live event'
+      message: "Left live event",
     });
-
   } catch (error) {
-    console.error('Error leaving live event:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error("Error leaving live event:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
@@ -630,18 +641,18 @@ exports.updateViewerCountBase = async (req, res) => {
     const { showcaseId } = req.params;
 
     if (!isAdminUser(req.user)) {
-      return res.status(403).json({ message: 'Admin access required' });
+      return res.status(403).json({ message: "Admin access required" });
     }
 
     const raw = req.body?.viewerCountBase ?? req.body?.base ?? req.body?.count;
     const nextBase = Number(raw);
     if (!Number.isFinite(nextBase) || nextBase < 0) {
-      return res.status(400).json({ message: 'viewerCountBase must be a non-negative number' });
+      return res.status(400).json({ message: "viewerCountBase must be a non-negative number" });
     }
 
     const timeline = await ShowcaseEventTimeline.findOne({ showcase: showcaseId });
     if (!timeline) {
-      return res.status(404).json({ message: 'Event timeline not found' });
+      return res.status(404).json({ message: "Event timeline not found" });
     }
 
     timeline.viewerCountBase = Math.floor(nextBase);
@@ -652,21 +663,21 @@ exports.updateViewerCountBase = async (req, res) => {
 
     const io = req.app.locals.io;
     if (io) {
-      io.to(`showcase-${showcaseId}`).emit('viewerCountUpdate', {
+      io.to(`showcase-${showcaseId}`).emit("viewerCountUpdate", {
         viewerCountBase: timeline.viewerCountBase,
         viewerCount: timeline.viewerCount,
-        peakViewerCount: timeline.peakViewerCount
+        peakViewerCount: timeline.peakViewerCount,
       });
     }
 
     res.json({
       viewerCountBase: timeline.viewerCountBase,
       viewerCount: timeline.viewerCount,
-      peakViewerCount: timeline.peakViewerCount
+      peakViewerCount: timeline.peakViewerCount,
     });
   } catch (error) {
-    console.error('Error updating viewerCountBase:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error("Error updating viewerCountBase:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
@@ -682,35 +693,34 @@ exports.endEvent = async (req, res) => {
         $set: {
           isLive: false,
           actualEndTime: new Date(),
-          eventStatus: 'completed',
-          currentPhase: 'ended',
-          'phases.$[].status': 'completed',
-          'performances.$[].status': 'completed',
-          currentPerformance: null
-        }
+          eventStatus: "completed",
+          currentPhase: "ended",
+          "phases.$[].status": "completed",
+          "performances.$[].status": "completed",
+          currentPerformance: null,
+        },
       },
       { new: true }
     );
 
     if (!timeline) {
-      return res.status(404).json({ message: 'Event timeline not found' });
+      return res.status(404).json({ message: "Event timeline not found" });
     }
 
     await TalentShowcase.findByIdAndUpdate(showcaseId, {
-      status: 'completed',
-      endDate: new Date()
+      status: "completed",
+      endDate: new Date(),
     });
 
     console.log(`🛑 Event manually ended: ${showcaseId}`);
 
     res.json({
-      message: 'Event ended successfully',
-      timeline
+      message: "Event ended successfully",
+      timeline,
     });
-
   } catch (error) {
-    console.error('Error ending event:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error("Error ending event:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
@@ -722,7 +732,7 @@ exports.restartEvent = async (req, res) => {
     const timeline = await ShowcaseEventTimeline.findOne({ showcase: showcaseId });
 
     if (!timeline) {
-      return res.status(404).json({ message: 'Event timeline not found' });
+      return res.status(404).json({ message: "Event timeline not found" });
     }
 
     // Reset all phases to pending except Welcome which should be active
@@ -730,28 +740,28 @@ exports.restartEvent = async (req, res) => {
     timeline.phases.forEach((phase, index) => {
       if (index === 0) {
         // Welcome phase - set it active
-        phase.status = 'active';
+        phase.status = "active";
         phase.startTime = now;
         phase.endTime = new Date(now.getTime() + phase.duration * 60 * 1000);
       } else {
         // All other phases - reset to pending
-        phase.status = 'pending';
+        phase.status = "pending";
         phase.startTime = null;
         phase.endTime = null;
       }
     });
 
     // Reset performances to pending
-    timeline.performances.forEach(performance => {
-      performance.status = 'pending';
+    timeline.performances.forEach((performance) => {
+      performance.status = "pending";
       performance.performanceStartTime = null;
       performance.performanceEndTime = null;
     });
 
     // Reset event state
     timeline.isLive = true;
-    timeline.eventStatus = 'live';
-    timeline.currentPhase = 'welcome';
+    timeline.eventStatus = "live";
+    timeline.currentPhase = "welcome";
     timeline.currentPerformance = null;
     timeline.actualStartTime = now;
     timeline.actualEndTime = null;
@@ -760,20 +770,19 @@ exports.restartEvent = async (req, res) => {
 
     // Update showcase status
     await TalentShowcase.findByIdAndUpdate(showcaseId, {
-      status: 'live'
+      status: "live",
     });
 
     console.log(`🔄 Event restarted: ${showcaseId}`);
 
     res.json({
       success: true,
-      message: 'Event restarted successfully',
-      timeline
+      message: "Event restarted successfully",
+      timeline,
     });
-
   } catch (error) {
-    console.error('Error restarting event:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error("Error restarting event:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
@@ -785,19 +794,18 @@ exports.deleteTimeline = async (req, res) => {
     const result = await ShowcaseEventTimeline.findOneAndDelete({ showcase: showcaseId });
 
     if (!result) {
-      return res.status(404).json({ message: 'Event timeline not found' });
+      return res.status(404).json({ message: "Event timeline not found" });
     }
 
     console.log(`🗑️  Timeline deleted for showcase: ${showcaseId}`);
 
     res.json({
       success: true,
-      message: 'Timeline deleted successfully. You can now reinitialize.'
+      message: "Timeline deleted successfully. You can now reinitialize.",
     });
-
   } catch (error) {
-    console.error('Error deleting timeline:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error("Error deleting timeline:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
@@ -806,15 +814,17 @@ exports.getEventAnalytics = async (req, res) => {
   try {
     const { showcaseId } = req.params;
 
-    const timeline = await ShowcaseEventTimeline.findOne({ showcase: showcaseId })
-      .populate('performances.contestant');
+    const timeline = await ShowcaseEventTimeline.findOne({ showcase: showcaseId }).populate(
+      "performances.contestant"
+    );
 
     if (!timeline) {
-      return res.status(404).json({ message: 'Event timeline not found' });
+      return res.status(404).json({ message: "Event timeline not found" });
     }
 
-    const contestants = await TalentContestant.find({ showcase: showcaseId })
-      .sort({ voteCount: -1 });
+    const contestants = await TalentContestant.find({ showcase: showcaseId }).sort({
+      voteCount: -1,
+    });
 
     const totalVotes = contestants.reduce((sum, c) => sum + c.voteCount, 0);
 
@@ -825,24 +835,25 @@ exports.getEventAnalytics = async (req, res) => {
       peakViewers: timeline.peakViewerCount,
       totalContestants: contestants.length,
       totalVotes,
-      votesPerContestant: contestants.map(c => ({
+      votesPerContestant: contestants.map((c) => ({
         name: c.name,
         votes: c.voteCount,
-        percentage: totalVotes > 0 ? ((c.voteCount / totalVotes) * 100).toFixed(1) : 0
+        percentage: totalVotes > 0 ? ((c.voteCount / totalVotes) * 100).toFixed(1) : 0,
       })),
-      winner: timeline.winnerAnnouncement?.winner ? {
-        id: timeline.winnerAnnouncement.winner,
-        votes: timeline.winnerAnnouncement.totalVotes
-      } : null,
-      phasesCompleted: timeline.phases.filter(p => p.status === 'completed').length,
-      eventStatus: timeline.eventStatus
+      winner: timeline.winnerAnnouncement?.winner
+        ? {
+            id: timeline.winnerAnnouncement.winner,
+            votes: timeline.winnerAnnouncement.totalVotes,
+          }
+        : null,
+      phasesCompleted: timeline.phases.filter((p) => p.status === "completed").length,
+      eventStatus: timeline.eventStatus,
     };
 
     res.json(analytics);
-
   } catch (error) {
-    console.error('Error getting event analytics:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error("Error getting event analytics:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
@@ -851,65 +862,98 @@ exports.voteForContestant = async (req, res) => {
   try {
     const { showcaseId } = req.params;
     const { contestantId } = req.body;
-    const userId = req.user._id;
+    const userId = req.user?._id;
+    const ipAddress = req.ip || req.connection.remoteAddress;
 
     if (!contestantId) {
-      return res.status(400).json({ message: 'Contestant ID is required' });
+      return res.status(400).json({ message: "Contestant ID is required" });
+    }
+
+    if (!userId) {
+      return res.status(401).json({ message: "Authentication required" });
     }
 
     // Get event timeline
     const timeline = await ShowcaseEventTimeline.findOne({ showcase: showcaseId });
     if (!timeline) {
-      return res.status(404).json({ message: 'Event timeline not found' });
+      return res.status(404).json({ message: "Event timeline not found" });
     }
 
     // Check if voting phase is active
-    const votingPhase = timeline.phases.find(p => p.name === 'voting');
-    if (!votingPhase || votingPhase.status !== 'active') {
-      return res.status(400).json({ message: 'Voting is not currently open' });
+    const votingPhase = timeline.phases.find((p) => p.name === "voting");
+    if (!votingPhase || votingPhase.status !== "active") {
+      return res.status(400).json({ message: "Voting is not currently open" });
     }
 
-    // Find contestant
-    const contestant = await TalentContestant.findById(contestantId);
-    if (!contestant || contestant.showcase.toString() !== showcaseId) {
-      return res.status(404).json({ message: 'Contestant not found in this showcase' });
+    // Check showcase voting rules
+    const showcase = await TalentShowcase.findById(showcaseId);
+    if (!showcase) {
+      return res.status(404).json({ message: "Showcase not found" });
     }
 
-    // Check if user already voted for this contestant
-    const ShowcaseVote = require('../models/ShowcaseVote');
-    const existingVote = await ShowcaseVote.findOne({
+    // Find contestant (during live voting, accept approved/selected)
+    const contestant = await TalentContestant.findOne({
+      _id: contestantId,
       showcase: showcaseId,
-      contestant: contestantId,
-      voter: userId
+      status: { $in: ["approved", "selected"] },
     });
 
-    if (existingVote) {
-      return res.status(400).json({ message: 'You have already voted for this contestant' });
+    if (!contestant) {
+      return res.status(404).json({ message: "Contestant not found in this showcase" });
     }
 
-    // Create vote record
+    const ShowcaseVote = require("../models/ShowcaseVote");
+
+    // Enforce a maximum votes-per-user if configured; default to 1 if missing
+    const maxVotesPerUser = Number(showcase?.rules?.maxVotesPerUser);
+    const premiumBonusVotes = Number(showcase?.rules?.premiumBonusVotes);
+    const baseMax = Number.isFinite(maxVotesPerUser) ? maxVotesPerUser : 1;
+    const bonus = Number.isFinite(premiumBonusVotes) ? premiumBonusVotes : 0;
+    const isPaidTier = req.user?.tier && req.user.tier !== "Free";
+    const maxVotes = isPaidTier ? baseMax + bonus : baseMax;
+
+    const userVotes = await ShowcaseVote.countDocuments({ showcase: showcaseId, user: userId });
+    if (userVotes >= maxVotes) {
+      return res
+        .status(400)
+        .json({ message: `You have reached the maximum number of votes (${maxVotes})` });
+    }
+
+    // Create vote record (schema requires ipAddress)
     await ShowcaseVote.create({
       showcase: showcaseId,
       contestant: contestantId,
-      voter: userId,
-      votedAt: new Date()
+      user: userId,
+      ipAddress,
+      userAgent: req.get("user-agent"),
+      voteWeight: 1,
+      country: req.body?.country,
     });
 
     // Increment vote count
     contestant.votes = (contestant.votes || 0) + 1;
     await contestant.save();
 
+    // Keep showcase totalVotes in sync when available
+    if (typeof showcase.totalVotes === "number") {
+      showcase.totalVotes += 1;
+      await showcase.save();
+    }
+
     res.json({
-      message: 'Vote submitted successfully',
+      message: "Vote submitted successfully",
+      votesRemaining: Math.max(0, maxVotes - (userVotes + 1)),
       contestant: {
         id: contestant._id,
         name: contestant.performanceTitle,
-        votes: contestant.votes
-      }
+        votes: contestant.votes,
+      },
     });
-
   } catch (error) {
-    console.error('Error voting for contestant:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error("Error voting for contestant:", error);
+    if (error.code === 11000) {
+      return res.status(400).json({ message: "You have already voted for this contestant" });
+    }
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 };

@@ -1,4 +1,5 @@
 const Advertisement = require('../models/Advertisement');
+const Payment = require('../models/Payment');
 const { BadRequestError, NotFoundError, ForbiddenError } = require('../utils/errors');
 const { sendAdRequestReceived, sendAdApproved, sendAdRejected, sendAdActivated } = require('../utils/notifications');
 
@@ -121,8 +122,7 @@ exports.createAdRequest = async (req, res, next) => {
       videoDuration,
       videoTier,
       message,
-      paymentOrderId,
-      paymentStatus
+      paymentOrderId
     } = req.body;
 
     // Validation
@@ -137,9 +137,22 @@ exports.createAdRequest = async (req, res, next) => {
       throw new BadRequestError('End date must be after start date');
     }
 
-    // Determine status based on payment
-    // If payment is completed, auto-activate the ad
-    const isPaid = paymentStatus === 'completed' && paymentOrderId;
+    // Determine status based on server-verified payment (never trust client-sent paymentStatus)
+    let isPaid = false;
+    let verifiedPayment = null;
+    if (paymentOrderId) {
+      verifiedPayment = await Payment.findOne({
+        orderId: paymentOrderId,
+        status: 'completed',
+        paymentType: 'advertising'
+      }).select('user amount status paymentType');
+
+      // Paid ads must be tied to an authenticated user to prevent spoofing
+      if (verifiedPayment && req.user && (String(verifiedPayment.user) === String(req.user._id) || req.user?.role === 'admin')) {
+        isPaid = true;
+      }
+    }
+
     const adStatus = isPaid ? 'active' : 'pending';
     const adPaymentStatus = isPaid ? 'paid' : 'unpaid';
 
@@ -174,7 +187,7 @@ exports.createAdRequest = async (req, res, next) => {
       paymentDetails: isPaid ? {
         method: 'paypal',
         transactionId: paymentOrderId,
-        paidAt: new Date()
+        paidAt: new Date(),
       } : undefined,
       adminNotes: message || '',
       createdBy: req.user?._id
