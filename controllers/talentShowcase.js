@@ -843,9 +843,11 @@ exports.registerContestant = async (req, res) => {
       }
     }
 
-    // Add contestant to showcase
-    showcase.contestants.push(contestant._id);
-    await showcase.save();
+    // Add contestant to showcase (robust for older production docs that may not have `contestants` initialized)
+    await TalentShowcase.updateOne(
+      { _id: showcaseId },
+      { $addToSet: { contestants: contestant._id } }
+    );
 
     res.status(201).json({
       success: true,
@@ -856,6 +858,10 @@ exports.registerContestant = async (req, res) => {
     });
   } catch (error) {
     console.error("Error registering contestant:", error);
+    console.error("Register contestant context:", {
+      showcaseId: req.body?.showcaseId,
+      userId: req.user?._id,
+    });
     res.status(500).json({
       success: false,
       message: "Failed to register",
