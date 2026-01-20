@@ -1,4 +1,14 @@
-const ytdl = require('@distube/ytdl-core');
+let ytdl;
+
+try {
+  // Preferred fork (often more up-to-date for YouTube changes)
+  // eslint-disable-next-line global-require
+  ytdl = require("@distube/ytdl-core");
+} catch (error) {
+  // Fallback for environments where the fork isn't installed
+  // eslint-disable-next-line global-require
+  ytdl = require("ytdl-core");
+}
 
 /**
  * Extract YouTube video duration in seconds
@@ -8,18 +18,20 @@ const ytdl = require('@distube/ytdl-core');
 async function getYouTubeDuration(url) {
   try {
     if (!url || !ytdl.validateURL(url)) {
-      console.log('⚠️ Invalid YouTube URL:', url);
+      console.log("⚠️ Invalid YouTube URL:", url);
       return null;
     }
 
-    console.log('🎥 Fetching YouTube video info for:', url);
+    console.log("🎥 Fetching YouTube video info for:", url);
     const info = await ytdl.getInfo(url);
     const durationSeconds = parseInt(info.videoDetails.lengthSeconds);
 
-    console.log(`✅ YouTube video duration: ${durationSeconds}s (${(durationSeconds / 60).toFixed(2)} minutes)`);
+    console.log(
+      `✅ YouTube video duration: ${durationSeconds}s (${(durationSeconds / 60).toFixed(2)} minutes)`
+    );
     return durationSeconds;
   } catch (error) {
-    console.error('❌ Error fetching YouTube duration:', error.message);
+    console.error("❌ Error fetching YouTube duration:", error.message);
     return null;
   }
 }
@@ -36,5 +48,5 @@ function isYouTubeUrl(url) {
 
 module.exports = {
   getYouTubeDuration,
-  isYouTubeUrl
+  isYouTubeUrl,
 };
