@@ -94,8 +94,16 @@ const validateShowcaseCreation = [
 
   body("commercialDuration")
     .optional()
-    .isFloat({ min: 0, max: 3 })
-    .withMessage("Commercial duration must be between 0 and 3 minutes"),
+    .custom((value) => {
+      // commercialDuration is expressed in minutes (phase-level duration)
+      const maxMinutes = Number(process.env.COMMERCIAL_PHASE_MAX_MINUTES || 10);
+      const num = Number(value);
+      if (!Number.isFinite(num)) throw new Error("Commercial duration must be a number");
+      if (num < 0 || num > maxMinutes) {
+        throw new Error(`Commercial duration must be between 0 and ${maxMinutes} minutes`);
+      }
+      return true;
+    }),
 
   body("commercialContent")
     .optional()
@@ -113,8 +121,17 @@ const validateShowcaseCreation = [
 
   body("commercials.*.duration")
     .optional()
-    .isInt({ min: 1, max: 45 })
-    .withMessage("Commercial duration must be between 1 and 45 seconds"),
+    .custom((value) => {
+      // Each commercial duration is expressed in seconds.
+      const maxSeconds = Number(process.env.COMMERCIAL_MAX_SECONDS || 180);
+      const num = Number(value);
+      if (!Number.isFinite(num)) throw new Error("Commercial duration must be a number");
+      if (!Number.isInteger(num)) throw new Error("Commercial duration must be an integer");
+      if (num < 1 || num > maxSeconds) {
+        throw new Error(`Commercial duration must be between 1 and ${maxSeconds} seconds`);
+      }
+      return true;
+    }),
 
   body("commercials.*.videoUrl")
     .optional()

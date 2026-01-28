@@ -9,6 +9,82 @@ const path = require("path");
 const fs = require("fs");
 const { v4: uuidv4 } = require("uuid");
 
+async function ensureWinnerAnnouncement(timeline, showcaseId) {
+  if (timeline?.winnerAnnouncement?.announcementTime) return;
+
+  const TalentContestant = require("../models/TalentContestant");
+  const showcase = await TalentShowcase.findById(showcaseId);
+
+  const prizeText = showcase?.prizeDetails?.amount
+    ? `$${showcase.prizeDetails.amount} ${showcase.prizeDetails.description || "cash prize and featured placement"}`
+    : "Cash prize and featured placement for the winner";
+
+  const contestants = await TalentContestant.find({ showcase: showcaseId })
+    .sort({ votes: -1, _id: 1 })
+    .populate("user")
+    .populate("listing");
+
+  if (contestants.length === 0) {
+    timeline.winnerAnnouncement = {
+      totalVotes: 0,
+      prizeDetails: `${prizeText} - No contestants participated`,
+      announcementTime: new Date(),
+      noWinner: true,
+    };
+    return;
+  }
+
+  const totalVotes = contestants.reduce((sum, c) => sum + (c.votes || 0), 0);
+  if (totalVotes === 0) {
+    timeline.winnerAnnouncement = {
+      totalVotes: 0,
+      prizeDetails: `${prizeText} - No votes were cast, no winner declared`,
+      announcementTime: new Date(),
+      noWinner: true,
+    };
+    return;
+  }
+
+  const highestVotes = contestants[0].votes || 0;
+  const tiedContestants = contestants.filter((c) => (c.votes || 0) === highestVotes);
+
+  if (tiedContestants.length > 1) {
+    timeline.winnerAnnouncement = {
+      totalVotes: highestVotes,
+      prizeDetails: `TIE - ${tiedContestants.length} contestants tied with ${highestVotes} votes each. No winner can be declared.`,
+      announcementTime: new Date(),
+      isTie: true,
+      noWinner: true,
+      tiedContestants: tiedContestants.map((c) => ({
+        id: c._id,
+        name: c.performanceTitle,
+        performer: c.user?.name,
+        votes: c.votes,
+      })),
+    };
+    return;
+  }
+
+  const winner = contestants[0];
+  timeline.winnerAnnouncement = {
+    winner: winner._id,
+    totalVotes: highestVotes,
+    prizeDetails: `${prizeText} - Won with ${highestVotes} votes out of ${totalVotes} total`,
+    announcementTime: new Date(),
+  };
+
+  winner.isWinner = true;
+  winner.wonAt = new Date();
+  await winner.save();
+
+  try {
+    const { autoFeatureWinner } = require("../utils/featuredHelper");
+    await autoFeatureWinner(winner);
+  } catch (e) {
+    console.warn("⚠️ Failed to auto-feature winner:", e?.message || e);
+  }
+}
+
 const COMMERCIAL_TMP_ROOT = path.join(__dirname, "..", "uploads", "tmp", "commercials");
 
 function ensureDir(dirPath) {
@@ -37,7 +113,8 @@ async function addCommercialToShowcase({ showcaseId, filePath, title, requestedD
   const videoUrl = `/uploads/${relToUploads.replace(/^\/+/, "")}`;
 
   const { getVideoDurationInSeconds } = require("get-video-duration");
-  const MAX_COMMERCIAL_SECONDS = Number(process.env.COMMERCIAL_MAX_SECONDS || 600);
+  // Cap a single advert to 2 minutes 30 seconds by default.
+  const MAX_COMMERCIAL_SECONDS = Number(process.env.COMMERCIAL_MAX_SECONDS || 150);
   const requestedDuration = Number(requestedDurationSeconds);
   let duration = 30;
 
@@ -64,7 +141,11 @@ async function addCommercialToShowcase({ showcaseId, filePath, title, requestedD
 
   showcase.commercials.push(newCommercial);
 
-  const totalDurationSeconds = showcase.commercials.reduce((sum, c) => sum + (c.duration || 0), 0);
+  const totalDurationSeconds = showcase.commercials.reduce((sum, c) => {
+    const seconds = Number(c?.duration);
+    // Guard against bad durations (e.g., 0/1) that would prematurely end the commercial phase.
+    return sum + (Number.isFinite(seconds) && seconds > 3 ? seconds : 30);
+  }, 0);
   showcase.commercialDuration = Math.ceil(totalDurationSeconds / 60);
   await showcase.save();
 
@@ -2640,10 +2721,10 @@ exports.deleteCommercialVideo = async (req, res) => {
     });
 
     // Auto-calculate total commercial duration (in minutes)
-    const totalDurationSeconds = showcase.commercials.reduce(
-      (sum, c) => sum + (c.duration || 0),
-      0
-    );
+    const totalDurationSeconds = showcase.commercials.reduce((sum, c) => {
+      const seconds = Number(c?.duration);
+      return sum + (Number.isFinite(seconds) && seconds > 3 ? seconds : 30);
+    }, 0);
     showcase.commercialDuration = Math.ceil(totalDurationSeconds / 60);
 
     await showcase.save();
@@ -2945,11 +3026,129 @@ exports.getStructuredTimeline = async (req, res) => {
       );
     }
 
+    // AUTO-ADVANCE (time-based) phases when they expire.
+    // Without this, phases like welcome/voting can remain "active" forever once started.
+    // Performance is intentionally excluded because it advances per-video via /auto-advance-performance.
+    try {
+      const canAutoAdvance =
+        timeline.isLive &&
+        timeline.eventStatus !== "completed" &&
+        !timeline.isPaused &&
+        !(timeline.manualOverride && timeline.manualOverride.active);
+
+      if (canAutoAdvance && Array.isArray(timeline.phases) && timeline.phases.length > 0) {
+        // Commercial phase is advanced explicitly by the client once all adverts have played.
+        // Auto-advancing by time can cut the break short if commercials are uploaded/changed after
+        // timeline creation or if durations drift.
+        const eligible = new Set(["welcome", "voting", "winner", "thankyou"]);
+
+        let guard = 0;
+        while (guard < 10) {
+          guard += 1;
+
+          let activePhase = timeline.phases.find((p) => p.status === "active");
+
+          // Recovery: if no phase is active, activate the first non-completed phase.
+          if (!activePhase) {
+            const nextIndex = timeline.phases.findIndex((p) => p.status !== "completed");
+            if (nextIndex === -1) break;
+            timeline.phases.forEach((p, idx) => {
+              if (p.status !== "completed") {
+                p.status = idx === nextIndex ? "active" : "pending";
+              }
+            });
+            timeline.currentPhase = timeline.phases[nextIndex].name;
+            await timeline.save();
+            continue;
+          }
+
+          const phaseName = activePhase.name;
+          if (!eligible.has(phaseName)) break;
+          if (!activePhase.endTime) break;
+
+          const nowTime = new Date();
+          const phaseEnd = new Date(activePhase.endTime);
+          if (nowTime <= phaseEnd) break;
+
+          console.log(
+            `⏭️ [AUTO-ADVANCE] Phase "${phaseName}" expired at ${phaseEnd.toISOString()}, advancing...`
+          );
+
+          const nextPhase = timeline.advancePhase();
+
+          // Keep voting state + winner announcement in sync on phase changes.
+          try {
+            const showcaseId = timeline.showcase?._id?.toString() || String(timeline.showcase);
+            if (nextPhase?.name === "voting") {
+              await TalentShowcase.findByIdAndUpdate(showcaseId, {
+                isVotingOpen: true,
+                status: "voting",
+                votingStartTime: nextPhase.startTime,
+                votingEndTime: nextPhase.endTime,
+              });
+            }
+            if (nextPhase?.name === "winner") {
+              await TalentShowcase.findByIdAndUpdate(showcaseId, {
+                isVotingOpen: false,
+              });
+              await ensureWinnerAnnouncement(timeline, showcaseId);
+            }
+          } catch (syncErr) {
+            console.error("⚠️ [AUTO-ADVANCE] Phase transition sync failed:", syncErr);
+          }
+
+          await timeline.save();
+
+          // Stop once we enter performance (manual per-video) or the event ends.
+          if (!nextPhase || nextPhase.name === "performance") {
+            break;
+          }
+        }
+      }
+    } catch (autoErr) {
+      console.error("⚠️ [AUTO-ADVANCE] Failed to auto-advance phase:", autoErr);
+    }
+
     // Get current phase and time remaining
     const now = new Date();
     let currentPhaseObj = null;
     let timeRemaining = 0;
     let currentPerformer = null;
+
+    // Safety: if we're already in winner phase but the announcement wasn't generated (e.g., manual overrides), generate it.
+    try {
+      const currentPhaseName =
+        typeof timeline.currentPhase === "object"
+          ? timeline.currentPhase.name
+          : timeline.currentPhase;
+      if (currentPhaseName === "winner" && !timeline?.winnerAnnouncement?.announcementTime) {
+        const showcaseId = timeline.showcase?._id?.toString() || String(timeline.showcase);
+        await ensureWinnerAnnouncement(timeline, showcaseId);
+        await timeline.save();
+      }
+    } catch (winnerErr) {
+      console.error("⚠️ Failed to ensure winner announcement:", winnerErr);
+    }
+
+    // If we just wrote winnerAnnouncement, ensure it's populated for the client response.
+    try {
+      if (
+        timeline?.winnerAnnouncement?.winner &&
+        !timeline.winnerAnnouncement.winner?.performanceTitle
+      ) {
+        await timeline.populate({
+          path: "winnerAnnouncement.winner",
+          select:
+            "performanceTitle performanceDescription user votes country thumbnailUrl videoUrl",
+          populate: {
+            path: "user",
+            select: "name username profilePhoto",
+          },
+        });
+      }
+    } catch (populateErr) {
+      console.error("⚠️ Failed to populate winnerAnnouncement.winner:", populateErr);
+    }
 
     // Find current active phase
     const activePhase = timeline.phases.find((p) => p.status === "active");
@@ -3413,6 +3612,20 @@ exports.skipToStage = async (req, res) => {
       // Update timeline to skip to the requested phase
       timeline.currentPhase = stage;
       timeline.currentPhaseStartTime = new Date();
+
+      // Keep voting state + winner announcement consistent.
+      if (stage === "voting") {
+        await TalentShowcase.findByIdAndUpdate(id, {
+          isVotingOpen: true,
+          status: "voting",
+        });
+      }
+      if (stage === "winner") {
+        await TalentShowcase.findByIdAndUpdate(id, {
+          isVotingOpen: false,
+        });
+        await ensureWinnerAnnouncement(timeline, id);
+      }
 
       if (!timeline.manualOverride) {
         timeline.manualOverride = {};
@@ -4005,6 +4218,15 @@ exports.advancePerformance = async (req, res) => {
       });
     }
 
+    if (timeline.isPaused) {
+      return res.status(409).json({
+        success: false,
+        message: "Event is paused - cannot advance performance",
+        isPaused: true,
+        currentPhase: timeline.currentPhase,
+      });
+    }
+
     // CRITICAL: Sort performances by performanceOrder to ensure correct sequence
     timeline.performances.sort((a, b) => a.performanceOrder - b.performanceOrder);
 
@@ -4132,6 +4354,15 @@ exports.commercialsComplete = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: "Timeline not found",
+      });
+    }
+
+    if (timeline.isPaused) {
+      return res.status(409).json({
+        success: false,
+        message: "Event is paused - cannot complete commercials",
+        isPaused: true,
+        currentPhase: timeline.currentPhase,
       });
     }
 

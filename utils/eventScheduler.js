@@ -353,11 +353,18 @@ async function checkAndAdvancePhases() {
         timeline.showcase?.commercials &&
         timeline.showcase.commercials.length > 0
       ) {
-        const MAX_COMMERCIAL_SECONDS = Number(process.env.COMMERCIAL_MAX_SECONDS || 120);
-        const expectedSeconds = timeline.showcase.commercials.reduce((sum, commercial) => {
-          const seconds = Number(commercial?.duration || 30);
-          return sum + Math.min(seconds, MAX_COMMERCIAL_SECONDS);
-        }, 0);
+        const MAX_COMMERCIAL_SECONDS = Number(process.env.COMMERCIAL_MAX_SECONDS || 150);
+        const getCommercialSeconds = (commercial, fallbackSeconds = 30) => {
+          const raw = Number(commercial?.duration);
+          // Treat tiny values (e.g., 1s) as invalid; they cause premature phase end.
+          const seconds = Number.isFinite(raw) && raw > 3 ? raw : fallbackSeconds;
+          return Math.min(seconds, MAX_COMMERCIAL_SECONDS);
+        };
+
+        const expectedSeconds = timeline.showcase.commercials.reduce(
+          (sum, commercial) => sum + getCommercialSeconds(commercial, 30),
+          0
+        );
 
         const expectedEndTime = new Date(
           new Date(currentPhase.startTime).getTime() + expectedSeconds * 1000
@@ -495,50 +502,10 @@ async function checkAndAdvancePhases() {
         }
       }
 
-      // Auto-advance commercials within commercial phase
-      if (
-        timeline.currentPhase === "commercial" &&
-        timeline.showcase.commercials &&
-        timeline.showcase.commercials.length > 0
-      ) {
-        const commercials = timeline.showcase.commercials;
-        const MAX_COMMERCIAL_SECONDS = Number(process.env.COMMERCIAL_MAX_SECONDS || 120);
-        const activePhase = timeline.getCurrentPhase();
-        if (!activePhase?.startTime) {
-          continue;
-        }
-        const phaseStartTime = new Date(activePhase.startTime);
-        const elapsed = Math.floor((now - phaseStartTime) / 1000); // seconds elapsed in commercial phase
-
-        let accumulatedTime = 0;
-        let expectedCommercialIndex = 0;
-        let allCommercialsDone = false;
-
-        // Calculate which commercial should be playing based on elapsed time
-        for (let i = 0; i < commercials.length; i++) {
-          const duration = Math.min(commercials[i].duration || 30, MAX_COMMERCIAL_SECONDS);
-          if (elapsed < accumulatedTime + duration) {
-            expectedCommercialIndex = i;
-            break;
-          }
-          accumulatedTime += duration;
-          if (i === commercials.length - 1 && elapsed >= accumulatedTime) {
-            allCommercialsDone = true;
-          }
-        }
-
-        // If all commercials are done, advance to next phase
-        if (allCommercialsDone) {
-          console.log(
-            `📺 All ${commercials.length} commercials completed, auto-advancing to next phase`
-          );
-          const nextPhase = timeline.advancePhase();
-          if (nextPhase) {
-            await timeline.save();
-            console.log(`✅ Advanced from commercial to ${nextPhase.name}`);
-          }
-        }
-      }
+      // Commercial phase advancement happens via:
+      // - the normal phase timer (phase endTime), and/or
+      // - the explicit /commercials-complete signal from the client.
+      // Avoid duplicate commercial-specific auto-advance logic here.
     }
   } catch (error) {
     console.error("❌ Error in phase advancement:", error);

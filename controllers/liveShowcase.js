@@ -421,47 +421,9 @@ exports.declareWinner = async (req, res) => {
     winner.wonAt = new Date();
     await winner.save();
 
-    // Auto-feature winner's listing on homepage if they have a Talent listing
-    if (winner.listing && winner.listing.category === "Talent") {
-      const FeaturedPlacement = require("../models/FeaturedPlacement");
-      const Listing = require("../models/Listing");
-
-      // Check if listing is already featured
-      const existingFeature = await FeaturedPlacement.findOne({
-        listingId: winner.listing._id,
-        status: "approved",
-        endAt: { $gt: new Date() },
-      });
-
-      if (!existingFeature) {
-        // Create 30-day featured placement as prize
-        const endDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-
-        const featuredPlacement = new FeaturedPlacement({
-          ownerId: winner.user,
-          listingId: winner.listing._id,
-          showcaseId: showcaseId, // Include showcase reference for winner placements
-          startAt: new Date(),
-          endAt: endDate,
-          status: "approved", // Auto-approved as prize
-          notes: `Automatically awarded as winner of talent showcase: ${showcaseId}`,
-          offerType: "premium",
-          paymentStatus: "captured", // Mark as paid (prize)
-          amountPaid: 0, // Free as prize
-          priceBooked: 0,
-        });
-
-        await featuredPlacement.save();
-
-        // Update listing to mark as featured
-        await Listing.findByIdAndUpdate(winner.listing._id, {
-          featured: true,
-          featuredUntil: endDate,
-        });
-
-        console.log(`✅ Auto-featured winner's listing: ${winner.listing.title} for 30 days`);
-      }
-    }
+    // Auto-feature winner (and update winner label/description)
+    const { autoFeatureWinner } = require("../utils/featuredHelper");
+    const featuredResult = await autoFeatureWinner(winner);
 
     await timeline.save();
 
@@ -469,10 +431,9 @@ exports.declareWinner = async (req, res) => {
       message: "Winner declared successfully",
       winner: {
         id: winner._id,
-        name: winner.name,
-        votes: winner.voteCount,
-        bio: winner.bio,
-        featured: winner.listing && winner.listing.category === "Talent",
+        name: winner.performanceTitle,
+        votes: winner.votes,
+        featured: Boolean(featuredResult?.listing || featuredResult?.placement),
       },
       announcement: timeline.winnerAnnouncement,
     });

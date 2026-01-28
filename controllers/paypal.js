@@ -41,6 +41,7 @@ exports.createPayPalOrder = async (req, res) => {
         status: "COMPLETED",
         payerEmail: "admin@uwin.local",
         payerId: "ADMIN",
+        tier: req.user?.tier || "Free",
         amount: 0,
         currency: "USD",
         transaction_details: { adminBypass: true },
@@ -76,6 +77,7 @@ exports.createPayPalOrder = async (req, res) => {
     await PaypalTransaction.create({
       orderId: order.id,
       status: "PENDING",
+      tier: req.user?.tier || "Free",
       amount,
       currency: "USD",
       transaction_details: order,

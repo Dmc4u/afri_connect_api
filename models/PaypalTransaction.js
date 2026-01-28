@@ -6,7 +6,9 @@ const paypalTransactionSchema = new mongoose.Schema(
     orderId: { type: String, required: true, unique: true }, // PayPal order ID
     status: { type: String, required: true }, // COMPLETED, FAILED
     payerEmail: { type: String },
-    tier: { type: String, required: true, enum: ["Free", "Starter", "Premium", "Pro"] }, // Subscription tier purchased
+    // NOTE: Not every PayPal payment maps to a membership tier (e.g. donations, ads, showcases).
+    // Keep this optional, but validate when provided.
+    tier: { type: String, required: false, enum: ["Free", "Starter", "Premium", "Pro", "N/A"] },
     payerId: { type: String },
     amount: { type: Number, required: true },
     currency: { type: String, default: "USD" },
