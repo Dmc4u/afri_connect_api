@@ -1,25 +1,68 @@
 const fs = require("fs");
 const path = require("path");
 
-const CLIENT_FEATURE_FLAGS_PATH = path.join(
-  __dirname,
-  "..",
-  "..",
-  "afri_connect_client",
-  "src",
-  "utils",
-  "featureFlags.js"
-);
+function safeStat(filePath) {
+  try {
+    return fs.statSync(filePath);
+  } catch {
+    return null;
+  }
+}
 
-const CLIENT_FAQ_JSON_PATH = path.join(
-  __dirname,
-  "..",
-  "..",
-  "afri_connect_client",
-  "src",
-  "data",
-  "faqData.json"
-);
+function resolveAppContentPaths() {
+  const baseDir = process.env.APP_CONTENT_DIR ? String(process.env.APP_CONTENT_DIR) : null;
+  const featureFlagsPathEnv = process.env.FEATURE_FLAGS_PATH
+    ? String(process.env.FEATURE_FLAGS_PATH)
+    : null;
+  const faqJsonPathEnv = process.env.FAQ_JSON_PATH ? String(process.env.FAQ_JSON_PATH) : null;
+
+  // 1) Explicit env overrides
+  const featureFlagsPathFromEnv =
+    featureFlagsPathEnv || (baseDir ? path.join(baseDir, "featureFlags.js") : null);
+  const faqJsonPathFromEnv =
+    faqJsonPathEnv || (baseDir ? path.join(baseDir, "faqData.json") : null);
+
+  // 2) Default dev layout: sibling frontend repo checkout
+  const featureFlagsPathDefault = path.join(
+    __dirname,
+    "..",
+    "..",
+    "afri_connect_client",
+    "src",
+    "utils",
+    "featureFlags.js"
+  );
+  const faqJsonPathDefault = path.join(
+    __dirname,
+    "..",
+    "..",
+    "afri_connect_client",
+    "src",
+    "data",
+    "faqData.json"
+  );
+
+  // Use env path if it exists; otherwise fall back to default if it exists.
+  const resolvedFeatureFlagsPath =
+    (featureFlagsPathFromEnv && safeStat(featureFlagsPathFromEnv) && featureFlagsPathFromEnv) ||
+    (safeStat(featureFlagsPathDefault) && featureFlagsPathDefault) ||
+    featureFlagsPathFromEnv ||
+    featureFlagsPathDefault;
+
+  const resolvedFaqJsonPath =
+    (faqJsonPathFromEnv && safeStat(faqJsonPathFromEnv) && faqJsonPathFromEnv) ||
+    (safeStat(faqJsonPathDefault) && faqJsonPathDefault) ||
+    faqJsonPathFromEnv ||
+    faqJsonPathDefault;
+
+  return {
+    featureFlagsPath: resolvedFeatureFlagsPath,
+    faqJsonPath: resolvedFaqJsonPath,
+  };
+}
+
+const { featureFlagsPath: CLIENT_FEATURE_FLAGS_PATH, faqJsonPath: CLIENT_FAQ_JSON_PATH } =
+  resolveAppContentPaths();
 
 let cachedFlags = null;
 let cachedFlagsMtimeMs = null;
@@ -54,7 +97,15 @@ function parseExportedConsts(sourceText) {
 }
 
 function getClientFeatureFlags() {
-  const stat = fs.statSync(CLIENT_FEATURE_FLAGS_PATH);
+  const stat = safeStat(CLIENT_FEATURE_FLAGS_PATH);
+  if (!stat) {
+    return {
+      flags: {},
+      sourcePath: CLIENT_FEATURE_FLAGS_PATH,
+      mtimeMs: 0,
+      missing: true,
+    };
+  }
   if (!cachedFlags || cachedFlagsMtimeMs !== stat.mtimeMs) {
     const text = fs.readFileSync(CLIENT_FEATURE_FLAGS_PATH, "utf8");
     cachedFlags = parseExportedConsts(text);
@@ -69,7 +120,15 @@ function getClientFeatureFlags() {
 }
 
 function getClientFaqJson() {
-  const stat = fs.statSync(CLIENT_FAQ_JSON_PATH);
+  const stat = safeStat(CLIENT_FAQ_JSON_PATH);
+  if (!stat) {
+    return {
+      faq: [],
+      sourcePath: CLIENT_FAQ_JSON_PATH,
+      mtimeMs: 0,
+      missing: true,
+    };
+  }
   if (!cachedFaq || cachedFaqMtimeMs !== stat.mtimeMs) {
     const text = fs.readFileSync(CLIENT_FAQ_JSON_PATH, "utf8");
     cachedFaq = JSON.parse(text);
