@@ -24,6 +24,9 @@ const {
   EMAIL_USER,
   EMAIL_PASS,
   EMAIL_FROM,
+  // Some deployments still use these names
+  ADMIN_EMAIL_PASSWORD,
+  EMAIL_PASSWORD,
 
   // ✅ reCAPTCHA (v2/v3)
   RECAPTCHA_SECRET,
@@ -46,9 +49,11 @@ const {
 
 const SMTP_HOST_RESOLVED = SMTP_HOST || EMAIL_HOST;
 const SMTP_PORT_RESOLVED = SMTP_PORT || EMAIL_PORT;
-const SMTP_USER_RESOLVED = SMTP_USER || EMAIL_USER;
-const SMTP_PASS_RESOLVED = SMTP_PASS || EMAIL_PASS;
-const FROM_EMAIL_RESOLVED = FROM_EMAIL || EMAIL_FROM || SMTP_USER_RESOLVED;
+// Prefer explicit SMTP_* values; fall back to legacy names; finally fall back to ADMIN_EMAIL/ADMIN_EMAIL_PASSWORD.
+// This prevents production emails from having an undefined sender when only ADMIN_EMAIL(_PASSWORD) is configured.
+const SMTP_USER_RESOLVED = SMTP_USER || EMAIL_USER || ADMIN_EMAIL;
+const SMTP_PASS_RESOLVED = SMTP_PASS || EMAIL_PASS || EMAIL_PASSWORD || ADMIN_EMAIL_PASSWORD;
+const FROM_EMAIL_RESOLVED = FROM_EMAIL || EMAIL_FROM || ADMIN_EMAIL || SMTP_USER_RESOLVED;
 
 // ✅ Enforce PayPal mode based on environment
 // In development, ALWAYS use sandbox regardless of .env setting
