@@ -4,6 +4,8 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const helmet = require("helmet");
 const path = require("path");
+const fs = require("fs");
+const fsp = require("fs/promises");
 const { createServer } = require("http");
 const { Server: IOServer } = require("socket.io");
 const { errors } = require("celebrate");
@@ -14,9 +16,20 @@ const mainRouter = require("./routes/index");
 const auth = require("./middlewares/auth");
 const errorHandler = require("./middlewares/error-handler");
 const { requestLogger, errorLogger } = require("./middlewares/logger");
-const { logValidationErrors, validateSignup, validateSignin } = require("./middlewares/validation");
-const { PORT, MONGO_URL, PAYPAL_CLIENT_ID, PAYPAL_MODE } = require("./utils/config");
-const { createUser, login } = require("./controllers/user");
+const {
+  logValidationErrors,
+  validateSignup,
+  validateSignin,
+  validateVerifyOtp,
+} = require("./middlewares/validation");
+const {
+  PORT,
+  MONGO_URL,
+  PAYPAL_CLIENT_ID,
+  PAYPAL_CLIENT_SECRET,
+  PAYPAL_MODE,
+} = require("./utils/config");
+const { createUser, login, verifyLoginOtp } = require("./controllers/user");
 const { initializeSocket } = require("./utils/socket");
 const PricingSettings = require("./models/PricingSettings");
 // Event scheduler - automatically starts events at scheduled time
@@ -97,7 +110,115 @@ app.use(
 );
 
 // Basic health endpoint (unauthenticated, not rate-limited)
-app.get("/health", (req, res) => {
+const paypalHealthCache = {
+  checkedAt: 0,
+  status: "warning",
+  message: "Not checked yet",
+};
+
+function normalizeHealthStatus(input) {
+  const v = String(input || "").toLowerCase();
+  if (v === "healthy" || v === "warning" || v === "error") return v;
+  return "warning";
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 4000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function checkPayPalHealth({ force = false } = {}) {
+  const now = Date.now();
+  const cacheTtlMs = 2 * 60 * 1000; // 2 minutes
+  if (!force && now - paypalHealthCache.checkedAt < cacheTtlMs) {
+    return { status: paypalHealthCache.status, message: paypalHealthCache.message };
+  }
+
+  if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET) {
+    paypalHealthCache.checkedAt = now;
+    paypalHealthCache.status = "warning";
+    paypalHealthCache.message = "Missing PayPal credentials";
+    return { status: paypalHealthCache.status, message: paypalHealthCache.message };
+  }
+
+  const baseUrl =
+    PAYPAL_MODE === "live" ? "https://api-m.paypal.com" : "https://api-m.sandbox.paypal.com";
+
+  try {
+    const response = await fetchWithTimeout(
+      `${baseUrl}/v1/oauth2/token`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Authorization:
+            "Basic " +
+            Buffer.from(`${PAYPAL_CLIENT_ID}:${PAYPAL_CLIENT_SECRET}`).toString("base64"),
+        },
+        body: "grant_type=client_credentials",
+      },
+      4500
+    );
+
+    const text = await response.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { raw: text };
+    }
+
+    if (response.ok && data?.access_token) {
+      paypalHealthCache.checkedAt = now;
+      paypalHealthCache.status = "healthy";
+      paypalHealthCache.message = `PayPal reachable (${PAYPAL_MODE})`;
+      return { status: paypalHealthCache.status, message: paypalHealthCache.message };
+    }
+
+    const message =
+      data?.error_description ||
+      data?.error ||
+      data?.message ||
+      `PayPal token failed (HTTP ${response.status})`;
+
+    paypalHealthCache.checkedAt = now;
+    paypalHealthCache.status =
+      response.status === 401 || response.status === 400 ? "error" : "warning";
+    paypalHealthCache.message = message;
+    return { status: paypalHealthCache.status, message: paypalHealthCache.message };
+  } catch (e) {
+    paypalHealthCache.checkedAt = now;
+    paypalHealthCache.status = "warning";
+    paypalHealthCache.message =
+      e?.name === "AbortError" ? "PayPal check timed out" : "PayPal check failed";
+    return { status: paypalHealthCache.status, message: paypalHealthCache.message };
+  }
+}
+
+async function checkUploadsStorageHealth() {
+  const uploadsDir = path.join(__dirname, "uploads");
+  const testFile = path.join(uploadsDir, `.__healthcheck__${Date.now()}.tmp`);
+  try {
+    await fsp.access(uploadsDir, fs.constants.W_OK);
+    await fsp.writeFile(testFile, `ok:${new Date().toISOString()}`);
+    await fsp.unlink(testFile);
+    return { status: "healthy", message: "Uploads writable" };
+  } catch (e) {
+    try {
+      await fsp.unlink(testFile);
+    } catch {
+      // ignore
+    }
+    return { status: "error", message: e?.message || "Uploads not writable" };
+  }
+}
+
+app.get("/health", async (req, res) => {
   const mongoState = mongoose.connection?.readyState;
   const mongoStateLabel =
     {
@@ -106,6 +227,13 @@ app.get("/health", (req, res) => {
       2: "connecting",
       3: "disconnecting",
     }[mongoState] || "unknown";
+
+  const force = String(req.query?.force || "").trim() === "1";
+
+  const [payments, storage] = await Promise.all([
+    checkPayPalHealth({ force }),
+    checkUploadsStorageHealth(),
+  ]);
 
   res.setHeader("Cache-Control", "no-store");
   res.status(200).json({
@@ -118,6 +246,17 @@ app.get("/health", (req, res) => {
     mongo: {
       readyState: mongoState,
       status: mongoStateLabel,
+    },
+    payments: {
+      status: normalizeHealthStatus(payments.status),
+      provider: "paypal",
+      mode: PAYPAL_MODE || "sandbox",
+      message: payments.message,
+    },
+    storage: {
+      status: normalizeHealthStatus(storage.status),
+      type: "uploads",
+      message: storage.message,
     },
     timestamp: new Date().toISOString(),
   });
@@ -174,6 +313,9 @@ app.use(requestLogger);
 app.post("/signup", strictLimiter, validateSignup, createUser);
 // Signin without reCAPTCHA
 app.post("/signin", strictLimiter, validateSignin, login);
+
+// Email OTP 2FA verification
+app.post("/auth/verify-otp", strictLimiter, validateVerifyOtp, verifyLoginOtp);
 
 // Public PayPal client-id endpoint (no auth required)
 app.get("/paypal/client-id", (req, res) => {

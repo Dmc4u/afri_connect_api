@@ -6,6 +6,7 @@ const User = require("../models/User");
 const BadRequestError = require("../utils/errors/BadRequestError");
 const NotFoundError = require("../utils/errors/NotFoundError");
 const ForbiddenError = require("../utils/errors/ForbiddenError");
+const { sendEmail } = require("../utils/notifications");
 
 // ✅ Normalization helper - handles both old and new reply schemas
 const normalizeReply = (reply) => {
@@ -486,13 +487,20 @@ exports.getUnreadCount = async (req, res, next) => {
       participants: req.user.id,
     });
 
-    console.log('🔔 [Backend] User:', req.user.id);
-    console.log('🔔 [Backend] Total conversations:', conversations.length);
+    console.log("🔔 [Backend] User:", req.user.id);
+    console.log("🔔 [Backend] Total conversations:", conversations.length);
 
     let totalUnread = 0;
     const byConversation = conversations.map((c) => {
       const count = c.unreadCount.get(req.user.id) || 0;
-      console.log('🔔 [Backend] Conversation:', c._id, 'unreadCount Map:', c.unreadCount, 'count for user:', count);
+      console.log(
+        "🔔 [Backend] Conversation:",
+        c._id,
+        "unreadCount Map:",
+        c.unreadCount,
+        "count for user:",
+        count
+      );
       totalUnread += count;
       return {
         conversationId: c._id,
@@ -500,7 +508,7 @@ exports.getUnreadCount = async (req, res, next) => {
       };
     });
 
-    console.log('🔔 [Backend] Total unread:', totalUnread);
+    console.log("🔔 [Backend] Total unread:", totalUnread);
 
     res.status(200).json({
       success: true,
@@ -975,48 +983,73 @@ exports.replyToContactMessage = async (req, res, next) => {
 
     // Send email notification ONLY if explicitly requested and email is provided
     let emailSent = false;
-    if (sendEmail && recipientEmail) {
+    let emailSkippedReason = null;
+    const finalRecipientEmail =
+      (recipientEmail && String(recipientEmail).trim()) || contactMessage.senderEmail;
+
+    if (sendEmail && finalRecipientEmail) {
       try {
-        const nodemailer = require("nodemailer");
+        // If the sender is a registered user, respect their notification preference.
+        let recipientUser = null;
+        if (contactMessage.sender) {
+          recipientUser = await User.findById(contactMessage.sender).select("settings email");
+        } else {
+          recipientUser = await User.findOne({
+            email: String(finalRecipientEmail).toLowerCase(),
+          }).select("settings email");
+        }
 
-        // Create transporter (using environment variables for email config)
-        const transporter = nodemailer.createTransport({
-          service: process.env.EMAIL_SERVICE || "gmail",
-          auth: {
-            user: process.env.EMAIL_USER,
-            pass: process.env.EMAIL_PASSWORD,
-          },
-        });
+        if (
+          recipientUser &&
+          recipientUser.settings &&
+          recipientUser.settings.emailNotifications === false
+        ) {
+          emailSkippedReason = "Recipient has emailNotifications disabled";
+        } else {
+          const esc = (str) => {
+            if (str === null || str === undefined) return "";
+            return String(str)
+              .replace(/&/g, "&amp;")
+              .replace(/</g, "&lt;")
+              .replace(/>/g, "&gt;")
+              .replace(/\"/g, "&quot;")
+              .replace(/'/g, "&#039;");
+          };
 
-        // Prepare email content
-        const emailContent = `
-          <h2>Reply to Your Message</h2>
-          <p>Hi ${contactMessage.senderName},</p>
-          <p>${sender.name} has replied to your message:</p>
-          <hr>
-          <h3>Their Reply:</h3>
-          <p>${content.replace(/\n/g, "<br>")}</p>
-          <hr>
-          <p><strong>Contact Details:</strong><br>
-          Email: ${sender.email}</p>
-          <p>
-            <a href="${process.env.FRONTEND_URL || "http://localhost:3000"}/check-reply?messageId=${contactMessage._id}&email=${encodeURIComponent(recipientEmail)}" style="background: #0066cc; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; display: inline-block;">
-              View Full Conversation
-            </a>
-          </p>
-          <p>Best regards,<br>AfriOnet Team</p>
-        `;
+          const replyHtml = esc(content).replace(/\n/g, "<br>");
+          const senderName = sender.name || "Business Owner";
 
-        // Send email
-        await transporter.sendMail({
-          from: process.env.EMAIL_USER,
-          to: recipientEmail,
-          subject: `Reply from ${sender.name} - AfriOnet`,
-          html: emailContent,
-        });
+          // Prepare email content
+          const emailContent = `
+            <h2>Reply to Your Message</h2>
+            <p>Hi ${esc(contactMessage.senderName)},</p>
+            <p>${esc(senderName)} has replied to your message:</p>
+            <hr>
+            <h3>Their Reply:</h3>
+            <p>${replyHtml}</p>
+            <hr>
+            <p><strong>Contact Details:</strong><br>
+            Email: ${esc(sender.email)}</p>
+            <p>
+              <a href="${process.env.FRONTEND_URL || "http://localhost:3000"}/check-reply?messageId=${contactMessage._id}&email=${encodeURIComponent(finalRecipientEmail)}" style="background: #0066cc; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; display: inline-block;">
+                View Full Conversation
+              </a>
+            </p>
+            <p>Best regards,<br>AfriOnet Team</p>
+          `;
 
-        console.log("✅ Email notification sent to:", recipientEmail);
-        emailSent = true;
+          const subject = `Reply from ${senderName} - AfriOnet`;
+          const result = await sendEmail(finalRecipientEmail, subject, emailContent);
+          if (result && result.success) {
+            console.log("✅ Email notification sent to:", finalRecipientEmail);
+            emailSent = true;
+          } else {
+            console.warn(
+              "⚠️ Failed to send email notification:",
+              (result && result.error) || "Unknown error"
+            );
+          }
+        }
       } catch (emailError) {
         console.error("⚠️ Failed to send email notification:", emailError.message);
         // Don't throw error - reply is still saved, just email failed
@@ -1031,6 +1064,7 @@ exports.replyToContactMessage = async (req, res, next) => {
         reply: newReply,
         message: contactMessage,
         emailSent: emailSent,
+        emailSkippedReason,
       },
     });
     console.log("✅ Response sent with replies:", contactMessage.replies.length);

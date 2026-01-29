@@ -79,6 +79,14 @@ const userSchema = new mongoose.Schema(
         default: false,
       },
     },
+
+    // Email OTP for 2FA login (stored hashed; short-lived)
+    loginOtp: {
+      hash: { type: String, default: null, select: false },
+      expiresAt: { type: Date, default: null },
+      attempts: { type: Number, default: 0 },
+      lastSentAt: { type: Date, default: null },
+    },
     // Pro tier specific fields
     verifiedBadge: {
       type: Boolean,
@@ -119,7 +127,7 @@ const userSchema = new mongoose.Schema(
     },
     subscriptionStatus: {
       type: String,
-      enum: ['active', 'cancelled', 'payment_failed', 'expired', null],
+      enum: ["active", "cancelled", "payment_failed", "expired", null],
       default: null,
     },
     subscriptionRenewsAt: {

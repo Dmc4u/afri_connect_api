@@ -23,6 +23,8 @@ const adminLiveEventRouter = require("./adminLiveEvent");
 const talentShowcaseRouter = require("./talentShowcase");
 const proxyRouter = require("./proxy");
 const aiSupportRouter = require("./aiSupport");
+const appStatusRouter = require("./appStatus");
+const faqRouter = require("./faq");
 const businessLeadersRouter = require("./businessLeaders");
 const adminBusinessLeadersRouter = require("./adminBusinessLeaders");
 const { NotFoundError } = require("../utils/errors");
@@ -33,6 +35,8 @@ const router = express.Router();
 router.use("/api/live-talent-event", liveTalentEventRouter);
 router.use("/api/admin/live-event", adminLiveEventRouter);
 router.use("/api/ai-support", aiSupportRouter);
+router.use("/api/app-status", appStatusRouter);
+router.use("/api/faq", faqRouter);
 
 // Public content routes
 router.use("/business-leaders", businessLeadersRouter);

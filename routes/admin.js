@@ -25,9 +25,29 @@ const requireAdmin = (req, res, next) => {
   next();
 };
 
+// Require admins to have completed OTP (2FA) for this session
+const requireAdminTwoFactor = (req, res, next) => {
+  // If 2FA isn't enabled for the admin account yet, guide them to enable it.
+  if (!(req.user && req.user.settings && req.user.settings.twoFactorAuth === true)) {
+    throw new ForbiddenError(
+      "Two-Factor Authentication is required for admin access. Please enable 2FA in your Profile settings and sign in again."
+    );
+  }
+
+  // Token must be issued after OTP verification
+  if (!(req.auth && req.auth.twoFactor === true)) {
+    throw new ForbiddenError(
+      "Admin actions require a 2FA login. Please sign out and sign in again to verify your code."
+    );
+  }
+
+  next();
+};
+
 // Apply auth and admin check to all routes
 router.use(auth);
 router.use(requireAdmin);
+router.use(requireAdminTwoFactor);
 
 // Validation schemas
 const userIdValidation = celebrate({
@@ -87,10 +107,11 @@ router.get("/stats", async (req, res, next) => {
     const { range = "7d" } = req.query;
 
     const now = new Date();
-    const periodMs = (unit, n) => ({
-      h: 60 * 60 * 1000,
-      d: 24 * 60 * 60 * 1000,
-    }[unit] * n);
+    const periodMs = (unit, n) =>
+      ({
+        h: 60 * 60 * 1000,
+        d: 24 * 60 * 60 * 1000,
+      })[unit] * n;
 
     let windowMs;
     if (range === "24h") windowMs = periodMs("h", 24);
@@ -120,9 +141,7 @@ router.get("/stats", async (req, res, next) => {
       // Range: Users created in the selected window
       User.countDocuments({ createdAt: { $gte: startDate, $lte: now } }),
       // Distribution of users by tier (lifetime to show current composition)
-      User.aggregate([
-        { $group: { _id: { $ifNull: ["$tier", "Free"] }, count: { $sum: 1 } } },
-      ]),
+      User.aggregate([{ $group: { _id: { $ifNull: ["$tier", "Free"] }, count: { $sum: 1 } } }]),
       // Range: new users by tier
       User.aggregate([
         { $match: { createdAt: { $gte: startDate, $lte: now } } },
@@ -153,10 +172,7 @@ router.get("/stats", async (req, res, next) => {
           $match: {
             status: "completed",
             isActive: true,
-            $or: [
-              { expirationDate: null },
-              { expirationDate: { $gte: now } },
-            ],
+            $or: [{ expirationDate: null }, { expirationDate: { $gte: now } }],
           },
         },
         { $lookup: { from: "users", localField: "user", foreignField: "_id", as: "user" } },
@@ -170,7 +186,13 @@ router.get("/stats", async (req, res, next) => {
         { $lookup: { from: "users", localField: "user", foreignField: "_id", as: "user" } },
         { $unwind: "$user" },
         { $match: { "user.role": { $ne: "admin" } } },
-        { $group: { _id: "$amount.currency", count: { $sum: 1 }, revenue: { $sum: "$amount.value" } } },
+        {
+          $group: {
+            _id: "$amount.currency",
+            count: { $sum: 1 },
+            revenue: { $sum: "$amount.value" },
+          },
+        },
       ]),
     ]);
 
@@ -192,21 +214,21 @@ router.get("/stats", async (req, res, next) => {
     const [apiCalls24h, activeApiKeys, apiUsers] = await Promise.all([
       ApiUsage.countDocuments({ timestamp: { $gte: last24Hours } }),
       ApiKey.countDocuments({ isActive: true }),
-      ApiKey.distinct('user').then(users => users.length)
+      ApiKey.distinct("user").then((users) => users.length),
     ]);
 
     // Forum Statistics
     const [totalPosts, totalReplies, activeDiscussions] = await Promise.all([
-      ForumPost.countDocuments({ status: 'active' }),
+      ForumPost.countDocuments({ status: "active" }),
       ForumPost.aggregate([
-        { $match: { status: 'active' } },
+        { $match: { status: "active" } },
         { $project: { replyCount: 1 } },
-        { $group: { _id: null, total: { $sum: '$replyCount' } } }
-      ]).then(r => (Array.isArray(r) && r[0] ? r[0].total : 0)),
+        { $group: { _id: null, total: { $sum: "$replyCount" } } },
+      ]).then((r) => (Array.isArray(r) && r[0] ? r[0].total : 0)),
       ForumPost.countDocuments({
-        status: 'active',
-        updatedAt: { $gte: startDate } // Active in the selected range
-      })
+        status: "active",
+        updatedAt: { $gte: startDate }, // Active in the selected range
+      }),
     ]);
 
     const statistics = {
@@ -233,12 +255,12 @@ router.get("/stats", async (req, res, next) => {
       api: {
         calls24h: apiCalls24h,
         activeKeys: activeApiKeys,
-        users: apiUsers
+        users: apiUsers,
       },
       forum: {
         totalPosts,
         totalReplies,
-        activeDiscussions
+        activeDiscussions,
       },
       meta: { range },
     };
@@ -626,7 +648,7 @@ router.patch("/listings/:id/approve", listingIdValidation, async (req, res, next
       req.params.id,
       { status: "active" },
       { new: true, runValidators: true }
-    ).populate("owner", "name email tier");
+    ).populate("owner", "name email tier settings");
 
     if (!listing) {
       throw new NotFoundError("Listing not found");
@@ -647,8 +669,17 @@ router.patch("/listings/:id/approve", listingIdValidation, async (req, res, next
 
     // Send approval email notification to listing owner
     const approvalEmail = emailTemplates.listingApproved(listing.owner, listing);
-    sendEmail(listing.owner.email, approvalEmail.subject, approvalEmail.html)
-      .catch(error => console.error('Failed to send approval email:', error));
+    if (
+      !(
+        listing.owner &&
+        listing.owner.settings &&
+        listing.owner.settings.emailNotifications === false
+      )
+    ) {
+      sendEmail(listing.owner.email, approvalEmail.subject, approvalEmail.html).catch((e) =>
+        console.warn("Failed to send listing approval email:", e.message)
+      );
+    }
 
     res.json({
       success: true,
@@ -667,7 +698,7 @@ router.patch("/listings/:id/reject", rejectListingValidation, async (req, res, n
       req.params.id,
       { status: "deleted" },
       { new: true, runValidators: true }
-    ).populate("owner", "name email tier");
+    ).populate("owner", "name email tier settings");
 
     if (!listing) {
       throw new NotFoundError("Listing not found");
@@ -687,10 +718,19 @@ router.patch("/listings/:id/reject", rejectListingValidation, async (req, res, n
     });
 
     // Send rejection email notification to listing owner
-    const reason = req.body.reason || 'Please review our listing guidelines and resubmit.';
+    const reason = req.body.reason || "Please review our listing guidelines and resubmit.";
     const rejectionEmail = emailTemplates.listingRejected(listing.owner, listing, reason);
-    sendEmail(listing.owner.email, rejectionEmail.subject, rejectionEmail.html)
-      .catch(error => console.error('Failed to send rejection email:', error));
+    if (
+      !(
+        listing.owner &&
+        listing.owner.settings &&
+        listing.owner.settings.emailNotifications === false
+      )
+    ) {
+      sendEmail(listing.owner.email, rejectionEmail.subject, rejectionEmail.html).catch((e) =>
+        console.warn("Failed to send listing rejection email:", e.message)
+      );
+    }
 
     res.json({
       success: true,
@@ -901,9 +941,14 @@ router.post(
         // Ensure ObjectId type for proper matching in user queries
         userIds = userIds
           .filter(Boolean)
-          .map((id) => (id instanceof mongoose.Types.ObjectId ? id : new mongoose.Types.ObjectId(id)));
+          .map((id) =>
+            id instanceof mongoose.Types.ObjectId ? id : new mongoose.Types.ObjectId(id)
+          );
       } else if (recipientType === "tier") {
-        const tierUsers = await User.find({ tier: recipients.value, role: { $ne: "admin" } }).select("_id");
+        const tierUsers = await User.find({
+          tier: recipients.value,
+          role: { $ne: "admin" },
+        }).select("_id");
         userIds = tierUsers.map((u) => u._id);
       } else if (recipientType === "all") {
         // Exclude admin users from recipient count (they can see via admin panel)
@@ -916,8 +961,8 @@ router.post(
         recipientType === "all"
           ? "all"
           : recipientType === "multiple"
-          ? "individual"
-          : recipientType;
+            ? "individual"
+            : recipientType;
 
       // Save announcement to database
       const announcement = new Announcement({
@@ -939,7 +984,7 @@ router.post(
         id: announcement._id,
         type: announcement.recipients.type,
         value: announcement.recipients.value,
-        recipientCount: userIds.length
+        recipientCount: userIds.length,
       });
 
       // Log activity
@@ -1094,7 +1139,7 @@ router.get(
       // Optional time range filter
       if (range) {
         const now = new Date();
-        const periodMs = (unit, n) => ({ h: 60 * 60 * 1000, d: 24 * 60 * 60 * 1000 }[unit] * n);
+        const periodMs = (unit, n) => ({ h: 60 * 60 * 1000, d: 24 * 60 * 60 * 1000 })[unit] * n;
         let windowMs;
         if (range === "24h") windowMs = periodMs("h", 24);
         else if (range === "30d") windowMs = periodMs("d", 30);

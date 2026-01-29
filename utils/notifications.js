@@ -8,22 +8,45 @@ const {
   FROM_EMAIL,
   APP_NAME,
   FRONTEND_URL,
+  BRAND_LOGO_URL,
 } = require("./config");
 
 // Create reusable transporter object using SMTP transport
 const createTransporter = () => {
-  return nodemailer.createTransporter({
+  const smtpPort = Number(SMTP_PORT) || 587;
+  const secure = smtpPort === 465;
+
+  if (!SMTP_HOST) {
+    throw new Error(
+      "SMTP_HOST is not configured. Set SMTP_HOST/SMTP_PORT (and optionally SMTP_USER/SMTP_PASS) in .env to send emails."
+    );
+  }
+
+  const transportOptions = {
     host: SMTP_HOST,
-    port: SMTP_PORT || 587,
-    secure: SMTP_PORT === 465, // true for 465, false for other ports
-    auth: {
+    port: smtpPort,
+    secure,
+  };
+
+  // Support SMTP servers that don't require auth (common in dev: MailHog/Mailpit).
+  if (SMTP_USER && SMTP_PASS) {
+    transportOptions.auth = {
       user: SMTP_USER,
       pass: SMTP_PASS,
-    },
-    tls: {
-      rejectUnauthorized: false, // Allow self-signed certificates in development
-    },
-  });
+    };
+  }
+
+  // Allow self-signed certs only in non-production.
+  if (process.env.NODE_ENV !== "production") {
+    transportOptions.tls = { rejectUnauthorized: false };
+  }
+
+  return nodemailer.createTransport(transportOptions);
+};
+
+const isEmailOptedOut = (userLike) => {
+  // Default is opt-in.
+  return userLike && userLike.settings && userLike.settings.emailNotifications === false;
 };
 
 // Email templates
@@ -88,29 +111,79 @@ const emailTemplates = {
   loginNotification: (user, loginDetails) => ({
     subject: `New Login to Your ${APP_NAME} Account`,
     html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background-color: #f8f9fa; padding: 20px; text-align: center;">
-          <h1 style="color: #333;">${APP_NAME}</h1>
-        </div>
-        <div style="padding: 20px;">
-          <h2>New Login Notification</h2>
-          <p>Hey ${user.name},</p>
-          <p>We noticed that you just logged into your account <strong>${user.email}</strong>.</p>
-          <p>Here are some details for the login:</p>
-          <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
-            <p style="margin: 5px 0;"><strong>Date:</strong> ${loginDetails.date}</p>
-            <p style="margin: 5px 0;"><strong>IP:</strong> ${loginDetails.ip}</p>
-            <p style="margin: 5px 0;"><strong>Time:</strong> ${loginDetails.time}</p>
-            <p style="margin: 5px 0;"><strong>Approximate Location:</strong> ${loginDetails.location}</p>
-            <p style="margin: 5px 0;"><strong>Device:</strong> ${loginDetails.device}</p>
-            ${loginDetails.network ? `<p style="margin: 5px 0;"><strong>Network:</strong> ${loginDetails.network}</p>` : ''}
+      <div style="background:#f3f4f6; padding:24px 12px;">
+        <div style="font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; max-width: 640px; margin: 0 auto; background:#ffffff; border-radius: 14px; overflow:hidden; border:1px solid #e5e7eb;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%; border-collapse:collapse;" bgcolor="#0b1220">
+            <tr>
+              <td style="padding:20px 22px;" bgcolor="#0b1220">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%; border-collapse:collapse;">
+                  <tr>
+                    <td valign="middle" style="vertical-align:middle;">
+                      <div style="display:flex; align-items:center; gap:10px;">
+                        <img src="${BRAND_LOGO_URL}" width="28" height="28" alt="${APP_NAME} logo" style="display:block; width:28px; height:28px; border:0; outline:none; text-decoration:none;" />
+                        <div style="color:#ffffff; font-size:18px; font-weight:700; letter-spacing:0.2px; line-height:1.1;">${APP_NAME}</div>
+                      </div>
+                      <div style="color:rgba(255,255,255,0.78); font-size:13px; margin-top:6px;">New sign-in detected</div>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+
+          <div style="padding:22px; color:#111827;">
+            <h2 style="margin:0 0 10px; font-size:18px;">New Login Notification</h2>
+            <p style="margin:0 0 12px; color:#374151;">Hey ${user.name || "there"},</p>
+            <p style="margin:0 0 16px; color:#374151;">We noticed a login to <strong>${user.email}</strong>.</p>
+
+            <div style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:12px; padding:14px 14px;">
+              <table role="presentation" cellspacing="0" cellpadding="0" style="width:100%; border-collapse:collapse; font-size:14px; color:#111827;">
+                <tr>
+                  <td style="padding:6px 0; color:#6b7280; width:42%;">Date</td>
+                  <td style="padding:6px 0; font-weight:600;">${loginDetails.date}</td>
+                </tr>
+                <tr>
+                  <td style="padding:6px 0; color:#6b7280;">Time</td>
+                  <td style="padding:6px 0; font-weight:600;">${loginDetails.time}</td>
+                </tr>
+                <tr>
+                  <td style="padding:6px 0; color:#6b7280;">IP</td>
+                  <td style="padding:6px 0; font-weight:600;">${loginDetails.ip}</td>
+                </tr>
+                <tr>
+                  <td style="padding:6px 0; color:#6b7280;">Approx. location</td>
+                  <td style="padding:6px 0; font-weight:600;">${loginDetails.location}</td>
+                </tr>
+                <tr>
+                  <td style="padding:6px 0; color:#6b7280;">Device</td>
+                  <td style="padding:6px 0; font-weight:600;">${loginDetails.device}</td>
+                </tr>
+                ${
+                  loginDetails.network
+                    ? `
+                <tr>
+                  <td style="padding:6px 0; color:#6b7280;">Network</td>
+                  <td style="padding:6px 0; font-weight:600;">${loginDetails.network}</td>
+                </tr>
+                `
+                    : ""
+                }
+              </table>
+            </div>
+
+            <div style="margin-top:16px; padding:12px 14px; border-radius:12px; background:#ecfeff; border:1px solid #a5f3fc; color:#155e75;">
+              <div style="font-weight:700; margin-bottom:4px;">Wasn’t you?</div>
+              <div style="font-size:14px;">Secure your account immediately.
+                <a href="${FRONTEND_URL}/contact" style="color:#0e7490; font-weight:700; text-decoration:underline;">Contact support</a>
+              </div>
+            </div>
+
+            <p style="margin:16px 0 0; color:#6b7280; font-size:12px;">If this was you, you can safely ignore this email.</p>
           </div>
-          <p>If this was you, you can ignore this mail.</p>
-          <p><strong>If this wasn't you</strong>, please <a href="${FRONTEND_URL}/contact" style="color: #dc3545; text-decoration: none;">contact us</a> immediately so we can protect your account.</p>
-          <p>Best regards,<br>The ${APP_NAME} Team</p>
-        </div>
-        <div style="background-color: #f8f9fa; padding: 10px; text-align: center; font-size: 12px; color: #666;">
-          <p>&copy; 2025 ${APP_NAME}. All rights reserved.</p>
+
+          <div style="padding:14px 22px; background:#f9fafb; border-top:1px solid #e5e7eb; color:#6b7280; font-size:12px;">
+            <div>Best regards,<br/>The ${APP_NAME} Team</div>
+          </div>
         </div>
       </div>
     `,
@@ -244,7 +317,7 @@ const emailTemplates = {
           <p>Unfortunately, your listing requires some changes before it can be approved and published.</p>
           <div style="background-color: #fff3cd; padding: 15px; border-left: 4px solid #ffc107; margin: 20px 0;">
             <h3 style="margin-top: 0; color: #856404;">Reason for Rejection:</h3>
-            <p style="color: #856404; margin: 0;">${reason || 'Please review our listing guidelines and ensure your listing meets all requirements.'}</p>
+            <p style="color: #856404; margin: 0;">${reason || "Please review our listing guidelines and ensure your listing meets all requirements."}</p>
           </div>
           <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
             <h3>What to do next:</h3>
@@ -325,8 +398,8 @@ const emailTemplates = {
             <h3>Request Details:</h3>
             <p><strong>Ad Title:</strong> ${ad.title}</p>
             <p><strong>Placement:</strong> ${ad.placement}</p>
-            <p><strong>Plan:</strong> ${ad.pricing?.plan || 'N/A'}</p>
-            <p><strong>Total Amount:</strong> $${ad.pricing?.amount || 0} ${ad.pricing?.currency || 'USD'}</p>
+            <p><strong>Plan:</strong> ${ad.pricing?.plan || "N/A"}</p>
+            <p><strong>Total Amount:</strong> $${ad.pricing?.amount || 0} ${ad.pricing?.currency || "USD"}</p>
           </div>
           <div style="background-color: #d1ecf1; padding: 15px; border-left: 4px solid #17a2b8; margin: 20px 0;">
             <h3 style="margin-top: 0; color: #0c5460;">What Happens Next?</h3>
@@ -392,7 +465,7 @@ const emailTemplates = {
           <p>After reviewing your advertisement "<strong>${ad.title}</strong>", we need you to make some changes before we can approve it.</p>
           <div style="background-color: #f8d7da; padding: 15px; border-left: 4px solid #dc3545; margin: 20px 0;">
             <h3 style="margin-top: 0; color: #721c24;">Reason for Revision Request:</h3>
-            <p style="color: #721c24; margin: 0;">${reason || 'Please review our advertising guidelines and ensure your ad meets all requirements.'}</p>
+            <p style="color: #721c24; margin: 0;">${reason || "Please review our advertising guidelines and ensure your ad meets all requirements."}</p>
           </div>
           <div style="text-align: center; margin: 30px 0;">
             <a href="${FRONTEND_URL}/advertiser/dashboard" style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px;">Go to Dashboard</a>
@@ -447,10 +520,10 @@ const emailTemplates = {
         </div>
         <div style="padding: 20px;">
           <h2>Your Review is Live!</h2>
-          <p>Hello ${user.name || ''},</p>
-          <p>Your review on <strong>${listing.title || 'a listing'}</strong> has been approved and is now publicly visible.</p>
+          <p>Hello ${user.name || ""},</p>
+          <p>Your review on <strong>${listing.title || "a listing"}</strong> has been approved and is now publicly visible.</p>
           <blockquote style="margin:15px 0;padding:12px 16px;background:#f8f9fa;border-left:4px solid #4caf50;">
-            <p style="margin:0; font-style:italic; color:#555;">${(review.text || '').substring(0,400)}</p>
+            <p style="margin:0; font-style:italic; color:#555;">${(review.text || "").substring(0, 400)}</p>
             <p style="margin:8px 0 0 0; font-size:12px; color:#888;">Rating: ${review.rating} / 5</p>
           </blockquote>
           <div style="text-align: center; margin: 30px 0;">
@@ -474,10 +547,10 @@ const emailTemplates = {
         </div>
         <div style="padding: 20px;">
           <h2>Your Listing Got a Review</h2>
-          <p>Hello ${owner.name || ''},</p>
-          <p><strong>${reviewer?.name || 'A user'}</strong> left a ${review.rating}/5 review on <strong>${listing.title}</strong>.</p>
+          <p>Hello ${owner.name || ""},</p>
+          <p><strong>${reviewer?.name || "A user"}</strong> left a ${review.rating}/5 review on <strong>${listing.title}</strong>.</p>
           <blockquote style="margin:15px 0;padding:12px 16px;background:#f8f9fa;border-left:4px solid #2563eb;">
-            <p style="margin:0; font-style:italic; color:#555;">${(review.text || '').substring(0,400)}</p>
+            <p style="margin:0; font-style:italic; color:#555;">${(review.text || "").substring(0, 400)}</p>
           </blockquote>
           <p>Status: <strong>${review.status}</strong></p>
           <div style="text-align: center; margin: 30px 0;">
@@ -495,16 +568,34 @@ const emailTemplates = {
 };
 
 // Send email function
-const sendEmail = async (to, template, data = {}) => {
+// Supports two call patterns:
+// 1) sendEmail(to, templateKey, data)
+// 2) sendEmail(to, subject, html)
+const sendEmail = async (to, templateOrSubject, dataOrHtml = {}) => {
   try {
     const transporter = createTransporter();
-    const emailContent = emailTemplates[template](data);
+
+    let subject;
+    let html;
+
+    if (
+      typeof templateOrSubject === "string" &&
+      typeof dataOrHtml === "object" &&
+      emailTemplates[templateOrSubject]
+    ) {
+      const emailContent = emailTemplates[templateOrSubject](dataOrHtml);
+      subject = emailContent.subject;
+      html = emailContent.html;
+    } else {
+      subject = String(templateOrSubject || "");
+      html = String(dataOrHtml || "");
+    }
 
     const mailOptions = {
-      from: `"${APP_NAME}" <${FROM_EMAIL}>`,
+      from: `"${APP_NAME}" <${FROM_EMAIL || SMTP_USER}>`,
       to: to,
-      subject: emailContent.subject,
-      html: emailContent.html,
+      subject,
+      html,
     };
 
     const info = await transporter.sendMail(mailOptions);
@@ -520,6 +611,8 @@ const sendEmail = async (to, template, data = {}) => {
 const notifications = {
   // Send welcome email to new users
   sendWelcomeEmail: async (user) => {
+    if (isEmailOptedOut(user))
+      return { success: true, skipped: true, reason: "emailNotifications disabled" };
     return await sendEmail(user.email, "welcome", user);
   },
 
@@ -530,21 +623,29 @@ const notifications = {
 
   // Send payment confirmation email
   sendPaymentConfirmation: async (user, payment) => {
+    if (isEmailOptedOut(user))
+      return { success: true, skipped: true, reason: "emailNotifications disabled" };
     return await sendEmail(user.email, "paymentConfirmation", { user, payment });
   },
 
   // Send subscription expiring warning
   sendSubscriptionExpiringWarning: async (user, payment) => {
+    if (isEmailOptedOut(user))
+      return { success: true, skipped: true, reason: "emailNotifications disabled" };
     return await sendEmail(user.email, "subscriptionExpiring", { user, payment });
   },
 
   // Send listing approval notification
   sendListingApproved: async (user, listing) => {
+    if (isEmailOptedOut(user))
+      return { success: true, skipped: true, reason: "emailNotifications disabled" };
     return await sendEmail(user.email, "listingApproved", { user, listing });
   },
 
   // Send new saved search results
   sendSavedSearchResults: async (user, savedSearch, newListings) => {
+    if (isEmailOptedOut(user))
+      return { success: true, skipped: true, reason: "emailNotifications disabled" };
     return await sendEmail(user.email, "newSavedSearchResults", { user, savedSearch, newListings });
   },
 
@@ -559,29 +660,41 @@ const notifications = {
   },
   // Notify reviewer that their review was approved
   sendReviewApproved: async (user, listing, review) => {
-    return await sendEmail(user.email, 'reviewApproved', { user, listing, review });
+    if (isEmailOptedOut(user))
+      return { success: true, skipped: true, reason: "emailNotifications disabled" };
+    return await sendEmail(user.email, "reviewApproved", { user, listing, review });
   },
 
   // Notify listing owner of a new (pending or approved) review
   sendNewReviewOnListing: async (owner, listing, review, reviewer) => {
-    return await sendEmail(owner.email, 'newReviewOnListing', { owner, listing, review, reviewer });
+    if (isEmailOptedOut(owner))
+      return { success: true, skipped: true, reason: "emailNotifications disabled" };
+    return await sendEmail(owner.email, "newReviewOnListing", { owner, listing, review, reviewer });
   },
 
   // Advertisement Notification Functions
   sendAdRequestReceived: async (advertiser, ad) => {
-    return await sendEmail(advertiser.email, 'adRequestReceived', { advertiser, ad });
+    if (isEmailOptedOut(advertiser))
+      return { success: true, skipped: true, reason: "emailNotifications disabled" };
+    return await sendEmail(advertiser.email, "adRequestReceived", { advertiser, ad });
   },
 
   sendAdApproved: async (advertiser, ad) => {
-    return await sendEmail(advertiser.email, 'adApproved', { advertiser, ad });
+    if (isEmailOptedOut(advertiser))
+      return { success: true, skipped: true, reason: "emailNotifications disabled" };
+    return await sendEmail(advertiser.email, "adApproved", { advertiser, ad });
   },
 
   sendAdRejected: async (advertiser, ad, reason) => {
-    return await sendEmail(advertiser.email, 'adRejected', { advertiser, ad, reason });
+    if (isEmailOptedOut(advertiser))
+      return { success: true, skipped: true, reason: "emailNotifications disabled" };
+    return await sendEmail(advertiser.email, "adRejected", { advertiser, ad, reason });
   },
 
   sendAdActivated: async (advertiser, ad) => {
-    return await sendEmail(advertiser.email, 'adActivated', { advertiser, ad });
+    if (isEmailOptedOut(advertiser))
+      return { success: true, skipped: true, reason: "emailNotifications disabled" };
+    return await sendEmail(advertiser.email, "adActivated", { advertiser, ad });
   },
 };
 
@@ -646,42 +759,56 @@ const utils = {
 
   // Extract login details from request
   extractLoginDetails: (req) => {
-    const userAgent = req.get('user-agent') || '';
-    const ip = req.ip || req.connection.remoteAddress || 'Unknown';
-    const cleanIp = ip.replace('::ffff:', ''); // Clean IPv6 prefix
+    const userAgent = req.get("user-agent") || "";
+    const forwardedFor = req.get("x-forwarded-for");
+    const forwardedIp = forwardedFor ? String(forwardedFor).split(",")[0].trim() : "";
+    const rawIp = forwardedIp || req.ip || req.connection.remoteAddress || "Unknown";
+    const cleanIp = String(rawIp).replace("::ffff:", ""); // Clean IPv6 prefix
     const now = new Date();
 
     // Parse device info from user-agent
-    let device = 'Unknown Device';
-    if (userAgent.includes('iPhone')) {
+    let device = "Unknown Device";
+    if (userAgent.includes("iPhone")) {
       const match = userAgent.match(/iPhone OS (\d+)_(\d+)/);
-      device = match ? `iPhone (iOS ${match[1]}.${match[2]})` : 'iPhone';
-    } else if (userAgent.includes('iPad')) {
-      device = 'iPad';
-    } else if (userAgent.includes('Android')) {
+      device = match ? `iPhone (iOS ${match[1]}.${match[2]})` : "iPhone";
+    } else if (userAgent.includes("iPad")) {
+      device = "iPad";
+    } else if (userAgent.includes("Android")) {
       const match = userAgent.match(/Android (\d+(\.\d+)?)/);
-      device = match ? `Android ${match[1]}` : 'Android Device';
-    } else if (userAgent.includes('Windows')) {
-      device = 'Windows PC';
-    } else if (userAgent.includes('Macintosh')) {
-      device = 'Mac';
-    } else if (userAgent.includes('Linux')) {
-      device = 'Linux PC';
+      device = match ? `Android ${match[1]}` : "Android Device";
+    } else if (userAgent.includes("Windows")) {
+      device = "Windows PC";
+    } else if (userAgent.includes("Macintosh")) {
+      device = "Mac";
+    } else if (userAgent.includes("Linux")) {
+      device = "Linux PC";
     }
 
     // Get geolocation from IP
-    let location = 'Unknown';
+    let location = "Unknown";
     let network = null;
-    const geo = geoip.lookup(cleanIp);
-    if (geo) {
-      location = `${geo.city || 'Unknown City'}, ${geo.country || 'Unknown Country'}`;
-      // ISP info not available in geoip-lite free version
+    const lowerIp = String(cleanIp).toLowerCase();
+    const isLocal = lowerIp === "::1" || lowerIp === "127.0.0.1" || lowerIp === "localhost";
+    if (isLocal) {
+      location = "Local development";
+    } else {
+      const geo = geoip.lookup(cleanIp);
+      if (geo) {
+        const city = geo.city || null;
+        const country = geo.country || null;
+        location = [city, country].filter(Boolean).join(", ") || "Unknown";
+      }
     }
 
     return {
-      date: now.toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' }),
-      time: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: 'numeric', hour12: true }),
-      ip: cleanIp,
+      date: now.toLocaleDateString("en-US", {
+        weekday: "short",
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      }),
+      time: now.toLocaleTimeString("en-US", { hour: "numeric", minute: "numeric", hour12: true }),
+      ip: isLocal ? "Localhost" : cleanIp,
       location,
       device,
       network,
@@ -691,9 +818,24 @@ const utils = {
 };
 
 module.exports = {
+  // Primary grouped exports
   notifications,
   inAppNotifications,
   utils,
   sendEmail,
   emailTemplates,
+
+  // Backwards-compatible named exports (some controllers import these directly)
+  sendWelcomeEmail: notifications.sendWelcomeEmail,
+  sendPasswordResetEmail: notifications.sendPasswordResetEmail,
+  sendPaymentConfirmation: notifications.sendPaymentConfirmation,
+  sendSubscriptionExpiringWarning: notifications.sendSubscriptionExpiringWarning,
+  sendListingApproved: notifications.sendListingApproved,
+  sendSavedSearchResults: notifications.sendSavedSearchResults,
+  sendReviewApproved: notifications.sendReviewApproved,
+  sendNewReviewOnListing: notifications.sendNewReviewOnListing,
+  sendAdRequestReceived: notifications.sendAdRequestReceived,
+  sendAdApproved: notifications.sendAdApproved,
+  sendAdRejected: notifications.sendAdRejected,
+  sendAdActivated: notifications.sendAdActivated,
 };

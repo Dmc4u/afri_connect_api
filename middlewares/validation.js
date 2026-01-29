@@ -132,6 +132,22 @@ module.exports.validateSignin = celebrate({
   }),
 });
 
+// Validate login OTP verification
+module.exports.validateVerifyOtp = celebrate({
+  body: Joi.object().keys({
+    preAuthToken: Joi.string().required().messages({
+      "string.empty": 'The "preAuthToken" field must be filled in',
+    }),
+    otp: Joi.string()
+      .required()
+      .pattern(/^\d{6}$/)
+      .messages({
+        "string.empty": 'The "otp" field must be filled in',
+        "string.pattern.base": 'The "otp" field must be a 6-digit code',
+      }),
+  }),
+});
+
 // Validate IDs in request parameters
 module.exports.validateId = celebrate({
   params: Joi.object().keys({
@@ -354,4 +370,3 @@ module.exports.validatePayment = celebrate({
     }),
   }),
 });
-
