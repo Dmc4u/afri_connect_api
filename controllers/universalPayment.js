@@ -9,6 +9,80 @@ const User = require("../models/User");
 const PricingSettings = require("../models/PricingSettings");
 const { createOrder, captureOrder, getOrder } = require("../utils/paypal");
 
+const normalizeMediaFiles = (mediaFiles = []) => {
+  if (!Array.isArray(mediaFiles)) return [];
+
+  return mediaFiles
+    .map((file) => {
+      if (!file) return null;
+
+      if (typeof file === "string") {
+        const isVideo = file.startsWith("data:video") || file.includes("/videos/");
+        return {
+          url: file,
+          type: isVideo ? "video" : "image",
+          uploadedAt: new Date(),
+        };
+      }
+
+      if (typeof file === "object") {
+        const url = file.url || file.src || file.imageUrl || file.videoUrl || file.path;
+        if (!url) return null;
+
+        const inferredType =
+          file.type ||
+          (file.mimetype && file.mimetype.startsWith("video/") ? "video" : null) ||
+          (file.videoUrl ? "video" : "image");
+
+        return {
+          filename: file.filename || file.name,
+          originalname: file.originalname,
+          mimetype: file.mimetype,
+          size: file.size,
+          url,
+          type: inferredType,
+          duration: file.duration || file.videoDuration,
+          uploadedAt: file.uploadedAt ? new Date(file.uploadedAt) : new Date(),
+        };
+      }
+
+      return null;
+    })
+    .filter(Boolean);
+};
+
+const extractPayPalVaultId = (captureResult) => {
+  // Common locations (depends on account/feature flags)
+  const direct =
+    captureResult?.payment_source?.paypal?.attributes?.vault?.id ||
+    captureResult?.payment_source?.card?.attributes?.vault?.id ||
+    captureResult?.payment_source?.paypal?.vault?.id ||
+    captureResult?.payment_source?.card?.vault?.id;
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
+
+  // Fallback: scan for an object like { vault: { id: "..." } }
+  const seen = new Set();
+  const stack = [captureResult];
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node || typeof node !== "object") continue;
+    if (seen.has(node)) continue;
+    seen.add(node);
+
+    const vault = node.vault;
+    if (vault && typeof vault === "object") {
+      const id = vault.id;
+      if (typeof id === "string" && id.trim()) return id.trim();
+    }
+
+    for (const value of Object.values(node)) {
+      if (value && typeof value === "object") stack.push(value);
+    }
+  }
+
+  return null;
+};
+
 const VALID_PAYMENT_TYPES = [
   "membership",
   "showcase",
@@ -67,7 +141,14 @@ const computeAdvertisingPricing = ({ placement, durationDays, videoDurationSec }
  */
 const createUniversalOrder = async (req, res) => {
   try {
-    const { amount, currency = "USD", description, type, metadata = {} } = req.body;
+    const {
+      amount,
+      currency = "USD",
+      description,
+      type,
+      metadata = {},
+      savePaymentMethod,
+    } = req.body;
     const userId = req.user?._id; // Optional for donations
 
     // For non-donation payments, require authentication
@@ -100,6 +181,7 @@ const createUniversalOrder = async (req, res) => {
       description: description ? String(description).slice(0, 200) : undefined,
       _server: {
         createdAt: new Date().toISOString(),
+        savePaymentMethodRequested: Boolean(savePaymentMethod),
       },
     };
 
@@ -245,6 +327,8 @@ const createUniversalOrder = async (req, res) => {
     const order = await createOrder(authoritativeAmount, seatType, authoritativeCurrency, userId, {
       returnUrl: process.env.PAYPAL_RETURN_URL || "http://localhost:3001",
       cancelUrl: process.env.PAYPAL_CANCEL_URL || "http://localhost:3001",
+      // Only attempt vaulting when we have an authenticated user to attach it to.
+      storeInVaultOnSuccess: Boolean(savePaymentMethod) && Boolean(userId),
     });
 
     if (!order?.id) {
@@ -433,6 +517,26 @@ const captureUniversalOrder = async (req, res) => {
     payment.capturing = false;
     await payment.save();
 
+    // Save PayPal vault token (if requested and user is authenticated)
+    const saveRequested = Boolean(payment?.context?._server?.savePaymentMethodRequested);
+    if (saveRequested && req.user) {
+      const vaultId = extractPayPalVaultId(captureResult);
+      if (vaultId) {
+        req.user.paymentVault = req.user.paymentVault || {};
+        req.user.paymentVault.paypal = {
+          ...(req.user.paymentVault.paypal || {}),
+          vaultId,
+          updatedAt: new Date(),
+          createdAt: req.user.paymentVault.paypal?.createdAt || new Date(),
+        };
+        await req.user.save();
+      } else {
+        console.warn(
+          "⚠️ savePaymentMethod was requested but no PayPal vault id was found in capture result"
+        );
+      }
+    }
+
     // Create transaction record for membership payments
     const effectiveContext = payment.context || metadata;
     const membershipTier = payment.tierUpgrade?.to || effectiveContext?.tier;
@@ -510,14 +614,19 @@ async function applyPaymentEffects(payment, user, metadata) {
           break;
         }
 
+        const normalizedMediaFiles = normalizeMediaFiles(adSource.mediaFiles || []);
+        const primaryMediaUrl = normalizedMediaFiles[0]?.url || null;
+        const derivedVideoDuration = normalizedMediaFiles.find(
+          (file) => file.type === "video" && Number.isFinite(file.duration)
+        )?.duration;
+
         // Extract imageUrl from mediaFiles (it might be an object with url property)
         let imageUrl = null;
         if (adSource.imageUrl) {
           imageUrl =
             typeof adSource.imageUrl === "string" ? adSource.imageUrl : adSource.imageUrl.url;
-        } else if (adSource.mediaFiles && adSource.mediaFiles.length > 0) {
-          const firstMedia = adSource.mediaFiles[0];
-          imageUrl = typeof firstMedia === "string" ? firstMedia : firstMedia.url;
+        } else if (primaryMediaUrl) {
+          imageUrl = primaryMediaUrl;
         }
 
         // Compute authoritative dates and duration (do not trust client-sent endDate)
@@ -549,11 +658,11 @@ async function applyPaymentEffects(payment, user, metadata) {
             company: adSource.company,
             phone: adSource.phone,
           },
-          mediaFiles: adSource.mediaFiles || [],
+          mediaFiles: normalizedMediaFiles,
           imageUrl: imageUrl,
           startDate,
           endDate,
-          videoDuration: adSource.videoDuration || 0,
+          videoDuration: adSource.videoDuration || derivedVideoDuration || 0,
           pricing: {
             amount: payment.amount.value,
             currency: payment.amount.currency,

@@ -138,6 +138,15 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+
+    // Payment method vault tokens (provider-stored). Never store card numbers/CVV.
+    paymentVault: {
+      paypal: {
+        vaultId: { type: String, default: null },
+        createdAt: { type: Date, default: null },
+        updatedAt: { type: Date, default: null },
+      },
+    },
   },
   {
     timestamps: true, // This adds createdAt and updatedAt fields

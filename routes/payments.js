@@ -4,7 +4,14 @@
  */
 
 const express = require("express");
-const { createUniversalOrder, captureUniversalOrder, getAdminDonations, getAdminAdvertising, deleteDonation, deleteAdvertising } = require("../controllers/universalPayment");
+const {
+  createUniversalOrder,
+  captureUniversalOrder,
+  getAdminDonations,
+  getAdminAdvertising,
+  deleteDonation,
+  deleteAdvertising,
+} = require("../controllers/universalPayment");
 const auth = require("../middlewares/auth");
 const optionalAuth = require("../middlewares/optionalAuth");
 const adminAuth = require("../middlewares/adminAuth");

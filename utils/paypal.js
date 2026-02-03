@@ -32,6 +32,10 @@ async function createOrder(amount, seatType, currency = "USD", userId = null, co
 
   const accessToken = await getAccessToken();
 
+  const shouldStoreInVault = Boolean(
+    context?.storeInVaultOnSuccess || context?.savePaymentMethod || context?.vault?.storeInVault
+  );
+
   const body = {
     intent: "CAPTURE",
     purchase_units: [
@@ -53,20 +57,53 @@ async function createOrder(amount, seatType, currency = "USD", userId = null, co
     },
   };
 
-  console.log("🔵 PayPal order body:", JSON.stringify(body, null, 2));
+  // If requested, ask PayPal to store the payment method in its vault on success.
+  // We never store card details on our servers—only PayPal's vault token/id.
+  if (shouldStoreInVault) {
+    body.payment_source = {
+      paypal: {
+        attributes: {
+          vault: {
+            store_in_vault: "ON_SUCCESS",
+          },
+        },
+      },
+    };
+  }
 
-  const response = await fetch(`${baseUrl}/v2/checkout/orders`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify(body),
-  });
+  const postOrder = async (payload) => {
+    console.log("🔵 PayPal order body:", JSON.stringify(payload, null, 2));
+    const response = await fetch(`${baseUrl}/v2/checkout/orders`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(payload),
+    });
 
-  const data = await response.json();
-  console.log("🔵 PayPal response status:", response.status);
-  console.log("🔵 PayPal response data:", JSON.stringify(data, null, 2));
+    const data = await response.json();
+    console.log("🔵 PayPal response status:", response.status);
+    console.log("🔵 PayPal response data:", JSON.stringify(data, null, 2));
+    return { response, data };
+  };
+
+  let { response, data } = await postOrder(body);
+
+  // If vaulting isn't supported/allowed, fall back to normal checkout
+  if (!response.ok && shouldStoreInVault) {
+    console.warn(
+      "⚠️ PayPal vaulting order creation failed; retrying without vaulting. Error:",
+      data?.details?.[0]?.issue || data?.message || response.status
+    );
+
+    const bodyWithoutVault = { ...body };
+    delete bodyWithoutVault.payment_source;
+    ({ response, data } = await postOrder(bodyWithoutVault));
+    if (response.ok && data && typeof data === "object") {
+      data._vaultingFallback = true;
+    }
+  }
 
   if (!response.ok) {
     console.error("❌ PayPal Create Order Error:", data);
@@ -96,7 +133,11 @@ async function captureOrder(orderId) {
   if (!response.ok) {
     console.error("❌ PayPal Capture Error:", data);
     console.error(`❌ Error details:`, data.details);
-    const errorMessage = data.details?.[0]?.issue || data.details?.[0]?.description || data.message || "Failed to capture order";
+    const errorMessage =
+      data.details?.[0]?.issue ||
+      data.details?.[0]?.description ||
+      data.message ||
+      "Failed to capture order";
     throw new Error(errorMessage);
   }
 
@@ -108,16 +149,16 @@ async function captureOrder(orderId) {
 async function getOrder(orderId) {
   const accessToken = await getAccessToken();
   const response = await fetch(`${baseUrl}/v2/checkout/orders/${orderId}`, {
-    method: 'GET',
+    method: "GET",
     headers: {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
       Authorization: `Bearer ${accessToken}`,
-    }
+    },
   });
   const data = await response.json();
   if (!response.ok) {
-    console.error('❌ PayPal Get Order Error:', data);
-    throw new Error(data.details?.[0]?.issue || data.message || 'Failed to get order');
+    console.error("❌ PayPal Get Order Error:", data);
+    throw new Error(data.details?.[0]?.issue || data.message || "Failed to get order");
   }
   return data;
 }

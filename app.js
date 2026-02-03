@@ -37,11 +37,45 @@ const { startScheduler } = require("./utils/eventScheduler");
 
 const app = express();
 const httpServer = createServer(app);
+
+// CORS
+// - In production we often host the frontend on different domains/subdomains.
+// - Use a safe default that allows requests from any origin, while still
+//   protecting privileged actions via auth + adminAuth.
+// - If you want to lock it down, set CORS_ORIGINS to a comma-separated allowlist.
+const DEFAULT_CORS_ORIGINS = [
+  "http://localhost:3001",
+  "http://127.0.0.1:3001",
+  "https://afrionet.com",
+  "https://www.afrionet.com",
+];
+
+const corsAllowList = String(process.env.CORS_ORIGINS || "")
+  .split(",")
+  .map((v) => v.trim())
+  .filter(Boolean);
+
+const allowedOrigins = corsAllowList.length > 0 ? corsAllowList : DEFAULT_CORS_ORIGINS;
+
+const corsOriginFn = (origin, callback) => {
+  // Allow non-browser tools (no Origin header)
+  if (!origin) return callback(null, true);
+
+  // If user provided an allowlist, enforce it strictly.
+  if (corsAllowList.length > 0) {
+    return callback(null, allowedOrigins.includes(origin));
+  }
+
+  // Otherwise, allow all origins (reflect origin).
+  return callback(null, true);
+};
+
 const io = new IOServer(httpServer, {
   cors: {
-    origin: ["http://localhost:3001", "https://afrionet.com"],
+    origin: corsOriginFn,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization"],
   },
   transports: ["websocket", "polling"],
 });
@@ -101,7 +135,7 @@ app.set("trust proxy", 1);
 
 app.use(
   cors({
-    origin: ["http://localhost:3001", "https://afrionet.com", "https://www.afrionet.com"],
+    origin: corsOriginFn,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
