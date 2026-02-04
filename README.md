@@ -10,7 +10,6 @@ Backend API server for AfriOnet - A comprehensive business networking platform c
 **Developed by:** Moses Ademola Aina  
 **Company:** DMC LIMITED
 
-
 ## 📋 Table of Contents
 
 - [Features](#-features)
@@ -27,10 +26,10 @@ Backend API server for AfriOnet - A comprehensive business networking platform c
 - [Deployment](#-deployment)
 - [Troubleshooting](#-troubleshooting)
 
-
 ## ✨ Features
 
 ### Core Functionality
+
 - 🔐 **JWT Authentication** - Secure user authentication and authorization
 - 💬 **Real-time Messaging** - Socket.io powered instant messaging
 - 📧 **Email Notifications** - Nodemailer integration
@@ -45,6 +44,7 @@ Backend API server for AfriOnet - A comprehensive business networking platform c
 - 🎁 **Donation System** - Direct support for talents and causes
 
 ### Talent Showcase Features
+
 - 🎭 **Two Showcase Types**:
   - **Structured Events** - Automated phase transitions (Welcome → Performances → Commercial → Voting → Winner → Thank You)
   - **Legacy/Manual Events** - Admin-controlled event flow
@@ -65,6 +65,7 @@ Backend API server for AfriOnet - A comprehensive business networking platform c
 - 📺 **Commercial Breaks** - Integrated video ad playback during events
 
 ### Advertising Features
+
 - 📢 **Ad Placements** - Multiple placement types:
   - Homepage banner, sidebar, footer
   - Category-specific sidebars
@@ -77,6 +78,7 @@ Backend API server for AfriOnet - A comprehensive business networking platform c
 - ⏰ **Campaign Scheduling** - Start/end date configuration
 
 ### Security Features
+
 - 🛡️ **Rate Limiting** - Express rate limiter
 - 🔒 **Helmet.js** - Security headers
 - ✅ **Input Validation** - Celebrate and Express-validator
@@ -84,21 +86,23 @@ Backend API server for AfriOnet - A comprehensive business networking platform c
 - 📝 **Activity Logging** - User activity tracking
 
 ### Tier-Based Access Control
+
 - **Free** - Basic features
 - **Starter** - Enhanced visibility ($3/month)
 - **Premium** - Forum + Advanced search ($7/month)
 - **Pro** - Full API access ($20/month)
 
-
 ## 🛠 Tech Stack
 
 ### Core Technologies
+
 - **Runtime:** Node.js >= 18.0.0
 - **Framework:** Express.js 5.1.0
 - **Database:** MongoDB (Mongoose 8.19.1)
 - **Real-time:** Socket.io 4.7.2
 
 ### Authentication & Security
+
 - **jsonwebtoken** 9.0.2 - JWT authentication
 - **bcryptjs** 3.0.2 - Password hashing
 - **helmet** 8.1.0 - Security headers
@@ -106,33 +110,39 @@ Backend API server for AfriOnet - A comprehensive business networking platform c
 - **cors** 2.8.5 - CORS handling
 
 ### Validation & Error Handling
+
 - **celebrate** 15.0.3 - Request validation
 - **express-validator** 7.3.0 - Input validation
 - **validator** 13.15.15 - String validation
 
 ### File Upload & Storage
+
 - **cloudinary** 1.41.3 - Cloud storage
 - **multer** 2.0.2 - File upload middleware
 - **multer-storage-cloudinary** 4.0.0 - Cloudinary integration
 
 ### Payment Integration
+
 - **PayPal SDK** - Payment processing
 - **2Checkout** - Alternative payment gateway
 
 ### Communication
+
 - **nodemailer** 7.0.10 - Email service
 - **node-fetch** 3.3.2 - HTTP requests
 
 ### Logging & Monitoring
+
 - **winston** 3.18.3 - Logging framework
 - **express-winston** 4.2.0 - Express integration
 
 ### Utilities
+
 - **dotenv** 17.2.3 - Environment variables
 - **uuid** 13.0.0 - Unique identifiers
 
-
 ## 📁 Project Structure
+
 ```
 afri_connect_api/
 ├── app.js                    # Application entry point
@@ -254,7 +264,6 @@ afri_connect_api/
 └── logs/                     # Application logs
 ```
 
-
 ## 📦 Prerequisites
 
 - **Node.js** >= 18.0.0 ([Download](https://nodejs.org/))
@@ -273,14 +282,13 @@ afri_connect_api/
 - **2Checkout Account** ([Sign up](https://www.2checkout.com/))
 - **Google reCAPTCHA** ([Get keys](https://www.google.com/recaptcha/))
 
-
-
 ## 🚀 Installation
 
 ### 1. Clone the Repository
 
 git clone https://github.com/Dmc4u/afri_connect_api.git
 cd afri_connect_api
+
 ```
 
 ### 2. Install Dependencies
@@ -292,6 +300,7 @@ npm install
 ### 3. Verify Installation
 
 npm list --depth=0
+
 ```
 
 
@@ -387,8 +396,8 @@ ADMIN_EMAIL=admin@afrionet.com
 
 Run this command twice to generate both secrets:
 
-
 node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
+
 ```
 
 Copy the output to `JWT_SECRET` and run again for `JWT_SESSION_SECRET`.
@@ -432,6 +441,7 @@ Or open `http://localhost:5000` in your browser.
 ## 📡 API Endpoints
 
 ### Base URL
+
 ```
 Development: http://localhost:5000
 Production: https://api.afrionet.com
@@ -439,132 +449,132 @@ Production: https://api.afrionet.com
 
 ### Authentication Endpoints
 
-| Method | Endpoint | Description | Auth Required |
-|--------|----------|-------------|---------------|
-| POST | `/signup` | Register new user | No |
-| POST | `/signin` | Login user | No |
-| GET | `/users/me` | Get current user | Yes |
-| PUT | `/users/me` | Update profile | Yes |
-| DELETE | `/users/me` | Delete account | Yes |
+| Method | Endpoint    | Description       | Auth Required |
+| ------ | ----------- | ----------------- | ------------- |
+| POST   | `/signup`   | Register new user | No            |
+| POST   | `/signin`   | Login user        | No            |
+| GET    | `/users/me` | Get current user  | Yes           |
+| PUT    | `/users/me` | Update profile    | Yes           |
+| DELETE | `/users/me` | Delete account    | Yes           |
 
 ### Listing Endpoints
 
-| Method | Endpoint | Description | Auth Required |
-|--------|----------|-------------|---------------|
-| GET | `/listings` | Get all listings | No |
-| POST | `/listings` | Create listing | Yes |
-| GET | `/listings/:id` | Get single listing | No |
-| PUT | `/listings/:id` | Update listing | Yes (Owner) |
-| DELETE | `/listings/:id` | Delete listing | Yes (Owner) |
-| GET | `/listings/user/:userId` | Get user's listings | No |
+| Method | Endpoint                 | Description         | Auth Required |
+| ------ | ------------------------ | ------------------- | ------------- |
+| GET    | `/listings`              | Get all listings    | No            |
+| POST   | `/listings`              | Create listing      | Yes           |
+| GET    | `/listings/:id`          | Get single listing  | No            |
+| PUT    | `/listings/:id`          | Update listing      | Yes (Owner)   |
+| DELETE | `/listings/:id`          | Delete listing      | Yes (Owner)   |
+| GET    | `/listings/user/:userId` | Get user's listings | No            |
 
 ### Forum Endpoints
 
-| Method | Endpoint | Description | Auth Required |
-|--------|----------|-------------|---------------|
-| GET | `/forum` | Get all posts | No |
-| POST | `/forum` | Create post | Yes (Premium+) |
-| GET | `/forum/:id` | Get single post | No |
-| POST | `/forum/:id/reply` | Reply to post | Yes |
-| DELETE | `/forum/:id` | Delete post | Yes (Owner/Admin) |
+| Method | Endpoint           | Description     | Auth Required     |
+| ------ | ------------------ | --------------- | ----------------- |
+| GET    | `/forum`           | Get all posts   | No                |
+| POST   | `/forum`           | Create post     | Yes (Premium+)    |
+| GET    | `/forum/:id`       | Get single post | No                |
+| POST   | `/forum/:id/reply` | Reply to post   | Yes               |
+| DELETE | `/forum/:id`       | Delete post     | Yes (Owner/Admin) |
 
 ### Messaging Endpoints
 
-| Method | Endpoint | Description | Auth Required |
-|--------|----------|-------------|---------------|
-| GET | `/messaging/conversations` | Get conversations | Yes |
-| POST | `/messaging/send` | Send message | Yes |
-| GET | `/messaging/:conversationId` | Get messages | Yes |
-| PUT | `/messaging/:messageId/read` | Mark as read | Yes |
+| Method | Endpoint                     | Description       | Auth Required |
+| ------ | ---------------------------- | ----------------- | ------------- |
+| GET    | `/messaging/conversations`   | Get conversations | Yes           |
+| POST   | `/messaging/send`            | Send message      | Yes           |
+| GET    | `/messaging/:conversationId` | Get messages      | Yes           |
+| PUT    | `/messaging/:messageId/read` | Mark as read      | Yes           |
 
 ### Review Endpoints
 
-| Method | Endpoint | Description | Auth Required |
-|--------|----------|-------------|---------------|
-| POST | `/reviews/:listingId` | Create review | Yes |
-| GET | `/reviews/:listingId` | Get listing reviews | No |
-| PUT | `/reviews/:id` | Update review | Yes (Owner) |
-| DELETE | `/reviews/:id` | Delete review | Yes (Owner) |
+| Method | Endpoint              | Description         | Auth Required |
+| ------ | --------------------- | ------------------- | ------------- |
+| POST   | `/reviews/:listingId` | Create review       | Yes           |
+| GET    | `/reviews/:listingId` | Get listing reviews | No            |
+| PUT    | `/reviews/:id`        | Update review       | Yes (Owner)   |
+| DELETE | `/reviews/:id`        | Delete review       | Yes (Owner)   |
 
 ### Search Endpoints
 
-| Method | Endpoint | Description | Auth Required |
-|--------|----------|-------------|---------------|
-| GET | `/search?q=query` | Search listings | No |
-| GET | `/search/advanced` | Advanced search | Yes (Premium+) |
-| POST | `/search/save` | Save search | Yes |
+| Method | Endpoint           | Description     | Auth Required  |
+| ------ | ------------------ | --------------- | -------------- |
+| GET    | `/search?q=query`  | Search listings | No             |
+| GET    | `/search/advanced` | Advanced search | Yes (Premium+) |
+| POST   | `/search/save`     | Save search     | Yes            |
 
 ### Payment Endpoints
 
-| Method | Endpoint | Description | Auth Required |
-|--------|----------|-------------|---------------|
-| POST | `/paypal/create-order` | Create PayPal order | Yes |
-| POST | `/paypal/capture-order` | Capture payment | Yes |
-| POST | `/checkout/process` | 2Checkout payment | Yes |
-| GET | `/payments/history` | Payment history | Yes |
+| Method | Endpoint                | Description         | Auth Required |
+| ------ | ----------------------- | ------------------- | ------------- |
+| POST   | `/paypal/create-order`  | Create PayPal order | Yes           |
+| POST   | `/paypal/capture-order` | Capture payment     | Yes           |
+| POST   | `/checkout/process`     | 2Checkout payment   | Yes           |
+| GET    | `/payments/history`     | Payment history     | Yes           |
 
 ### Talent Showcase Endpoints
 
-| Method | Endpoint | Description | Auth Required |
-|--------|----------|-------------|---------------|
-| GET | `/talent-showcase` | Get all showcases | No |
-| GET | `/talent-showcase/:id` | Get showcase by ID | No |
-| GET | `/talent-showcase/:id/type` | Get showcase type | No |
-| GET | `/talent-showcase/:id/timeline` | Get event timeline | No |
-| GET | `/talent-showcase/:showcaseId/contestants` | Get contestants | No |
-| GET | `/talent-showcase/:showcaseId/leaderboard` | Get voting leaderboard | No |
-| POST | `/talent-showcase/:showcaseId/register` | Register to compete | Yes |
-| POST | `/talent-showcase/:showcaseId/vote` | Cast vote | Yes/IP-based |
-| POST | `/talent-showcase/upload-video` | Upload performance video | Yes |
-| POST | `/talent-showcase/admin/create` | Create showcase | Yes (Admin) |
-| PUT | `/talent-showcase/admin/:id` | Update showcase | Yes (Admin) |
-| DELETE | `/talent-showcase/admin/:id` | Delete showcase | Yes (Admin) |
-| POST | `/talent-showcase/admin/raffle/:id` | Execute raffle | Yes (Admin) |
-| POST | `/talent-showcase/admin/set-winner` | Declare winner | Yes (Admin) |
-| PUT | `/talent-showcase/admin/contestant/:id` | Update contestant | Yes (Admin) |
+| Method | Endpoint                                   | Description              | Auth Required |
+| ------ | ------------------------------------------ | ------------------------ | ------------- |
+| GET    | `/talent-showcase`                         | Get all showcases        | No            |
+| GET    | `/talent-showcase/:id`                     | Get showcase by ID       | No            |
+| GET    | `/talent-showcase/:id/type`                | Get showcase type        | No            |
+| GET    | `/talent-showcase/:id/timeline`            | Get event timeline       | No            |
+| GET    | `/talent-showcase/:showcaseId/contestants` | Get contestants          | No            |
+| GET    | `/talent-showcase/:showcaseId/leaderboard` | Get voting leaderboard   | No            |
+| POST   | `/talent-showcase/:showcaseId/register`    | Register to compete      | Yes           |
+| POST   | `/talent-showcase/:showcaseId/vote`        | Cast vote                | Yes/IP-based  |
+| POST   | `/talent-showcase/upload-video`            | Upload performance video | Yes           |
+| POST   | `/talent-showcase/admin/create`            | Create showcase          | Yes (Admin)   |
+| PUT    | `/talent-showcase/admin/:id`               | Update showcase          | Yes (Admin)   |
+| DELETE | `/talent-showcase/admin/:id`               | Delete showcase          | Yes (Admin)   |
+| POST   | `/talent-showcase/admin/raffle/:id`        | Execute raffle           | Yes (Admin)   |
+| POST   | `/talent-showcase/admin/set-winner`        | Declare winner           | Yes (Admin)   |
+| PUT    | `/talent-showcase/admin/contestant/:id`    | Update contestant        | Yes (Admin)   |
 
 ### Live Event Control Endpoints
 
-| Method | Endpoint | Description | Auth Required |
-|--------|----------|-------------|---------------|
-| GET | `/api/live-showcase/:id` | Get live event state | No |
-| POST | `/api/live-showcase/:id/start` | Start event | Yes (Admin) |
-| POST | `/api/live-showcase/:id/next-phase` | Skip to next phase | Yes (Admin) |
-| POST | `/api/live-showcase/:id/prev-phase` | Go to previous phase | Yes (Admin) |
-| POST | `/api/live-showcase/:id/pause` | Pause event | Yes (Admin) |
-| POST | `/api/live-showcase/:id/resume` | Resume event | Yes (Admin) |
-| POST | `/api/live-showcase/:id/reset` | Reset event | Yes (Admin) |
+| Method | Endpoint                            | Description          | Auth Required |
+| ------ | ----------------------------------- | -------------------- | ------------- |
+| GET    | `/api/live-showcase/:id`            | Get live event state | No            |
+| POST   | `/api/live-showcase/:id/start`      | Start event          | Yes (Admin)   |
+| POST   | `/api/live-showcase/:id/next-phase` | Skip to next phase   | Yes (Admin)   |
+| POST   | `/api/live-showcase/:id/prev-phase` | Go to previous phase | Yes (Admin)   |
+| POST   | `/api/live-showcase/:id/pause`      | Pause event          | Yes (Admin)   |
+| POST   | `/api/live-showcase/:id/resume`     | Resume event         | Yes (Admin)   |
+| POST   | `/api/live-showcase/:id/reset`      | Reset event          | Yes (Admin)   |
 
 ### Advertising Endpoints
 
-| Method | Endpoint | Description | Auth Required |
-|--------|----------|-------------|---------------|
-| GET | `/advertising/active` | Get active ads | No |
-| POST | `/advertising` | Create ad campaign | Yes |
-| GET | `/advertising/my` | Get my campaigns | Yes |
-| PUT | `/advertising/:id` | Update campaign | Yes (Owner) |
-| DELETE | `/advertising/:id` | Delete campaign | Yes (Owner) |
-| POST | `/advertising/:id/click` | Track ad click | No |
-| GET | `/advertising/admin` | List all ads | Yes (Admin) |
-| PUT | `/advertising/admin/:id/status` | Update ad status | Yes (Admin) |
+| Method | Endpoint                        | Description        | Auth Required |
+| ------ | ------------------------------- | ------------------ | ------------- |
+| GET    | `/advertising/active`           | Get active ads     | No            |
+| POST   | `/advertising`                  | Create ad campaign | Yes           |
+| GET    | `/advertising/my`               | Get my campaigns   | Yes           |
+| PUT    | `/advertising/:id`              | Update campaign    | Yes (Owner)   |
+| DELETE | `/advertising/:id`              | Delete campaign    | Yes (Owner)   |
+| POST   | `/advertising/:id/click`        | Track ad click     | No            |
+| GET    | `/advertising/admin`            | List all ads       | Yes (Admin)   |
+| PUT    | `/advertising/admin/:id/status` | Update ad status   | Yes (Admin)   |
 
 ### Sponsorship Endpoints
 
-| Method | Endpoint | Description | Auth Required |
-|--------|----------|-------------|---------------|
-| POST | `/talent-showcase/:showcaseId/sponsor` | Sponsor showcase | Yes |
-| GET | `/talent-showcase/admin/sponsorships` | View sponsorships | Yes (Admin) |
+| Method | Endpoint                               | Description       | Auth Required |
+| ------ | -------------------------------------- | ----------------- | ------------- |
+| POST   | `/talent-showcase/:showcaseId/sponsor` | Sponsor showcase  | Yes           |
+| GET    | `/talent-showcase/admin/sponsorships`  | View sponsorships | Yes (Admin)   |
 
 ### Admin Endpoints
 
-| Method | Endpoint | Description | Auth Required |
-|--------|----------|-------------|---------------|
-| GET | `/admin/users` | Get all users | Yes (Admin) |
-| GET | `/admin/analytics` | Get analytics | Yes (Admin) |
-| PUT | `/admin/users/:id/tier` | Update user tier | Yes (Admin) |
-| DELETE | `/admin/listings/:id` | Delete listing | Yes (Admin) |
-| GET | `/admin/showcases` | Get all showcases | Yes (Admin) |
-| GET | `/admin/revenue` | Get revenue analytics | Yes (Admin) |
+| Method | Endpoint                | Description           | Auth Required |
+| ------ | ----------------------- | --------------------- | ------------- |
+| GET    | `/admin/users`          | Get all users         | Yes (Admin)   |
+| GET    | `/admin/analytics`      | Get analytics         | Yes (Admin)   |
+| PUT    | `/admin/users/:id/tier` | Update user tier      | Yes (Admin)   |
+| DELETE | `/admin/listings/:id`   | Delete listing        | Yes (Admin)   |
+| GET    | `/admin/showcases`      | Get all showcases     | Yes (Admin)   |
+| GET    | `/admin/revenue`        | Get revenue analytics | Yes (Admin)   |
 
 ### Authentication Header
 
@@ -585,6 +595,7 @@ Authorization: Bearer <your_jwt_token>
 ## 🗄️ Database Models
 
 ### User Schema
+
 ```javascript
 {
   name: String,
@@ -599,6 +610,7 @@ Authorization: Bearer <your_jwt_token>
 ```
 
 ### Listing Schema
+
 ```javascript
 {
   title: String,
@@ -614,6 +626,7 @@ Authorization: Bearer <your_jwt_token>
 ```
 
 ### Forum Post Schema
+
 ```javascript
 {
   title: String,
@@ -627,6 +640,7 @@ Authorization: Bearer <your_jwt_token>
 ```
 
 ### Review Schema
+
 ```javascript
 {
   listing: ObjectId (Listing),
@@ -638,6 +652,7 @@ Authorization: Bearer <your_jwt_token>
 ```
 
 ### Talent Showcase Schema
+
 ```javascript
 {
   showcaseType: String ('structured'/'legacy'),
@@ -680,6 +695,7 @@ Authorization: Bearer <your_jwt_token>
 ```
 
 ### Talent Contestant Schema
+
 ```javascript
 {
   showcase: ObjectId (TalentShowcase),
@@ -699,6 +715,7 @@ Authorization: Bearer <your_jwt_token>
 ```
 
 ### Advertisement Schema
+
 ```javascript
 {
   advertiser: {
@@ -726,6 +743,7 @@ Authorization: Bearer <your_jwt_token>
 ```
 
 ### Sponsorship Request Schema
+
 ```javascript
 {
   showcase: ObjectId (TalentShowcase),
@@ -743,6 +761,7 @@ Authorization: Bearer <your_jwt_token>
 ```
 
 ### Showcase Event Timeline Schema
+
 ```javascript
 {
   showcase: ObjectId (TalentShowcase),
@@ -769,27 +788,35 @@ Authorization: Bearer <your_jwt_token>
 ## 🛡️ Middleware
 
 ### Authentication (`auth.js`)
+
 Verifies JWT token and attaches user to request.
 
 ### Optional Auth (`optionalAuth.js`)
+
 Attempts authentication but doesn't fail if token is missing.
 
 ### Showcase Validation (`showcaseValidation.js`)
+
 Validates showcase creation, registration, voting, and admin operations.
 
 ### Rate Limiter (`rateLimiter.js`)
+
 Prevents abuse by limiting request rates.
 
 ### Tier Check (`tierCheck.js`)
+
 Verifies user has required tier for premium features.
 
 ### Upload (`upload.js`)
+
 Handles file uploads to Cloudinary for listings.
 
 ### Validation (`validation.js`)
+
 Validates request data using Celebrate/Joi.
 
 ### Error Handler (`error-handler.js`)
+
 Centralized error handling with custom error classes.
 
 ---
@@ -811,11 +838,13 @@ npm run format
 ### Manual API Testing
 
 Use tools like:
+
 - **Postman** - Full-featured API client
 - **Thunder Client** - VS Code extension
 - **cURL** - Command line
 
 Example cURL request:
+
 ```bash
 curl -X POST http://localhost:5000/signin \
   -H "Content-Type: application/json" \
@@ -889,14 +918,45 @@ server {
     listen 80;
     server_name api.afrionet.com;
 
+  # Allow large uploads (videos). Default can be as low as 1m.
+  # Set this above your largest expected upload size.
+  client_max_body_size 600m;
+
+  # Keep timeouts generous for slow networks / large uploads
+  client_body_timeout 600s;
+  send_timeout 600s;
+
     location / {
         proxy_pass http://localhost:5000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
         proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
         proxy_cache_bypass $http_upgrade;
+
+    # Long-running requests (uploads/transcodes)
+    proxy_connect_timeout 60s;
+    proxy_send_timeout 600s;
+    proxy_read_timeout 600s;
     }
+
+  # Stream uploads to Node instead of buffering to disk (helps with some proxies)
+  location /api/upload/ {
+    proxy_pass http://localhost:5000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    proxy_request_buffering off;
+    proxy_buffering off;
+
+    proxy_connect_timeout 60s;
+    proxy_send_timeout 600s;
+    proxy_read_timeout 600s;
+  }
 }
 ```
 
