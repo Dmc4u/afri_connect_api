@@ -55,12 +55,10 @@ const SMTP_USER_RESOLVED = SMTP_USER || EMAIL_USER || ADMIN_EMAIL;
 const SMTP_PASS_RESOLVED = SMTP_PASS || EMAIL_PASS || EMAIL_PASSWORD || ADMIN_EMAIL_PASSWORD;
 const FROM_EMAIL_RESOLVED = FROM_EMAIL || EMAIL_FROM || ADMIN_EMAIL || SMTP_USER_RESOLVED;
 
-// ✅ Enforce PayPal mode based on environment
-// In development, ALWAYS use sandbox regardless of .env setting
-// In production, use the .env setting (should be 'live')
-const PAYPAL_MODE_ENFORCED = NODE_ENV === "production" ? PAYPAL_MODE || "live" : "sandbox";
+// ✅ PayPal Mode Enforcement (force sandbox in development to prevent real charges)
+const PAYPAL_MODE_ENFORCED = NODE_ENV === "development" ? "sandbox" : PAYPAL_MODE || "sandbox";
 
-// ✅ Validate PayPal configuration
+/// ✅ Validate PayPal configuration
 if (NODE_ENV === "production" && PAYPAL_MODE_ENFORCED === "sandbox") {
   console.warn("⚠️  WARNING: Running production with PayPal sandbox mode!");
 }
@@ -69,6 +67,10 @@ if (NODE_ENV === "development" && PAYPAL_MODE !== "sandbox") {
   console.warn(
     "⚠️  WARNING: Development detected - forcing PayPal sandbox mode to prevent real charges"
   );
+}
+
+if (NODE_ENV === "production" && PAYPAL_MODE_ENFORCED === "live") {
+  console.log("✅ PayPal LIVE mode enabled - real transactions will be processed!");
 }
 
 console.log(`💳 PayPal Mode: ${PAYPAL_MODE_ENFORCED} (Environment: ${NODE_ENV})`);
