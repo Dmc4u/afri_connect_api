@@ -19,7 +19,6 @@ const uploadVideoCloudinary = multer({
   limits: {
     fileSize: 100 * 1024 * 1024, // 100MB limit (Cloudinary free tier max for videos)
   },
-  },
   fileFilter: (req, file, cb) => {
     const allowedTypes = /mp4|mpeg|quicktime|x-msvideo|x-ms-wmv|avi|mov|wmv|webm/;
     const mimetype = file.mimetype.startsWith("video/");
