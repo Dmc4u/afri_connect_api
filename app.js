@@ -50,7 +50,7 @@ const DEFAULT_CORS_ORIGINS = [
   "https://www.afrionet.com",
 ];
 
-const corsAllowList = String(process.env.CORS_ORIGINS || "")
+const corsAllowList = String(process.env.CORS_ORIGINS || process.env.ALLOWED_APP_ORIGINS || "")
   .split(",")
   .map((v) => v.trim())
   .filter(Boolean);
@@ -63,7 +63,11 @@ const corsOriginFn = (origin, callback) => {
 
   // If user provided an allowlist, enforce it strictly.
   if (corsAllowList.length > 0) {
-    return callback(null, allowedOrigins.includes(origin));
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    } else {
+      return callback(new Error("Not allowed by CORS"));
+    }
   }
 
   // Otherwise, allow all origins (reflect origin).
