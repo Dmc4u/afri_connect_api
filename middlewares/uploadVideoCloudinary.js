@@ -3,6 +3,7 @@ const { CloudinaryStorage } = require("multer-storage-cloudinary");
 const { cloudinary } = require("../utils/cloudinary");
 
 // Cloudinary storage for videos (faster, CDN-backed)
+// Note: Free tier has 100MB upload limit for videos
 const videoCloudinaryStorage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
@@ -16,7 +17,8 @@ const videoCloudinaryStorage = new CloudinaryStorage({
 const uploadVideoCloudinary = multer({
   storage: videoCloudinaryStorage,
   limits: {
-    fileSize: 500 * 1024 * 1024, // 500MB limit
+    fileSize: 100 * 1024 * 1024, // 100MB limit (Cloudinary free tier max for videos)
+  },
   },
   fileFilter: (req, file, cb) => {
     const allowedTypes = /mp4|mpeg|quicktime|x-msvideo|x-ms-wmv|avi|mov|wmv|webm/;
