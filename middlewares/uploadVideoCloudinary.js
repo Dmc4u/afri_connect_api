@@ -1,6 +1,6 @@
 const multer = require("multer");
 const { CloudinaryStorage } = require("multer-storage-cloudinary");
-const cloudinary = require("../utils/cloudinary");
+const { cloudinary } = require("../utils/cloudinary");
 
 // Cloudinary storage for videos (faster, CDN-backed)
 const videoCloudinaryStorage = new CloudinaryStorage({
