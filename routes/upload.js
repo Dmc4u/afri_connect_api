@@ -4,54 +4,176 @@ const auth = require("../middlewares/auth");
 const uploadVideo = require("../middlewares/uploadVideo");
 const uploadVideoCloudinary = require("../middlewares/uploadVideoCloudinary");
 const uploadImage = require("../middlewares/uploadImage");
+const { cloudinary } = require("../utils/cloudinary");
+const fsp = require("fs/promises");
+
+function getMaxVideoUploadMb() {
+  const raw =
+    process.env.UPLOAD_MAX_VIDEO_SIZE_MB ||
+    process.env.UPLOAD_MAX_FILE_SIZE_MB ||
+    process.env.VIDEO_UPLOAD_MAX_MB;
+  const parsedMb = Number(raw);
+  return Number.isFinite(parsedMb) && parsedMb > 0 ? parsedMb : 500;
+}
+
+function classifyUploadError(err) {
+  if (!err) return { statusCode: 500, message: "Upload failed" };
+
+  const messageStr = String(err.message || "");
+  if (messageStr.includes("Cloudinary is disabled")) {
+    return {
+      statusCode: 503,
+      message:
+        "Video upload is temporarily unavailable (Cloudinary disabled). Set USE_CLOUDINARY=true and Cloudinary credentials on the server.",
+    };
+  }
+
+  if (err.name === "MulterError") {
+    if (err.code === "LIMIT_FILE_SIZE") {
+      return {
+        statusCode: 413,
+        message: `File too large. Maximum allowed size is ${getMaxVideoUploadMb()}MB.`,
+      };
+    }
+
+    if (err.code === "LIMIT_UNEXPECTED_FILE") {
+      return { statusCode: 400, message: "Unexpected file field." };
+    }
+
+    return { statusCode: 400, message: err.message || "Upload failed" };
+  }
+
+  const httpCode = Number(err.http_code || err.statusCode || err.status);
+  const msg = messageStr || "Upload failed";
+
+  if (/too\s*large|file\s*size/i.test(msg)) {
+    return {
+      statusCode: 413,
+      message: `File too large. Maximum allowed size is ${getMaxVideoUploadMb()}MB.`,
+    };
+  }
+
+  if (Number.isFinite(httpCode) && httpCode >= 400 && httpCode <= 599) {
+    return { statusCode: httpCode, message: msg };
+  }
+
+  return { statusCode: 500, message: msg };
+}
+
+function getCloudinaryLargeThresholdBytes() {
+  const parsed = Number(process.env.CLOUDINARY_UPLOAD_LARGE_THRESHOLD_MB);
+  const mb = Number.isFinite(parsed) ? parsed : 95;
+  if (mb <= 0) return 0;
+  return Math.floor(mb * 1024 * 1024);
+}
+
+function getCloudinaryChunkSizeBytes() {
+  const parsed = Number(process.env.CLOUDINARY_CHUNK_SIZE_MB);
+  const mb = Number.isFinite(parsed) && parsed > 0 ? parsed : 6;
+  return Math.floor(mb * 1024 * 1024);
+}
+
+function getCloudinaryUploadTimeoutMs() {
+  const parsed = Number(process.env.CLOUDINARY_UPLOAD_TIMEOUT_MS);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 20 * 60 * 1000;
+}
 
 /**
  * @route   POST /api/upload/video-cloud
  * @desc    Upload video file to Cloudinary (FASTER - Recommended)
  * @access  Private
  */
-router.post("/video-cloud", auth, uploadVideoCloudinary.single("video"), async (req, res) => {
-  try {
-    console.log(
-      `☁️ Cloudinary video upload started - User: ${req.user._id}, File: ${req.file?.originalname || "unknown"}`
-    );
-
-    if (!req.file) {
-      console.error("❌ Video upload failed: No file in request");
-      return res.status(400).json({ message: "No video file provided" });
+router.post("/video-cloud", auth, (req, res) => {
+  uploadVideoCloudinary.single("video")(req, res, async (err) => {
+    if (err) {
+      const { statusCode, message } = classifyUploadError(err);
+      console.error("❌ Cloudinary video upload middleware error:", {
+        name: err.name,
+        code: err.code,
+        message: err.message,
+        http_code: err.http_code,
+        statusCode: err.statusCode,
+      });
+      return res.status(statusCode).json({ success: false, message });
     }
 
-    console.log(
-      `✅ Video uploaded to Cloudinary: ${req.file.filename}, Size: ${(req.file.size / (1024 * 1024)).toFixed(2)}MB`
-    );
+    try {
+      console.log(
+        `☁️ Cloudinary video upload started - User: ${req.user._id}, File: ${req.file?.originalname || "unknown"}`
+      );
 
-    // Cloudinary response
-    const videoUrl = req.file.path; // Cloudinary URL
-    const videoDuration = req.file.duration || null; // Cloudinary provides duration
+      if (!req.file) {
+        console.error("❌ Video upload failed: No file in request");
+        return res.status(400).json({ success: false, message: "No video file provided" });
+      }
 
-    console.log(
-      `✅ Cloudinary video upload completed - URL: ${videoUrl}, Duration: ${videoDuration || "unknown"}s`
-    );
+      const localPath = req.file.path;
+      const fileSizeBytes = Number(req.file.size || 0);
+      const thresholdBytes = getCloudinaryLargeThresholdBytes();
+      const useLarge = thresholdBytes === 0 ? true : fileSizeBytes >= thresholdBytes;
 
-    res.json({
-      success: true,
-      videoUrl: videoUrl,
-      videoDuration: videoDuration,
-      filename: req.file.filename,
-      size: req.file.size,
-      mimetype: req.file.mimetype,
-      cloudinaryId: req.file.filename,
-    });
-  } catch (error) {
-    console.error("❌ Cloudinary video upload error:", error.message);
-    console.error("Stack trace:", error.stack);
+      console.log(
+        `📦 Temp video received: ${req.file.filename} (${(fileSizeBytes / (1024 * 1024)).toFixed(2)}MB). Upload mode: ${useLarge ? "upload_large" : "upload"}`
+      );
 
-    res.status(500).json({
-      success: false,
-      message: "Video upload failed",
-      error: error.message,
-    });
-  }
+      const folder = process.env.CLOUDINARY_VIDEO_FOLDER || "afrionet/videos";
+      const uploadOptions = {
+        resource_type: "video",
+        folder,
+        transformation: [{ quality: "auto", fetch_format: "auto" }],
+        timeout: getCloudinaryUploadTimeoutMs(),
+      };
+
+      let result;
+      try {
+        if (useLarge) {
+          result = await cloudinary.uploader.upload_large(localPath, {
+            ...uploadOptions,
+            chunk_size: getCloudinaryChunkSizeBytes(),
+          });
+        } else {
+          result = await cloudinary.uploader.upload(localPath, uploadOptions);
+        }
+      } finally {
+        try {
+          await fsp.unlink(localPath);
+        } catch {
+          // ignore temp cleanup failures
+        }
+      }
+
+      const videoUrl = result?.secure_url || result?.url;
+      const videoDuration = result?.duration ?? null;
+      const cloudinaryId = result?.public_id || null;
+
+      console.log(
+        `✅ Cloudinary video upload completed - URL: ${videoUrl}, Duration: ${videoDuration || "unknown"}s, Public ID: ${cloudinaryId || "unknown"}`
+      );
+
+      return res.json({
+        success: true,
+        videoUrl,
+        videoDuration,
+        filename: cloudinaryId || req.file.filename,
+        size: result?.bytes ?? req.file.size,
+        mimetype: req.file.mimetype,
+        cloudinaryId,
+      });
+    } catch (error) {
+      const { statusCode, message } = classifyUploadError(error);
+      console.error("❌ Cloudinary video upload handler error:", {
+        name: error?.name,
+        message: error?.message,
+        http_code: error?.http_code,
+        statusCode: error?.statusCode,
+      });
+      return res.status(statusCode).json({
+        success: false,
+        message,
+        ...(statusCode >= 500 && { error: error?.message || "Unknown error" }),
+      });
+    }
+  });
 });
 
 /**

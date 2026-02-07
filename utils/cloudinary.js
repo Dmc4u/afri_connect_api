@@ -1,9 +1,27 @@
 const cloudinarySdk = require("cloudinary").v2;
 
-// Cloudinary is intentionally DISABLED by default.
-// This project currently uses local disk storage (see middlewares/upload*.js).
-// To enable Cloudinary, explicitly set: USE_CLOUDINARY=true
-const CLOUDINARY_ENABLED = String(process.env.USE_CLOUDINARY || "").toLowerCase() === "true";
+function parseBoolEnv(value) {
+  if (value === undefined || value === null) return null;
+  const v = String(value).trim().toLowerCase();
+  if (v === "true" || v === "1" || v === "yes" || v === "y" || v === "on") return true;
+  if (v === "false" || v === "0" || v === "no" || v === "n" || v === "off") return false;
+  return null;
+}
+
+// Cloudinary enablement rules:
+// - If USE_CLOUDINARY is explicitly set, respect it.
+// - Otherwise, auto-enable in production when credentials exist.
+// This prevents confusing production failures where credentials are set but the
+// upload route errors because USE_CLOUDINARY was omitted.
+const useCloudinaryEnv = parseBoolEnv(process.env.USE_CLOUDINARY);
+const hasCloudinaryCreds = Boolean(
+  process.env.CLOUDINARY_CLOUD_NAME &&
+    process.env.CLOUDINARY_API_KEY &&
+    process.env.CLOUDINARY_API_SECRET
+);
+const isProd = String(process.env.NODE_ENV || "").toLowerCase() === "production";
+const CLOUDINARY_ENABLED =
+  useCloudinaryEnv !== null ? useCloudinaryEnv : Boolean(isProd && hasCloudinaryCreds);
 
 if (CLOUDINARY_ENABLED) {
   cloudinarySdk.config({
@@ -24,4 +42,7 @@ const disabledCloudinary = new Proxy(
   }
 );
 
-module.exports = { cloudinary: CLOUDINARY_ENABLED ? cloudinarySdk : disabledCloudinary };
+module.exports = {
+  cloudinary: CLOUDINARY_ENABLED ? cloudinarySdk : disabledCloudinary,
+  isCloudinaryEnabled: CLOUDINARY_ENABLED,
+};

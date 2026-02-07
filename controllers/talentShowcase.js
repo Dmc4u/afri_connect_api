@@ -8,6 +8,33 @@ const { performRaffle, verifyRaffle, generatePublicReport } = require("../utils/
 const path = require("path");
 const fs = require("fs");
 const { v4: uuidv4 } = require("uuid");
+const { cloudinary, isCloudinaryEnabled } = require("../utils/cloudinary");
+
+function parseBoolEnv(value) {
+  if (value === undefined || value === null) return null;
+  const v = String(value).trim().toLowerCase();
+  if (v === "true" || v === "1" || v === "yes" || v === "y" || v === "on") return true;
+  if (v === "false" || v === "0" || v === "no" || v === "n" || v === "off") return false;
+  return null;
+}
+
+function getCloudinaryLargeThresholdBytes() {
+  const parsed = Number(process.env.CLOUDINARY_UPLOAD_LARGE_THRESHOLD_MB);
+  const mb = Number.isFinite(parsed) ? parsed : 95;
+  if (mb <= 0) return 0;
+  return Math.floor(mb * 1024 * 1024);
+}
+
+function getCloudinaryChunkSizeBytes() {
+  const parsed = Number(process.env.CLOUDINARY_CHUNK_SIZE_MB);
+  const mb = Number.isFinite(parsed) && parsed > 0 ? parsed : 6;
+  return Math.floor(mb * 1024 * 1024);
+}
+
+function getCloudinaryUploadTimeoutMs() {
+  const parsed = Number(process.env.CLOUDINARY_UPLOAD_TIMEOUT_MS);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 20 * 60 * 1000;
+}
 
 async function ensureWinnerAnnouncement(timeline, showcaseId) {
   if (timeline?.winnerAnnouncement?.announcementTime) return;
@@ -110,7 +137,7 @@ async function addCommercialToShowcase({ showcaseId, filePath, title, requestedD
 
   const uploadsRoot = path.join(__dirname, "..", "uploads");
   const relToUploads = path.relative(uploadsRoot, filePath).replace(/\\/g, "/");
-  const videoUrl = `/uploads/${relToUploads.replace(/^\/+/, "")}`;
+  const localVideoUrl = `/uploads/${relToUploads.replace(/^\/+/, "")}`;
 
   const { getVideoDurationInSeconds } = require("get-video-duration");
   // Cap a single advert to 2 minutes 30 seconds by default.
@@ -131,6 +158,60 @@ async function addCommercialToShowcase({ showcaseId, filePath, title, requestedD
 
   if (!showcase.commercials) showcase.commercials = [];
 
+  let videoUrl = localVideoUrl;
+  let uploadedToCloudinary = false;
+  let localFileToDeleteAfterSave = null;
+
+  if (isCloudinaryEnabled) {
+    const requireCloudinary = parseBoolEnv(process.env.COMMERCIAL_CLOUDINARY_REQUIRED) ?? false;
+    const deleteLocalAfterUpload =
+      parseBoolEnv(process.env.COMMERCIAL_DELETE_LOCAL_AFTER_CLOUDINARY) ?? true;
+
+    try {
+      const stat = fs.statSync(filePath);
+      const fileSizeBytes = Number(stat?.size || 0);
+
+      const thresholdBytes = getCloudinaryLargeThresholdBytes();
+      const useLarge = thresholdBytes === 0 ? true : fileSizeBytes >= thresholdBytes;
+
+      const folder = process.env.CLOUDINARY_COMMERCIAL_FOLDER || "afrionet/commercials";
+      const uploadOptions = {
+        resource_type: "video",
+        folder,
+        transformation: [{ quality: "auto", fetch_format: "auto" }],
+        timeout: getCloudinaryUploadTimeoutMs(),
+      };
+
+      let result;
+      if (useLarge) {
+        result = await cloudinary.uploader.upload_large(filePath, {
+          ...uploadOptions,
+          chunk_size: getCloudinaryChunkSizeBytes(),
+        });
+      } else {
+        result = await cloudinary.uploader.upload(filePath, uploadOptions);
+      }
+
+      const cloudUrl = result?.secure_url || result?.url;
+      if (cloudUrl) {
+        videoUrl = cloudUrl;
+        uploadedToCloudinary = true;
+      }
+
+      // Defer deleting the local file until after the showcase is saved.
+      if (uploadedToCloudinary && deleteLocalAfterUpload) {
+        localFileToDeleteAfterSave = filePath;
+      }
+    } catch (cloudErr) {
+      console.warn("⚠️ Commercial Cloudinary upload failed; using local URL:", cloudErr?.message);
+      if (requireCloudinary) {
+        const err = new Error(cloudErr?.message || "Commercial Cloudinary upload failed");
+        err.statusCode = Number(cloudErr?.http_code) || 502;
+        throw err;
+      }
+    }
+  }
+
   const newCommercial = {
     videoUrl,
     title: title || `Advertisement ${showcase.commercials.length + 1}`,
@@ -148,6 +229,18 @@ async function addCommercialToShowcase({ showcaseId, filePath, title, requestedD
   }, 0);
   showcase.commercialDuration = Math.ceil(totalDurationSeconds / 60);
   await showcase.save();
+
+  // Best-effort cleanup after save when Cloudinary succeeded.
+  if (uploadedToCloudinary) {
+    const toDelete = localFileToDeleteAfterSave;
+    if (toDelete && typeof toDelete === "string") {
+      try {
+        fs.unlinkSync(toDelete);
+      } catch (e) {
+        console.warn("⚠️ Could not delete local commercial after Cloudinary upload:", e?.message);
+      }
+    }
+  }
 
   return {
     videoUrl,
