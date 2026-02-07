@@ -4,8 +4,74 @@ const auth = require("../middlewares/auth");
 const uploadVideo = require("../middlewares/uploadVideo");
 const uploadVideoCloudinary = require("../middlewares/uploadVideoCloudinary");
 const uploadImage = require("../middlewares/uploadImage");
-const { cloudinary } = require("../utils/cloudinary");
+const { cloudinary, cloudinarySdk, isCloudinaryEnabled } = require("../utils/cloudinary");
 const fsp = require("fs/promises");
+
+function getCloudinaryVideoFolder() {
+  return process.env.CLOUDINARY_VIDEO_FOLDER || "afrionet/videos";
+}
+
+function getCloudinaryImageFolder() {
+  return process.env.CLOUDINARY_IMAGE_FOLDER || "afrionet/images";
+}
+
+/**
+ * @route   GET /api/upload/cloudinary-signature
+ * @desc    Generate a signed Cloudinary upload signature so the browser can upload directly.
+ * @access  Private
+ */
+router.get("/cloudinary-signature", auth, async (req, res) => {
+  try {
+    if (!isCloudinaryEnabled) {
+      return res.status(503).json({
+        success: false,
+        message:
+          "Cloudinary is disabled on the server. Set USE_CLOUDINARY=true and Cloudinary credentials.",
+      });
+    }
+
+    const resourceType = String(req.query.resource_type || "video").toLowerCase();
+    if (resourceType !== "video" && resourceType !== "image") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid resource_type. Must be 'video' or 'image'.",
+      });
+    }
+
+    const folder =
+      resourceType === "video" ? getCloudinaryVideoFolder() : getCloudinaryImageFolder();
+
+    const timestamp = Math.floor(Date.now() / 1000);
+    const paramsToSign = {
+      timestamp,
+      folder,
+    };
+
+    const signature = cloudinarySdk.utils.api_sign_request(
+      paramsToSign,
+      process.env.CLOUDINARY_API_SECRET
+    );
+
+    return res.json({
+      success: true,
+      cloudName: process.env.CLOUDINARY_CLOUD_NAME,
+      apiKey: process.env.CLOUDINARY_API_KEY,
+      timestamp,
+      signature,
+      folder,
+      resourceType,
+    });
+  } catch (error) {
+    const { statusCode, message } = classifyUploadError(error);
+    console.error("❌ Cloudinary signature error:", {
+      name: error?.name,
+      message: error?.message,
+      http_code: error?.http_code,
+      statusCode: error?.statusCode,
+    });
+    return res.status(statusCode).json({ success: false, message });
+  }
+});
 
 function getMaxVideoUploadMb() {
   const raw =
@@ -116,7 +182,7 @@ router.post("/video-cloud", auth, (req, res) => {
         `📦 Temp video received: ${req.file.filename} (${(fileSizeBytes / (1024 * 1024)).toFixed(2)}MB). Upload mode: ${useLarge ? "upload_large" : "upload"}`
       );
 
-      const folder = process.env.CLOUDINARY_VIDEO_FOLDER || "afrionet/videos";
+      const folder = getCloudinaryVideoFolder();
       const uploadOptions = {
         resource_type: "video",
         folder,

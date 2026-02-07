@@ -44,5 +44,7 @@ const disabledCloudinary = new Proxy(
 
 module.exports = {
   cloudinary: CLOUDINARY_ENABLED ? cloudinarySdk : disabledCloudinary,
+  cloudinarySdk,
   isCloudinaryEnabled: CLOUDINARY_ENABLED,
+  cloudinaryEnabled: CLOUDINARY_ENABLED,
 };
