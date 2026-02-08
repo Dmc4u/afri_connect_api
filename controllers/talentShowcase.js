@@ -2591,6 +2591,72 @@ exports.uploadCommercialVideo = async (req, res) => {
   }
 };
 
+// Add commercial by URL (Admin) - used for direct-to-Cloudinary uploads
+exports.addCommercialFromUrl = async (req, res) => {
+  try {
+    const { showcaseId } = req.params;
+    const { title, videoUrl, duration } = req.body || {};
+
+    const urlStr = String(videoUrl || "").trim();
+    if (!urlStr || !/^https?:\/\//i.test(urlStr)) {
+      return res.status(400).json({
+        success: false,
+        message: "videoUrl is required and must be an absolute http(s) URL",
+      });
+    }
+
+    const showcase = await TalentShowcase.findById(showcaseId);
+    if (!showcase) {
+      return res.status(404).json({ success: false, message: "Showcase not found" });
+    }
+
+    const MAX_COMMERCIAL_SECONDS = Number(process.env.COMMERCIAL_MAX_SECONDS || 150);
+    const requestedDuration = Number(duration);
+    let normalizedDuration = 30;
+    if (Number.isFinite(requestedDuration) && requestedDuration > 0) {
+      normalizedDuration = Math.ceil(requestedDuration);
+      if (normalizedDuration > MAX_COMMERCIAL_SECONDS) {
+        normalizedDuration = MAX_COMMERCIAL_SECONDS;
+      }
+    }
+
+    if (!showcase.commercials) showcase.commercials = [];
+
+    const newCommercial = {
+      videoUrl: urlStr,
+      title: title || `Advertisement ${showcase.commercials.length + 1}`,
+      duration: normalizedDuration,
+      order: showcase.commercials.length,
+      uploadedAt: new Date(),
+    };
+
+    showcase.commercials.push(newCommercial);
+
+    const totalDurationSeconds = showcase.commercials.reduce((sum, c) => {
+      const seconds = Number(c?.duration);
+      return sum + (Number.isFinite(seconds) && seconds > 3 ? seconds : 30);
+    }, 0);
+    showcase.commercialDuration = Math.ceil(totalDurationSeconds / 60);
+    await showcase.save();
+
+    return res.json({
+      success: true,
+      message: "Commercial added successfully",
+      videoUrl: urlStr,
+      commercials: showcase.commercials,
+      totalDuration: totalDurationSeconds,
+      commercialDuration: showcase.commercialDuration,
+    });
+  } catch (error) {
+    console.error("Error adding commercial from URL:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to add commercial",
+      error: error.message,
+    });
+  }
+};
+
 // ============ CHUNKED COMMERCIAL UPLOADS (Admin) ============
 
 exports.initCommercialUpload = async (req, res) => {
@@ -2822,14 +2888,17 @@ exports.deleteCommercialVideo = async (req, res) => {
 
     await showcase.save();
 
-    // Optional: Delete the file from filesystem
+    // Optional: Delete the file from filesystem (only for local uploads)
     try {
-      const path = require("path");
-      const fs = require("fs");
-      const relativeVideoPath = (commercialToDelete.videoUrl || "").replace(/^\/+/, "");
-      const filePath = path.join(__dirname, "..", relativeVideoPath);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
+      const localUrl = String(commercialToDelete.videoUrl || "");
+      if (/^\/uploads\//.test(localUrl)) {
+        const path = require("path");
+        const fs = require("fs");
+        const relativeVideoPath = localUrl.replace(/^\/+/, "");
+        const filePath = path.join(__dirname, "..", relativeVideoPath);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
       }
     } catch (err) {
       console.warn("Could not delete commercial file:", err.message);

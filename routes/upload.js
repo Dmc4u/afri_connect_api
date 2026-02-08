@@ -11,6 +11,10 @@ function getCloudinaryVideoFolder() {
   return process.env.CLOUDINARY_VIDEO_FOLDER || "afrionet/videos";
 }
 
+function getCloudinaryCommercialFolder() {
+  return process.env.CLOUDINARY_COMMERCIAL_FOLDER || "afrionet/commercials";
+}
+
 function getCloudinaryImageFolder() {
   return process.env.CLOUDINARY_IMAGE_FOLDER || "afrionet/images";
 }
@@ -38,8 +42,13 @@ router.get("/cloudinary-signature", auth, async (req, res) => {
       });
     }
 
+    const purpose = String(req.query.purpose || "").toLowerCase();
     const folder =
-      resourceType === "video" ? getCloudinaryVideoFolder() : getCloudinaryImageFolder();
+      purpose === "commercial"
+        ? getCloudinaryCommercialFolder()
+        : resourceType === "video"
+          ? getCloudinaryVideoFolder()
+          : getCloudinaryImageFolder();
 
     const timestamp = Math.floor(Date.now() / 1000);
     const paramsToSign = {

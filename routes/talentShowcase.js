@@ -214,6 +214,15 @@ router.post(
   showcaseController.uploadCommercialVideo
 );
 
+// Add commercial by URL (Admin only) - for direct-to-Cloudinary uploads
+router.post(
+  "/admin/:showcaseId/add-commercial-url",
+  authenticateToken,
+  requireAdmin,
+  validateCommercialUpload,
+  showcaseController.addCommercialFromUrl
+);
+
 // Chunked commercial upload (Admin only) - for large files behind proxies/CDNs
 router.post(
   "/admin/:showcaseId/upload-commercial/init",
