@@ -2980,6 +2980,8 @@ exports.uploadStaticImage = async (req, res) => {
 // Get structured timeline for a showcase
 exports.getStructuredTimeline = async (req, res) => {
   try {
+    const serverNow = new Date();
+
     // This endpoint is polled frequently and also triggers auto-advance logic.
     // In production behind proxies/CDNs, ensure it is never cached.
     res.setHeader(
@@ -3513,6 +3515,7 @@ exports.getStructuredTimeline = async (req, res) => {
     res.json({
       success: true,
       timeline: {
+        serverTime: serverNow.toISOString(),
         _id: timeline._id,
         showcase: timeline.showcase,
         phases: timeline.phases,
