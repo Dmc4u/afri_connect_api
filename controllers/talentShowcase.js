@@ -3397,30 +3397,9 @@ exports.getStructuredTimeline = async (req, res) => {
       }
 
       // If we had to fall back to a pending performance, promote it to active so auto-advance works.
-      if (
-        activePerformance &&
-        activePerformance.status === "pending" &&
-        timeline.performances.filter((p) => p.status === "active").length === 0
-      ) {
-        const durationSeconds =
-          Number(activePerformance.videoDuration) > 0
-            ? Number(activePerformance.videoDuration)
-            : Number(activePerformance.contestant?.videoDuration) > 0
-              ? Number(activePerformance.contestant.videoDuration)
-              : (timeline.config?.performanceSlotDuration || 5) * 60;
-
-        activePerformance.status = "active";
-        activePerformance.startTime = new Date();
-        activePerformance.endTime = new Date(Date.now() + durationSeconds * 1000);
-        timeline.currentPerformance = {
-          contestant: activePerformance.contestant?._id || activePerformance.contestant,
-          performanceOrder: activePerformance.performanceOrder,
-          startTime: activePerformance.startTime,
-          timeRemaining: durationSeconds,
-        };
-
-        await timeline.save();
-      }
+      // IMPORTANT: Do NOT mutate timeline state on GET requests.
+      // Starting/resetting performances here means a viewer refresh can affect all devices.
+      // The scheduler and explicit advance endpoints are responsible for marking a performance active.
 
       if (activePerformance) {
         console.log("🎭 [DEBUG] Found performance:", {
