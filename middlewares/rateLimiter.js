@@ -12,13 +12,22 @@ const generalLimiter =
         skip: (req) => {
           // Skip rate limiting for authenticated polling endpoints
           const pollingEndpoints = [
-            '/contact-threads/unread-count',
-            '/messaging/unread-count',
-            '/admin/stats',
-            '/admin/health'
+            "/contact-threads/unread-count",
+            "/messaging/unread-count",
+            "/admin/stats",
+            "/admin/health",
           ];
-          return pollingEndpoints.some(endpoint => req.path.includes(endpoint));
-        }
+
+          // Skip rate limiting for live showcase polling endpoints (read-only GETs).
+          // These are polled frequently (e.g. every ~2s) and are safe to exempt from the
+          // general 500/15min limiter. Write endpoints remain protected.
+          const isLivePollGet =
+            req.method === "GET" &&
+            (/^\/talent-showcase\/[^/]+$/.test(req.path) ||
+              /^\/talent-showcase\/[^/]+\/timeline$/.test(req.path));
+
+          return isLivePollGet || pollingEndpoints.some((endpoint) => req.path.includes(endpoint));
+        },
       })
     : (req, res, next) => next();
 
