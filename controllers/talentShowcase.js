@@ -2980,6 +2980,16 @@ exports.uploadStaticImage = async (req, res) => {
 // Get structured timeline for a showcase
 exports.getStructuredTimeline = async (req, res) => {
   try {
+    // This endpoint is polled frequently and also triggers auto-advance logic.
+    // In production behind proxies/CDNs, ensure it is never cached.
+    res.setHeader(
+      "Cache-Control",
+      "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
+    );
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    res.setHeader("Surrogate-Control", "no-store");
+
     const ShowcaseEventTimeline = require("../models/ShowcaseEventTimeline");
     const TalentContestant = require("../models/TalentContestant");
 
