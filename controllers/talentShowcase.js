@@ -4390,6 +4390,19 @@ exports.advancePerformance = async (req, res) => {
       });
     }
 
+    // Prevent accidental double-advances when multiple clients fire the "ended" trigger
+    // (or the same client fires twice). If we're not in the performance phase, this
+    // endpoint should be a no-op.
+    const activePhaseName = timeline?.phases?.find((p) => p.status === "active")?.name;
+    const phaseName = activePhaseName || timeline.currentPhase;
+    if (phaseName !== "performance") {
+      return res.json({
+        success: true,
+        message: "Not in performance phase - no action taken",
+        currentPhase: phaseName,
+      });
+    }
+
     if (timeline.isPaused) {
       return res.status(409).json({
         success: false,
@@ -4495,6 +4508,18 @@ exports.advancePerformance = async (req, res) => {
       });
     } else {
       // All performances complete - advance to next phase (commercial)
+      // Re-check phase before advancing in case the timeline changed between
+      // request arrival and execution.
+      const activePhaseNameNow = timeline?.phases?.find((p) => p.status === "active")?.name;
+      const phaseNameNow = activePhaseNameNow || timeline.currentPhase;
+      if (phaseNameNow !== "performance") {
+        return res.json({
+          success: true,
+          message: "Not in performance phase - no action taken",
+          currentPhase: phaseNameNow,
+        });
+      }
+
       timeline.advancePhase();
       await timeline.save();
 
