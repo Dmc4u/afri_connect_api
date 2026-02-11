@@ -8,6 +8,22 @@ const {
   sendAdActivated,
 } = require("../utils/notifications");
 
+const { cloudinary, isCloudinaryEnabled } = require("../utils/cloudinary");
+
+const destroyCloudinaryAsset = async (publicId, resourceType) => {
+  if (!isCloudinaryEnabled) return;
+  const id = String(publicId || "").trim();
+  if (!id) return;
+  try {
+    await cloudinary.uploader.destroy(id, {
+      resource_type: resourceType || "image",
+      invalidate: true,
+    });
+  } catch (err) {
+    console.warn("⚠️ Cloudinary delete failed:", err?.message || err);
+  }
+};
+
 const normalizeMediaFiles = (mediaFiles = []) => {
   if (!Array.isArray(mediaFiles)) return [];
 
@@ -39,6 +55,7 @@ const normalizeMediaFiles = (mediaFiles = []) => {
           mimetype: file.mimetype,
           size: file.size,
           url,
+          cloudinaryId: file.cloudinaryId || file.public_id || null,
           type: inferredType,
           duration: file.duration || file.videoDuration,
           uploadedAt: file.uploadedAt ? new Date(file.uploadedAt) : new Date(),
@@ -228,6 +245,15 @@ exports.createAdRequest = async (req, res, next) => {
       primaryMedia?.type === "video"
         ? primaryMedia.url
         : normalizedMediaFiles.find((f) => f.type === "video")?.url || null;
+
+    const primaryImageCloudinaryId =
+      primaryMedia?.type === "image"
+        ? primaryMedia.cloudinaryId
+        : normalizedMediaFiles.find((f) => f.type === "image")?.cloudinaryId || null;
+    const primaryVideoCloudinaryId =
+      primaryMedia?.type === "video"
+        ? primaryMedia.cloudinaryId
+        : normalizedMediaFiles.find((f) => f.type === "video")?.cloudinaryId || null;
     const derivedVideoDuration = normalizedMediaFiles.find(
       (file) => file.type === "video" && Number.isFinite(file.duration)
     )?.duration;
@@ -257,6 +283,8 @@ exports.createAdRequest = async (req, res, next) => {
       mediaFiles: normalizedMediaFiles,
       imageUrl: primaryImageUrl,
       videoUrl: primaryVideoUrl,
+      imageCloudinaryId: primaryImageCloudinaryId,
+      videoCloudinaryId: primaryVideoCloudinaryId,
       videoDuration: videoDuration || derivedVideoDuration || 0,
       videoTier: videoTier || null,
       status: adStatus,
@@ -506,6 +534,9 @@ exports.adminUpdateAd = async (req, res, next) => {
       "targetUrl",
       "imageUrl",
       "videoUrl",
+      "imageCloudinaryId",
+      "videoCloudinaryId",
+      "mediaFiles",
       "placement",
       "category",
       "startDate",
@@ -514,6 +545,19 @@ exports.adminUpdateAd = async (req, res, next) => {
       "adminNotes",
     ];
 
+    const existing = await Advertisement.findById(req.params.id);
+    if (!existing) {
+      throw new NotFoundError("Advertisement not found");
+    }
+
+    const oldIds = new Set(
+      [
+        existing.imageCloudinaryId,
+        existing.videoCloudinaryId,
+        ...(existing.mediaFiles || []).map((f) => f?.cloudinaryId),
+      ].filter(Boolean)
+    );
+
     const updates = {};
     Object.keys(req.body).forEach((key) => {
       if (allowedUpdates.includes(key)) {
@@ -521,14 +565,62 @@ exports.adminUpdateAd = async (req, res, next) => {
       }
     });
 
+    if (updates.mediaFiles) {
+      const normalizedMediaFiles = normalizeMediaFiles(updates.mediaFiles);
+      updates.mediaFiles = normalizedMediaFiles;
+
+      const primaryMedia = normalizedMediaFiles[0] || null;
+      if (!updates.imageUrl) {
+        updates.imageUrl =
+          (primaryMedia?.type === "image" ? primaryMedia.url : null) ||
+          normalizedMediaFiles.find((f) => f.type === "image")?.url ||
+          null;
+      }
+      if (!updates.videoUrl) {
+        updates.videoUrl =
+          (primaryMedia?.type === "video" ? primaryMedia.url : null) ||
+          normalizedMediaFiles.find((f) => f.type === "video")?.url ||
+          null;
+      }
+
+      if (!updates.imageCloudinaryId) {
+        updates.imageCloudinaryId =
+          (primaryMedia?.type === "image" ? primaryMedia.cloudinaryId : null) ||
+          normalizedMediaFiles.find((f) => f.type === "image")?.cloudinaryId ||
+          null;
+      }
+      if (!updates.videoCloudinaryId) {
+        updates.videoCloudinaryId =
+          (primaryMedia?.type === "video" ? primaryMedia.cloudinaryId : null) ||
+          normalizedMediaFiles.find((f) => f.type === "video")?.cloudinaryId ||
+          null;
+      }
+    }
+
     const ad = await Advertisement.findByIdAndUpdate(
       req.params.id,
       { $set: updates },
       { new: true, runValidators: true }
     );
 
-    if (!ad) {
-      throw new NotFoundError("Advertisement not found");
+    const newIds = new Set(
+      [
+        ad?.imageCloudinaryId,
+        ad?.videoCloudinaryId,
+        ...(ad?.mediaFiles || []).map((f) => f?.cloudinaryId),
+      ].filter(Boolean)
+    );
+
+    // Delete any Cloudinary assets that were removed/replaced.
+    for (const oldId of oldIds) {
+      if (!newIds.has(oldId)) {
+        // Try as video first (common), then image.
+        // Cloudinary will ignore mismatched type errors in best-effort manner.
+        // eslint-disable-next-line no-await-in-loop
+        await destroyCloudinaryAsset(oldId, "video");
+        // eslint-disable-next-line no-await-in-loop
+        await destroyCloudinaryAsset(oldId, "image");
+      }
     }
 
     res.json({
@@ -546,11 +638,26 @@ exports.adminUpdateAd = async (req, res, next) => {
  */
 exports.adminDeleteAd = async (req, res, next) => {
   try {
-    const ad = await Advertisement.findByIdAndDelete(req.params.id);
+    const ad = await Advertisement.findById(req.params.id);
 
     if (!ad) {
       throw new NotFoundError("Advertisement not found");
     }
+
+    const idsToDelete = [
+      ad.imageCloudinaryId,
+      ad.videoCloudinaryId,
+      ...(ad.mediaFiles || []).map((f) => f?.cloudinaryId),
+    ].filter(Boolean);
+
+    for (const id of idsToDelete) {
+      // eslint-disable-next-line no-await-in-loop
+      await destroyCloudinaryAsset(id, "video");
+      // eslint-disable-next-line no-await-in-loop
+      await destroyCloudinaryAsset(id, "image");
+    }
+
+    await Advertisement.findByIdAndDelete(req.params.id);
 
     res.json({
       success: true,
@@ -723,6 +830,15 @@ exports.adminCreateAd = async (req, res, next) => {
       primaryMedia?.type === "video"
         ? primaryMedia.url
         : normalizedMediaFiles.find((f) => f.type === "video")?.url || null;
+
+    const primaryImageCloudinaryId =
+      primaryMedia?.type === "image"
+        ? primaryMedia.cloudinaryId
+        : normalizedMediaFiles.find((f) => f.type === "image")?.cloudinaryId || null;
+    const primaryVideoCloudinaryId =
+      primaryMedia?.type === "video"
+        ? primaryMedia.cloudinaryId
+        : normalizedMediaFiles.find((f) => f.type === "video")?.cloudinaryId || null;
     const derivedVideoDuration = normalizedMediaFiles.find(
       (file) => file.type === "video" && Number.isFinite(file.duration)
     )?.duration;
@@ -752,6 +868,8 @@ exports.adminCreateAd = async (req, res, next) => {
       mediaFiles: normalizedMediaFiles,
       imageUrl: primaryImageUrl,
       videoUrl: primaryVideoUrl,
+      imageCloudinaryId: primaryImageCloudinaryId,
+      videoCloudinaryId: primaryVideoCloudinaryId,
       videoDuration: videoDuration || derivedVideoDuration || 0,
       videoTier: videoTier || null,
       status: "active", // Admin-created ads are active immediately

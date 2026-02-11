@@ -10,6 +10,26 @@ const fs = require("fs");
 const { v4: uuidv4 } = require("uuid");
 const { cloudinary, isCloudinaryEnabled } = require("../utils/cloudinary");
 
+async function destroyCloudinaryPublicIds(publicIds, resourceType) {
+  if (!isCloudinaryEnabled) return;
+  const ids = Array.from(new Set((publicIds || []).filter(Boolean)));
+  if (ids.length === 0) return;
+
+  const batchSize = 10;
+  for (let i = 0; i < ids.length; i += batchSize) {
+    const batch = ids.slice(i, i + batchSize);
+    // eslint-disable-next-line no-await-in-loop
+    await Promise.allSettled(
+      batch.map((id) =>
+        cloudinary.uploader.destroy(String(id), {
+          resource_type: resourceType || "video",
+          invalidate: true,
+        })
+      )
+    );
+  }
+}
+
 function parseBoolEnv(value) {
   if (value === undefined || value === null) return null;
   const v = String(value).trim().toLowerCase();
@@ -861,10 +881,26 @@ exports.deleteShowcase = async (req, res) => {
 
     // Delete related contestants and votes, BUT preserve winners for display on homepage
     // Only delete contestants who are NOT winners
+    const nonWinnerContestants = await TalentContestant.find(
+      {
+        showcase: req.params.id,
+        isWinner: { $ne: true },
+      },
+      { videoCloudinaryId: 1 }
+    );
+
+    const nonWinnerCloudinaryIds = (nonWinnerContestants || [])
+      .map((c) => c.videoCloudinaryId)
+      .filter(Boolean);
+
     const deleteResult = await TalentContestant.deleteMany({
       showcase: req.params.id,
       isWinner: { $ne: true }, // Exclude winners from deletion
     });
+
+    if (deleteResult.deletedCount > 0 && nonWinnerCloudinaryIds.length > 0) {
+      await destroyCloudinaryPublicIds(nonWinnerCloudinaryIds, "video");
+    }
 
     console.log(
       `🗑️  Deleted ${deleteResult.deletedCount} non-winner contestants from showcase ${req.params.id}`
@@ -911,6 +947,7 @@ exports.registerContestant = async (req, res) => {
       themeCreator,
       country,
       videoUrl,
+      videoCloudinaryId,
       videoDuration, // Video duration in seconds from upload
       thumbnailUrl,
       listingId,
@@ -1053,6 +1090,7 @@ exports.registerContestant = async (req, res) => {
       themeCreator,
       country,
       videoUrl,
+      videoCloudinaryId: videoCloudinaryId || null,
       videoDuration: videoDuration, // Use provided duration
       thumbnailUrl,
       socialMedia,
@@ -1212,6 +1250,7 @@ exports.updateContestantRegistration = async (req, res) => {
       themeCreator,
       country,
       videoUrl,
+      videoCloudinaryId,
       videoDuration, // Video duration in seconds from upload
       thumbnailUrl,
       socialMedia,
@@ -1261,6 +1300,16 @@ exports.updateContestantRegistration = async (req, res) => {
 
     // Update contestant details
     const MAX_PERFORMANCE_DURATION = 300; // 5 minutes max
+
+    if (videoCloudinaryId !== undefined) {
+      const oldId = contestant.videoCloudinaryId;
+      const newId = videoCloudinaryId || null;
+      if (oldId && oldId !== newId) {
+        await destroyCloudinaryPublicIds([oldId], "video");
+      }
+      contestant.videoCloudinaryId = newId;
+    }
+
     contestant.performanceTitle = performanceTitle || contestant.performanceTitle;
     contestant.performanceDescription = performanceDescription || contestant.performanceDescription;
     contestant.themeTitle = themeTitle || contestant.themeTitle;
@@ -2170,11 +2219,19 @@ exports.executeRaffle = async (req, res) => {
       );
     });
 
+    const nonSelectedCloudinaryIds = (nonSelectedContestants || [])
+      .map((c) => c.videoCloudinaryId)
+      .filter(Boolean);
+
     // Permanently delete all contestants except selected ones
     const deleteResult = await TalentContestant.deleteMany({
       showcase: showcaseId,
       _id: { $nin: selectedIds },
     });
+
+    if (deleteResult.deletedCount > 0 && nonSelectedCloudinaryIds.length > 0) {
+      await destroyCloudinaryPublicIds(nonSelectedCloudinaryIds, "video");
+    }
 
     console.log(
       `✅ Successfully deleted ${deleteResult.deletedCount} non-selected contestants from showcase ${showcaseId}`

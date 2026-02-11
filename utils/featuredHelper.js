@@ -93,15 +93,65 @@ async function autoFeatureWinner(contestant) {
     const showcaseTitle = await resolveShowcaseTitle(contestant);
     const winnerLabel = `Winner of ${showcaseTitle}`;
 
+    const userId = contestant?.user?._id || contestant?.user;
+
+    const TALENT_CATEGORIES = [
+      "Talent",
+      "Music",
+      "Comedy",
+      "Instrumentalist",
+      "Artist",
+      "Dancer",
+      "Singer",
+      "Rapper",
+      "DJ",
+      "Producer",
+      "Web Developer",
+      "Mobile Developer",
+      "UI/UX Design",
+      "Graphic Design",
+      "Digital Marketing",
+      "IT Support",
+      "Cybersecurity",
+      "Content Writing",
+      "Photography",
+      "Videography",
+      "Afrobeats & Music",
+      "Content Creators",
+      "Actor/Actress",
+      "Voice Over Artist",
+      "Other Talent",
+    ];
+
     // Get or create listing
     let listing = contestant.listing;
     if (listing && (typeof listing !== "object" || typeof listing.save !== "function")) {
       listing = await Listing.findById(listing);
     }
 
+    // Idempotency guard: if a winner listing already exists for this user+showcase label+performance,
+    // reuse it instead of creating a new one (prevents duplicate winner cards).
+    if (!listing && userId) {
+      const existingWinnerListing = await Listing.findOne({
+        owner: userId,
+        status: "active",
+        category: { $in: TALENT_CATEGORIES },
+        title: String(contestant.performanceTitle || "").trim(),
+        description: winnerLabel,
+      })
+        .sort({ createdAt: -1 })
+        .exec();
+
+      if (existingWinnerListing) {
+        listing = existingWinnerListing;
+        contestant.listing = existingWinnerListing._id;
+        await contestant.save();
+        console.log(`✅ Reusing existing winner listing: ${listing._id}`);
+      }
+    }
+
     if (!listing) {
       // Create new listing for the winner
-      const userId = contestant.user._id || contestant.user;
       const userCountry = contestant.user.country || "Kenya";
       const userCity = contestant.user.city || "";
 
@@ -181,7 +231,6 @@ async function autoFeatureWinner(contestant) {
     }
 
     // Create featured placement for homepage
-    const userId = contestant.user._id || contestant.user;
     const now = new Date();
     const endDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
 
