@@ -8,21 +8,9 @@ const {
   sendAdActivated,
 } = require("../utils/notifications");
 
-const { cloudinary, isCloudinaryEnabled } = require("../utils/cloudinary");
-
-const destroyCloudinaryAsset = async (publicId, resourceType) => {
-  if (!isCloudinaryEnabled) return;
-  const id = String(publicId || "").trim();
-  if (!id) return;
-  try {
-    await cloudinary.uploader.destroy(id, {
-      resource_type: resourceType || "image",
-      invalidate: true,
-    });
-  } catch (err) {
-    console.warn("⚠️ Cloudinary delete failed:", err?.message || err);
-  }
-};
+// Cloud storage cleanup (GCS) is handled by bucket lifecycle/IAM policies.
+// Keep a no-op helper to preserve existing controller flow.
+const destroyMediaAsset = async () => {};
 
 const normalizeMediaFiles = (mediaFiles = []) => {
   if (!Array.isArray(mediaFiles)) return [];
@@ -617,9 +605,9 @@ exports.adminUpdateAd = async (req, res, next) => {
         // Try as video first (common), then image.
         // Cloudinary will ignore mismatched type errors in best-effort manner.
         // eslint-disable-next-line no-await-in-loop
-        await destroyCloudinaryAsset(oldId, "video");
+        await destroyMediaAsset(oldId, "video");
         // eslint-disable-next-line no-await-in-loop
-        await destroyCloudinaryAsset(oldId, "image");
+        await destroyMediaAsset(oldId, "image");
       }
     }
 
@@ -652,9 +640,9 @@ exports.adminDeleteAd = async (req, res, next) => {
 
     for (const id of idsToDelete) {
       // eslint-disable-next-line no-await-in-loop
-      await destroyCloudinaryAsset(id, "video");
+      await destroyMediaAsset(id, "video");
       // eslint-disable-next-line no-await-in-loop
-      await destroyCloudinaryAsset(id, "image");
+      await destroyMediaAsset(id, "image");
     }
 
     await Advertisement.findByIdAndDelete(req.params.id);

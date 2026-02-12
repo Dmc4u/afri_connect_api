@@ -8,27 +8,7 @@ const { performRaffle, verifyRaffle, generatePublicReport } = require("../utils/
 const path = require("path");
 const fs = require("fs");
 const { v4: uuidv4 } = require("uuid");
-const { cloudinary, isCloudinaryEnabled } = require("../utils/cloudinary");
-
-async function destroyCloudinaryPublicIds(publicIds, resourceType) {
-  if (!isCloudinaryEnabled) return;
-  const ids = Array.from(new Set((publicIds || []).filter(Boolean)));
-  if (ids.length === 0) return;
-
-  const batchSize = 10;
-  for (let i = 0; i < ids.length; i += batchSize) {
-    const batch = ids.slice(i, i + batchSize);
-    // eslint-disable-next-line no-await-in-loop
-    await Promise.allSettled(
-      batch.map((id) =>
-        cloudinary.uploader.destroy(String(id), {
-          resource_type: resourceType || "video",
-          invalidate: true,
-        })
-      )
-    );
-  }
-}
+const { isGcsEnabled, getGcsBucketName, buildObjectName, uploadFromPath } = require("../utils/gcs");
 
 function parseBoolEnv(value) {
   if (value === undefined || value === null) return null;
@@ -38,23 +18,7 @@ function parseBoolEnv(value) {
   return null;
 }
 
-function getCloudinaryLargeThresholdBytes() {
-  const parsed = Number(process.env.CLOUDINARY_UPLOAD_LARGE_THRESHOLD_MB);
-  const mb = Number.isFinite(parsed) ? parsed : 95;
-  if (mb <= 0) return 0;
-  return Math.floor(mb * 1024 * 1024);
-}
-
-function getCloudinaryChunkSizeBytes() {
-  const parsed = Number(process.env.CLOUDINARY_CHUNK_SIZE_MB);
-  const mb = Number.isFinite(parsed) && parsed > 0 ? parsed : 6;
-  return Math.floor(mb * 1024 * 1024);
-}
-
-function getCloudinaryUploadTimeoutMs() {
-  const parsed = Number(process.env.CLOUDINARY_UPLOAD_TIMEOUT_MS);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 20 * 60 * 1000;
-}
+// Cloudinary has been removed; cloud uploads for showcases use GCS.
 
 async function ensureWinnerAnnouncement(timeline, showcaseId) {
   if (timeline?.winnerAnnouncement?.announcementTime) return;
@@ -179,56 +143,44 @@ async function addCommercialToShowcase({ showcaseId, filePath, title, requestedD
   if (!showcase.commercials) showcase.commercials = [];
 
   let videoUrl = localVideoUrl;
-  let uploadedToCloudinary = false;
   let localFileToDeleteAfterSave = null;
 
-  if (isCloudinaryEnabled) {
-    const requireCloudinary = parseBoolEnv(process.env.COMMERCIAL_CLOUDINARY_REQUIRED) ?? false;
+  if (isGcsEnabled()) {
+    const bucketName = getGcsBucketName();
+    if (!bucketName) {
+      const err = new Error("GCS is enabled but GCS_BUCKET is not configured.");
+      err.statusCode = 500;
+      throw err;
+    }
+
     const deleteLocalAfterUpload =
-      parseBoolEnv(process.env.COMMERCIAL_DELETE_LOCAL_AFTER_CLOUDINARY) ?? true;
+      parseBoolEnv(process.env.COMMERCIAL_DELETE_LOCAL_AFTER_UPLOAD) ??
+      parseBoolEnv(process.env.COMMERCIAL_DELETE_LOCAL_AFTER_CLOUDINARY) ??
+      true;
 
     try {
-      const stat = fs.statSync(filePath);
-      const fileSizeBytes = Number(stat?.size || 0);
+      const filename = path.basename(filePath);
+      const objectName = buildObjectName({
+        resourceType: "video",
+        purpose: "commercial",
+        filename,
+      });
 
-      const thresholdBytes = getCloudinaryLargeThresholdBytes();
-      const useLarge = thresholdBytes === 0 ? true : fileSizeBytes >= thresholdBytes;
+      const uploadedUrl = await uploadFromPath({
+        bucketName,
+        objectName,
+        localPath: filePath,
+      });
 
-      const folder = process.env.CLOUDINARY_COMMERCIAL_FOLDER || "afrionet/commercials";
-      const uploadOptions = {
-        resource_type: "video",
-        folder,
-        transformation: [{ quality: "auto", fetch_format: "auto" }],
-        timeout: getCloudinaryUploadTimeoutMs(),
-      };
-
-      let result;
-      if (useLarge) {
-        result = await cloudinary.uploader.upload_large(filePath, {
-          ...uploadOptions,
-          chunk_size: getCloudinaryChunkSizeBytes(),
-        });
-      } else {
-        result = await cloudinary.uploader.upload(filePath, uploadOptions);
-      }
-
-      const cloudUrl = result?.secure_url || result?.url;
-      if (cloudUrl) {
-        videoUrl = cloudUrl;
-        uploadedToCloudinary = true;
-      }
-
-      // Defer deleting the local file until after the showcase is saved.
-      if (uploadedToCloudinary && deleteLocalAfterUpload) {
-        localFileToDeleteAfterSave = filePath;
+      if (uploadedUrl) {
+        videoUrl = uploadedUrl;
+        if (deleteLocalAfterUpload) {
+          // Defer deleting the local file until after the showcase is saved.
+          localFileToDeleteAfterSave = filePath;
+        }
       }
     } catch (cloudErr) {
-      console.warn("⚠️ Commercial Cloudinary upload failed; using local URL:", cloudErr?.message);
-      if (requireCloudinary) {
-        const err = new Error(cloudErr?.message || "Commercial Cloudinary upload failed");
-        err.statusCode = Number(cloudErr?.http_code) || 502;
-        throw err;
-      }
+      console.warn("⚠️ Commercial GCS upload failed; using local URL:", cloudErr?.message);
     }
   }
 
@@ -250,14 +202,14 @@ async function addCommercialToShowcase({ showcaseId, filePath, title, requestedD
   showcase.commercialDuration = Math.ceil(totalDurationSeconds / 60);
   await showcase.save();
 
-  // Best-effort cleanup after save when Cloudinary succeeded.
-  if (uploadedToCloudinary) {
+  // Best-effort cleanup after save when cloud upload succeeded.
+  {
     const toDelete = localFileToDeleteAfterSave;
     if (toDelete && typeof toDelete === "string") {
       try {
         fs.unlinkSync(toDelete);
       } catch (e) {
-        console.warn("⚠️ Could not delete local commercial after Cloudinary upload:", e?.message);
+        console.warn("⚠️ Could not delete local commercial after upload:", e?.message);
       }
     }
   }
@@ -881,26 +833,10 @@ exports.deleteShowcase = async (req, res) => {
 
     // Delete related contestants and votes, BUT preserve winners for display on homepage
     // Only delete contestants who are NOT winners
-    const nonWinnerContestants = await TalentContestant.find(
-      {
-        showcase: req.params.id,
-        isWinner: { $ne: true },
-      },
-      { videoCloudinaryId: 1 }
-    );
-
-    const nonWinnerCloudinaryIds = (nonWinnerContestants || [])
-      .map((c) => c.videoCloudinaryId)
-      .filter(Boolean);
-
     const deleteResult = await TalentContestant.deleteMany({
       showcase: req.params.id,
       isWinner: { $ne: true }, // Exclude winners from deletion
     });
-
-    if (deleteResult.deletedCount > 0 && nonWinnerCloudinaryIds.length > 0) {
-      await destroyCloudinaryPublicIds(nonWinnerCloudinaryIds, "video");
-    }
 
     console.log(
       `🗑️  Deleted ${deleteResult.deletedCount} non-winner contestants from showcase ${req.params.id}`
@@ -1302,11 +1238,7 @@ exports.updateContestantRegistration = async (req, res) => {
     const MAX_PERFORMANCE_DURATION = 300; // 5 minutes max
 
     if (videoCloudinaryId !== undefined) {
-      const oldId = contestant.videoCloudinaryId;
       const newId = videoCloudinaryId || null;
-      if (oldId && oldId !== newId) {
-        await destroyCloudinaryPublicIds([oldId], "video");
-      }
       contestant.videoCloudinaryId = newId;
     }
 
@@ -2219,19 +2151,11 @@ exports.executeRaffle = async (req, res) => {
       );
     });
 
-    const nonSelectedCloudinaryIds = (nonSelectedContestants || [])
-      .map((c) => c.videoCloudinaryId)
-      .filter(Boolean);
-
     // Permanently delete all contestants except selected ones
     const deleteResult = await TalentContestant.deleteMany({
       showcase: showcaseId,
       _id: { $nin: selectedIds },
     });
-
-    if (deleteResult.deletedCount > 0 && nonSelectedCloudinaryIds.length > 0) {
-      await destroyCloudinaryPublicIds(nonSelectedCloudinaryIds, "video");
-    }
 
     console.log(
       `✅ Successfully deleted ${deleteResult.deletedCount} non-selected contestants from showcase ${showcaseId}`

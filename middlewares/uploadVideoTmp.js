@@ -14,7 +14,7 @@ function getMaxVideoUploadBytes() {
 }
 
 // Temp disk storage for videos.
-// We store locally first, then the route uploads to Cloudinary (regular or chunked).
+// We store locally first, then the route uploads to cloud storage.
 const tmpUploadDir = path.join(__dirname, "..", "uploads", "tmp", "videos");
 if (!fs.existsSync(tmpUploadDir)) {
   fs.mkdirSync(tmpUploadDir, { recursive: true });
@@ -29,7 +29,7 @@ const tmpVideoStorage = multer.diskStorage({
   },
 });
 
-const uploadVideoCloudinary = multer({
+const uploadVideoTmp = multer({
   storage: tmpVideoStorage,
   limits: {
     fileSize: getMaxVideoUploadBytes(),
@@ -44,4 +44,4 @@ const uploadVideoCloudinary = multer({
   },
 });
 
-module.exports = uploadVideoCloudinary;
+module.exports = uploadVideoTmp;

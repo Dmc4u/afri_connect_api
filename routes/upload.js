@@ -1,39 +1,29 @@
 const express = require("express");
-const router = express.Router();
-const auth = require("../middlewares/auth");
-const uploadVideo = require("../middlewares/uploadVideo");
-const uploadVideoCloudinary = require("../middlewares/uploadVideoCloudinary");
-const uploadImage = require("../middlewares/uploadImage");
-const { cloudinary, cloudinarySdk, isCloudinaryEnabled } = require("../utils/cloudinary");
+
 const fsp = require("fs/promises");
 
-function getCloudinaryVideoFolder() {
-  return process.env.CLOUDINARY_VIDEO_FOLDER || "afrionet/videos";
-}
+const auth = require("../middlewares/auth");
+const uploadVideo = require("../middlewares/uploadVideo");
+const uploadVideoTmp = require("../middlewares/uploadVideoTmp");
+const uploadImage = require("../middlewares/uploadImage");
+const {
+  isGcsEnabled,
+  getGcsBucketName,
+  buildObjectName,
+  getPublicUrl,
+  getSignedUploadUrl,
+  uploadFromPath,
+} = require("../utils/gcs");
 
-function getCloudinaryCommercialFolder() {
-  return process.env.CLOUDINARY_COMMERCIAL_FOLDER || "afrionet/commercials";
-}
-
-function getCloudinaryImageFolder() {
-  return process.env.CLOUDINARY_IMAGE_FOLDER || "afrionet/images";
-}
+const router = express.Router();
 
 /**
  * @route   GET /api/upload/cloudinary-signature
- * @desc    Generate a signed Cloudinary upload signature so the browser can upload directly.
+ * @desc    Generate a signed upload URL so the browser can upload directly to cloud storage.
  * @access  Private
  */
 router.get("/cloudinary-signature", auth, async (req, res) => {
   try {
-    if (!isCloudinaryEnabled) {
-      return res.status(503).json({
-        success: false,
-        message:
-          "Cloudinary is disabled on the server. Set USE_CLOUDINARY=true and Cloudinary credentials.",
-      });
-    }
-
     const resourceType = String(req.query.resource_type || "video").toLowerCase();
     if (resourceType !== "video" && resourceType !== "image") {
       return res.status(400).json({
@@ -42,37 +32,41 @@ router.get("/cloudinary-signature", auth, async (req, res) => {
       });
     }
 
+    if (!isGcsEnabled()) {
+      return res.status(503).json({
+        success: false,
+        message: "GCS uploads are not enabled on the server.",
+      });
+    }
+
+    const bucketName = getGcsBucketName();
+    if (!bucketName) {
+      return res.status(500).json({
+        success: false,
+        message: "GCS is enabled but GCS_BUCKET is not configured.",
+      });
+    }
+
     const purpose = String(req.query.purpose || "").toLowerCase();
-    const folder =
-      purpose === "commercial"
-        ? getCloudinaryCommercialFolder()
-        : resourceType === "video"
-          ? getCloudinaryVideoFolder()
-          : getCloudinaryImageFolder();
-
-    const timestamp = Math.floor(Date.now() / 1000);
-    const paramsToSign = {
-      timestamp,
-      folder,
-    };
-
-    const signature = cloudinarySdk.utils.api_sign_request(
-      paramsToSign,
-      process.env.CLOUDINARY_API_SECRET
-    );
+    const filename = String(req.query.filename || "upload");
+    const objectName = buildObjectName({ resourceType, purpose, filename });
+    const uploadUrl = await getSignedUploadUrl({ bucketName, objectName });
+    const fileUrl = getPublicUrl(bucketName, objectName);
 
     return res.json({
       success: true,
-      cloudName: process.env.CLOUDINARY_CLOUD_NAME,
-      apiKey: process.env.CLOUDINARY_API_KEY,
-      timestamp,
-      signature,
-      folder,
+      provider: "gcs",
       resourceType,
+      bucket: bucketName,
+      objectName,
+      uploadUrl,
+      method: "PUT",
+      fileUrl,
     });
   } catch (error) {
+    // eslint-disable-next-line no-use-before-define
     const { statusCode, message } = classifyUploadError(error);
-    console.error("❌ Cloudinary signature error:", {
+    console.error("❌ Signed upload URL error:", {
       name: error?.name,
       message: error?.message,
       http_code: error?.http_code,
@@ -95,13 +89,6 @@ function classifyUploadError(err) {
   if (!err) return { statusCode: 500, message: "Upload failed" };
 
   const messageStr = String(err.message || "");
-  if (messageStr.includes("Cloudinary is disabled")) {
-    return {
-      statusCode: 503,
-      message:
-        "Video upload is temporarily unavailable (Cloudinary disabled). Set USE_CLOUDINARY=true and Cloudinary credentials on the server.",
-    };
-  }
 
   if (err.name === "MulterError") {
     if (err.code === "LIMIT_FILE_SIZE") {
@@ -135,34 +122,16 @@ function classifyUploadError(err) {
   return { statusCode: 500, message: msg };
 }
 
-function getCloudinaryLargeThresholdBytes() {
-  const parsed = Number(process.env.CLOUDINARY_UPLOAD_LARGE_THRESHOLD_MB);
-  const mb = Number.isFinite(parsed) ? parsed : 95;
-  if (mb <= 0) return 0;
-  return Math.floor(mb * 1024 * 1024);
-}
-
-function getCloudinaryChunkSizeBytes() {
-  const parsed = Number(process.env.CLOUDINARY_CHUNK_SIZE_MB);
-  const mb = Number.isFinite(parsed) && parsed > 0 ? parsed : 6;
-  return Math.floor(mb * 1024 * 1024);
-}
-
-function getCloudinaryUploadTimeoutMs() {
-  const parsed = Number(process.env.CLOUDINARY_UPLOAD_TIMEOUT_MS);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 20 * 60 * 1000;
-}
-
 /**
  * @route   POST /api/upload/video-cloud
- * @desc    Upload video file to Cloudinary (FASTER - Recommended)
+ * @desc    Upload video file to cloud storage (GCS)
  * @access  Private
  */
 router.post("/video-cloud", auth, (req, res) => {
-  uploadVideoCloudinary.single("video")(req, res, async (err) => {
+  uploadVideoTmp.single("video")(req, res, async (err) => {
     if (err) {
       const { statusCode, message } = classifyUploadError(err);
-      console.error("❌ Cloudinary video upload middleware error:", {
+      console.error("❌ Cloud video upload middleware error:", {
         name: err.name,
         code: err.code,
         message: err.message,
@@ -174,7 +143,7 @@ router.post("/video-cloud", auth, (req, res) => {
 
     try {
       console.log(
-        `☁️ Cloudinary video upload started - User: ${req.user._id}, File: ${req.file?.originalname || "unknown"}`
+        `☁️ Cloud video upload started - User: ${req.user._id}, File: ${req.file?.originalname || "unknown"}`
       );
 
       if (!req.file) {
@@ -183,60 +152,55 @@ router.post("/video-cloud", auth, (req, res) => {
       }
 
       const localPath = req.file.path;
-      const fileSizeBytes = Number(req.file.size || 0);
-      const thresholdBytes = getCloudinaryLargeThresholdBytes();
-      const useLarge = thresholdBytes === 0 ? true : fileSizeBytes >= thresholdBytes;
+      if (!isGcsEnabled()) {
+        return res.status(503).json({
+          success: false,
+          message: "GCS uploads are not enabled on the server.",
+        });
+      }
 
-      console.log(
-        `📦 Temp video received: ${req.file.filename} (${(fileSizeBytes / (1024 * 1024)).toFixed(2)}MB). Upload mode: ${useLarge ? "upload_large" : "upload"}`
-      );
+      const bucketName = getGcsBucketName();
+      if (!bucketName) {
+        return res
+          .status(500)
+          .json({ success: false, message: "GCS is enabled but GCS_BUCKET is not configured." });
+      }
 
-      const folder = getCloudinaryVideoFolder();
-      const uploadOptions = {
-        resource_type: "video",
-        folder,
-        transformation: [{ quality: "auto", fetch_format: "auto" }],
-        timeout: getCloudinaryUploadTimeoutMs(),
-      };
+      const objectName = buildObjectName({
+        resourceType: "video",
+        purpose: String(req.query.purpose || "").toLowerCase(),
+        filename: req.file.originalname || req.file.filename,
+      });
 
-      let result;
+      let videoUrl;
       try {
-        if (useLarge) {
-          result = await cloudinary.uploader.upload_large(localPath, {
-            ...uploadOptions,
-            chunk_size: getCloudinaryChunkSizeBytes(),
-          });
-        } else {
-          result = await cloudinary.uploader.upload(localPath, uploadOptions);
-        }
+        videoUrl = await uploadFromPath({
+          bucketName,
+          objectName,
+          localPath,
+          contentType: req.file.mimetype,
+        });
       } finally {
         try {
           await fsp.unlink(localPath);
         } catch {
-          // ignore temp cleanup failures
+          // ignore
         }
       }
 
-      const videoUrl = result?.secure_url || result?.url;
-      const videoDuration = result?.duration ?? null;
-      const cloudinaryId = result?.public_id || null;
-
-      console.log(
-        `✅ Cloudinary video upload completed - URL: ${videoUrl}, Duration: ${videoDuration || "unknown"}s, Public ID: ${cloudinaryId || "unknown"}`
-      );
-
       return res.json({
         success: true,
+        provider: "gcs",
         videoUrl,
-        videoDuration,
-        filename: cloudinaryId || req.file.filename,
-        size: result?.bytes ?? req.file.size,
+        videoDuration: null,
+        filename: objectName,
+        size: req.file.size,
         mimetype: req.file.mimetype,
-        cloudinaryId,
+        cloudinaryId: null,
       });
     } catch (error) {
       const { statusCode, message } = classifyUploadError(error);
-      console.error("❌ Cloudinary video upload handler error:", {
+      console.error("❌ Cloud video upload handler error:", {
         name: error?.name,
         message: error?.message,
         http_code: error?.http_code,
@@ -275,7 +239,8 @@ router.post("/video", auth, uploadVideo.single("video"), async (req, res) => {
     let videoDuration = null;
     try {
       console.log("🔍 Attempting to detect video duration...");
-      const ffprobe = require("fluent-ffmpeg").ffprobe;
+      // eslint-disable-next-line global-require, import/no-unresolved
+      const { ffprobe } = require("fluent-ffmpeg");
       const videoPath = req.file.path;
 
       // Make ffprobe async with Promise
@@ -307,10 +272,10 @@ router.post("/video", auth, uploadVideo.single("video"), async (req, res) => {
       `✅ Video upload completed successfully - URL: ${videoUrl}, Duration: ${videoDuration || "unknown"}s`
     );
 
-    res.json({
+    return res.json({
       success: true,
-      videoUrl: videoUrl,
-      videoDuration: videoDuration, // Video duration in seconds
+      videoUrl,
+      videoDuration, // Video duration in seconds
       filename: req.file.filename,
       size: req.file.size,
       mimetype: req.file.mimetype,
@@ -319,7 +284,7 @@ router.post("/video", auth, uploadVideo.single("video"), async (req, res) => {
     console.error("❌ Video upload error:", error.message);
     console.error("Stack trace:", error.stack);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Video upload failed",
       error: error.message,
@@ -350,7 +315,7 @@ router.post("/image", auth, uploadImage.single("image"), async (req, res) => {
     const imageUrl = `${req.protocol}://${req.get("host")}/uploads/images/${req.file.filename}`;
     console.log(`✅ Image upload completed successfully - URL: ${imageUrl}`);
 
-    res.json({
+    return res.json({
       success: true,
       imageUrl,
       filename: req.file.filename,
@@ -360,7 +325,7 @@ router.post("/image", auth, uploadImage.single("image"), async (req, res) => {
   } catch (error) {
     console.error("Image upload error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Image upload failed",
       error: error.message,
