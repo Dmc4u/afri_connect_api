@@ -34,6 +34,7 @@ const { initializeSocket } = require("./utils/socket");
 const PricingSettings = require("./models/PricingSettings");
 // Event scheduler - automatically starts events at scheduled time
 const { startScheduler } = require("./utils/eventScheduler");
+const { startAdMediaCleanupJob } = require("./utils/adMediaCleanup");
 
 const app = express();
 const httpServer = createServer(app);
@@ -425,4 +426,7 @@ httpServer.listen(PORT, () => {
   console.log(
     `⏰ Event scheduler started - will auto-start events and auto-execute raffles at scheduled times`
   );
+
+  // Auto-delete ended ad media from GCS to reduce storage costs.
+  startAdMediaCleanupJob();
 });

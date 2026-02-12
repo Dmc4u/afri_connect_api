@@ -163,6 +163,8 @@ module.exports = {
   getUploadProvider,
   isGcsEnabled,
   getGcsBucketName,
+  getGcsUploadPrefix,
+  getPublicBaseUrl,
   buildObjectName,
   getPublicUrl,
   getSignedUploadUrl,

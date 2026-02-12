@@ -130,6 +130,14 @@ const advertisementSchema = new mongoose.Schema(
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     approvedAt: Date,
+
+    // Media cleanup (e.g., auto-delete media after ad ends)
+    mediaCleanup: {
+      checkedAt: Date,
+      deletedAt: Date,
+      deletedObjects: [String],
+      lastError: String,
+    },
   },
   {
     timestamps: true,
