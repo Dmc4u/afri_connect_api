@@ -9,6 +9,7 @@ const path = require("path");
 const fs = require("fs");
 const { v4: uuidv4 } = require("uuid");
 const { isGcsEnabled, getGcsBucketName, buildObjectName, uploadFromPath } = require("../utils/gcs");
+const { stripCloudinaryUrl } = require("../utils/mediaSanitize");
 
 function parseBoolEnv(value) {
   if (value === undefined || value === null) return null;
@@ -270,9 +271,29 @@ const calculateShowcaseStatus = (showcase) => {
 
 // ============ SHOWCASE MANAGEMENT ============
 
+const { resolveOneDriveEmbedUrl } = require("../utils/oneDriveResolve");
+
 // Create new talent showcase event (Admin only)
 exports.createShowcase = async (req, res) => {
   try {
+    // Normalize OneDrive share links into embeddable URLs (streamUrl + commercials[])
+    try {
+      if (req.body?.streamUrl) {
+        const resolved = await resolveOneDriveEmbedUrl(req.body.streamUrl, 6500);
+        if (resolved?.embedUrl) req.body.streamUrl = resolved.embedUrl;
+      }
+
+      if (Array.isArray(req.body?.commercials) && req.body.commercials.length > 0) {
+        for (const commercial of req.body.commercials) {
+          if (!commercial?.videoUrl) continue;
+          const resolved = await resolveOneDriveEmbedUrl(commercial.videoUrl, 6500);
+          if (resolved?.embedUrl) commercial.videoUrl = resolved.embedUrl;
+        }
+      }
+    } catch (err) {
+      console.warn("OneDrive resolve skipped (createShowcase):", err?.message);
+    }
+
     // Default submissionDeadline to registrationEndDate if not provided
     if (!req.body.submissionDeadline && req.body.registrationEndDate) {
       req.body.submissionDeadline = req.body.registrationEndDate;
@@ -688,6 +709,24 @@ exports.getShowcaseById = async (req, res) => {
 // Update showcase (Admin only)
 exports.updateShowcase = async (req, res) => {
   try {
+    // Normalize OneDrive share links into embeddable URLs (streamUrl + commercials[])
+    try {
+      if (req.body?.streamUrl) {
+        const resolved = await resolveOneDriveEmbedUrl(req.body.streamUrl, 6500);
+        if (resolved?.embedUrl) req.body.streamUrl = resolved.embedUrl;
+      }
+
+      if (Array.isArray(req.body?.commercials) && req.body.commercials.length > 0) {
+        for (const commercial of req.body.commercials) {
+          if (!commercial?.videoUrl) continue;
+          const resolved = await resolveOneDriveEmbedUrl(commercial.videoUrl, 6500);
+          if (resolved?.embedUrl) commercial.videoUrl = resolved.embedUrl;
+        }
+      }
+    } catch (err) {
+      console.warn("OneDrive resolve skipped (updateShowcase):", err?.message);
+    }
+
     // Log welcome phase timings if they're being updated
     if (
       req.body.welcomeMessageDuration !== undefined ||
@@ -1105,9 +1144,20 @@ exports.getContestants = async (req, res) => {
       .populate("listing", "title category")
       .sort({ votes: -1 });
 
+    const sanitized = contestants.map((c) => {
+      const obj = typeof c?.toObject === "function" ? c.toObject() : c;
+      if (!obj) return obj;
+
+      return {
+        ...obj,
+        videoUrl: stripCloudinaryUrl(obj.videoUrl),
+        thumbnailUrl: stripCloudinaryUrl(obj.thumbnailUrl),
+      };
+    });
+
     res.json({
       success: true,
-      contestants,
+      contestants: sanitized,
     });
   } catch (error) {
     console.error("Error fetching contestants:", error);
@@ -2578,12 +2628,20 @@ exports.addCommercialFromUrl = async (req, res) => {
     const { showcaseId } = req.params;
     const { title, videoUrl, duration } = req.body || {};
 
-    const urlStr = String(videoUrl || "").trim();
+    let urlStr = String(videoUrl || "").trim();
     if (!urlStr || !/^https?:\/\//i.test(urlStr)) {
       return res.status(400).json({
         success: false,
         message: "videoUrl is required and must be an absolute http(s) URL",
       });
+    }
+
+    // Resolve OneDrive short share links (1drv.ms) into embeddable URLs.
+    try {
+      const resolved = await resolveOneDriveEmbedUrl(urlStr, 6500);
+      if (resolved?.embedUrl) urlStr = resolved.embedUrl;
+    } catch (err) {
+      console.warn("OneDrive resolve skipped (addCommercialFromUrl):", err?.message);
     }
 
     const showcase = await TalentShowcase.findById(showcaseId);
@@ -3493,6 +3551,30 @@ exports.getStructuredTimeline = async (req, res) => {
       : activeViewersCount;
     const computedPeakViewerCount = Math.max(timeline.peakViewerCount || 0, computedViewerCount);
 
+    const safeCurrentPerformer = currentPerformer
+      ? {
+          _id: currentPerformer._id,
+          performanceTitle: currentPerformer.performanceTitle,
+          performanceDescription: currentPerformer.performanceDescription,
+          videoUrl: stripCloudinaryUrl(currentPerformer.videoUrl),
+          videoDuration: currentPerformer.videoDuration,
+          thumbnailUrl: stripCloudinaryUrl(currentPerformer.thumbnailUrl),
+          country: currentPerformer.country,
+          votes: currentPerformer.votes || currentPerformer.voteCount || 0,
+          user: currentPerformer.user,
+        }
+      : null;
+
+    const safeContestants = contestants.map((c) => ({
+      _id: c._id,
+      performanceTitle: c.performanceTitle,
+      performanceDescription: c.performanceDescription,
+      videoUrl: stripCloudinaryUrl(c.videoUrl),
+      thumbnailUrl: stripCloudinaryUrl(c.thumbnailUrl),
+      votes: c.votes || c.voteCount || 0,
+      user: c.user,
+    }));
+
     res.json({
       success: true,
       timeline: {
@@ -3503,19 +3585,7 @@ exports.getStructuredTimeline = async (req, res) => {
         currentPhase: currentPhaseObj || timeline.currentPhase,
         currentPhaseStartTime: currentPhaseObj?.startTime,
         currentPerformanceStartTime: activePerformance?.startTime,
-        currentPerformer: currentPerformer
-          ? {
-              _id: currentPerformer._id,
-              performanceTitle: currentPerformer.performanceTitle,
-              performanceDescription: currentPerformer.performanceDescription,
-              videoUrl: currentPerformer.videoUrl,
-              videoDuration: currentPerformer.videoDuration, // Already set from performance record above
-              thumbnailUrl: currentPerformer.thumbnailUrl,
-              country: currentPerformer.country,
-              votes: currentPerformer.votes || currentPerformer.voteCount || 0,
-              user: currentPerformer.user,
-            }
-          : null,
+        currentPerformer: safeCurrentPerformer,
         timeRemaining,
         isLive: timeline.isLive,
         isPaused: !!timeline.isPaused,
@@ -3526,18 +3596,10 @@ exports.getStructuredTimeline = async (req, res) => {
         peakViewerCount: computedPeakViewerCount,
         performances: timeline.performances,
         commercialContent: timeline.showcase.commercialContent,
-        commercialVideoUrl: timeline.showcase.commercialVideoUrl,
+        commercialVideoUrl: stripCloudinaryUrl(timeline.showcase.commercialVideoUrl),
         winnerAnnouncement: timeline.winnerAnnouncement,
         thankYouMessage: timeline.thankYouMessage,
-        contestants: contestants.map((c) => ({
-          _id: c._id,
-          performanceTitle: c.performanceTitle,
-          performanceDescription: c.performanceDescription,
-          videoUrl: c.videoUrl,
-          thumbnailUrl: c.thumbnailUrl,
-          votes: c.votes || c.voteCount || 0,
-          user: c.user,
-        })),
+        contestants: safeContestants,
       },
     });
   } catch (error) {

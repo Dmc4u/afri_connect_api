@@ -389,6 +389,10 @@ app.use("/api/admin/event-config", adminEventConfigRouter);
 const uploadRouter = require("./routes/upload");
 app.use("/api/upload", uploadRouter);
 
+// Resolve/expand external media URLs (e.g., OneDrive short links)
+const mediaRouter = require("./routes/media");
+app.use("/api/media", mediaRouter);
+
 // Public endpoint to get unique user countries (for exchange rate display)
 app.get("/users/countries", async (req, res) => {
   try {

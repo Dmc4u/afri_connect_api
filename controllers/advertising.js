@@ -1,6 +1,7 @@
 const Advertisement = require("../models/Advertisement");
 const Payment = require("../models/Payment");
 const { BadRequestError, NotFoundError, ForbiddenError } = require("../utils/errors");
+const { stripCloudinaryUrl, sanitizeMediaFiles } = require("../utils/mediaSanitize");
 const {
   sendAdRequestReceived,
   sendAdApproved,
@@ -137,10 +138,32 @@ exports.getActiveAds = async (req, res, next) => {
       }
     });
 
+    const sanitizeAd = (adDoc) => {
+      if (!adDoc) return adDoc;
+      const ad = typeof adDoc.toObject === "function" ? adDoc.toObject() : adDoc;
+
+      const mediaFiles = sanitizeMediaFiles(ad.mediaFiles);
+      const imageUrl = stripCloudinaryUrl(ad.imageUrl);
+      const videoUrl = stripCloudinaryUrl(ad.videoUrl);
+
+      // Some legacy docs store media URLs in these fields too.
+      const primaryMediaUrl = stripCloudinaryUrl(ad.primaryMediaUrl);
+      const thumbnailUrl = stripCloudinaryUrl(ad.thumbnailUrl);
+
+      return {
+        ...ad,
+        mediaFiles,
+        imageUrl,
+        videoUrl,
+        primaryMediaUrl,
+        thumbnailUrl,
+      };
+    };
+
     res.json({
       success: true,
-      ads: activeAds, // Return unique ads for display
-      weightedAds: weightedAds, // Return weighted array for rotation
+      ads: activeAds.map(sanitizeAd), // Return unique ads for display
+      weightedAds: weightedAds.map(sanitizeAd), // Return weighted array for rotation
       count: activeAds.length,
     });
   } catch (error) {
