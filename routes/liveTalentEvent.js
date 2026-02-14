@@ -93,6 +93,7 @@ const calculateShowcaseStatus = (showcase) => {
 router.get("/", async (req, res) => {
   try {
     const now = new Date();
+    const serverTime = now.toISOString();
     const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000); // 24 hours ago
 
     // Find the next showcase (or recent one within 24h) for public display.
@@ -250,6 +251,7 @@ router.get("/", async (req, res) => {
 
       return res.json({
         success: false,
+        serverTime,
         message: "No upcoming live talent event scheduled",
         event: null,
         status: "no-event",
@@ -336,6 +338,7 @@ router.get("/", async (req, res) => {
 
     res.json({
       success: true,
+      serverTime,
       event: {
         showcaseId: showcase._id,
         showcaseStatus: computedShowcaseStatus,
