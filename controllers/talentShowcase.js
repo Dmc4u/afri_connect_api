@@ -1077,6 +1077,7 @@ exports.registerContestant = async (req, res) => {
     // Extract video duration in background if not provided (non-blocking)
     if (videoUrl && !videoDuration) {
       const { isYouTubeUrl, getYouTubeDuration } = require("../utils/youtubeUtils");
+      const { isVimeoUrl, getVimeoDuration } = require("../utils/vimeoUtils");
 
       if (isYouTubeUrl(videoUrl)) {
         // Run in background without blocking response
@@ -1097,6 +1098,23 @@ exports.registerContestant = async (req, res) => {
             }
           })
           .catch((err) => console.error("Background YouTube extraction error:", err));
+      } else if (isVimeoUrl(videoUrl)) {
+        getVimeoDuration(videoUrl)
+          .then((duration) => {
+            if (duration) {
+              console.log(
+                `✅ Background: Extracted Vimeo duration: ${duration}s (${(duration / 60).toFixed(2)} minutes)`
+              );
+              TalentContestant.findByIdAndUpdate(
+                contestant._id,
+                { videoDuration: duration },
+                { new: true }
+              ).catch((err) => console.error("Error updating video duration:", err));
+            } else {
+              console.log("⚠️ Background: Could not extract Vimeo duration");
+            }
+          })
+          .catch((err) => console.error("Background Vimeo extraction error:", err));
       }
     }
 
@@ -3211,6 +3229,31 @@ exports.getStructuredTimeline = async (req, res) => {
             `🎬 [TIMELINE] Appending ${missing.length} missing performances (had ${timeline.performances.length}, selected ${contestants.length})`
           );
 
+          // Ensure existing performances have scheduled times so we can append new ones deterministically.
+          // This is required for time-based (TV-style) progression.
+          const performancePhase = Array.isArray(timeline.phases)
+            ? timeline.phases.find((p) => p?.name === "performance")
+            : null;
+          if (performancePhase?.startTime) {
+            const sorted = timeline.performances
+              .slice()
+              .sort((a, b) => Number(a?.performanceOrder || 0) - Number(b?.performanceOrder || 0));
+
+            const needsSchedule = sorted.some((p) => !p?.startTime || !p?.endTime);
+            if (needsSchedule) {
+              let cursor = new Date(performancePhase.startTime);
+              sorted.forEach((p) => {
+                const seconds =
+                  Number.isFinite(Number(p?.videoDuration)) && Number(p?.videoDuration) > 0
+                    ? Number(p.videoDuration)
+                    : fallbackSeconds;
+                p.startTime = new Date(cursor);
+                p.endTime = new Date(cursor.getTime() + seconds * 1000);
+                cursor = new Date(p.endTime);
+              });
+            }
+          }
+
           missing.forEach((contestant, idx) => {
             const raw = Number(contestant?.videoDuration);
             const videoDurationSeconds = Number.isFinite(raw) && raw > 0 ? raw : fallbackSeconds;
@@ -3222,6 +3265,67 @@ exports.getStructuredTimeline = async (req, res) => {
               status: "pending",
             });
           });
+
+          // Assign start/end for appended performances, extend performance phase endTime,
+          // and shift subsequent phases to preserve the TV schedule.
+          try {
+            const performancePhase2 = Array.isArray(timeline.phases)
+              ? timeline.phases.find((p) => p?.name === "performance")
+              : null;
+            const perfIndex = Array.isArray(timeline.phases)
+              ? timeline.phases.findIndex((p) => p?.name === "performance")
+              : -1;
+
+            if (performancePhase2?.startTime && perfIndex >= 0) {
+              const sortedAll = timeline.performances
+                .slice()
+                .sort(
+                  (a, b) => Number(a?.performanceOrder || 0) - Number(b?.performanceOrder || 0)
+                );
+
+              // Ensure ALL performances have times (including the newly appended ones).
+              let cursor = new Date(performancePhase2.startTime);
+              sortedAll.forEach((p) => {
+                const seconds =
+                  Number.isFinite(Number(p?.videoDuration)) && Number(p?.videoDuration) > 0
+                    ? Number(p.videoDuration)
+                    : fallbackSeconds;
+                if (!p.startTime || !p.endTime) {
+                  p.startTime = new Date(cursor);
+                  p.endTime = new Date(cursor.getTime() + seconds * 1000);
+                }
+                cursor = new Date(p.endTime);
+              });
+
+              const oldPerfEnd = performancePhase2.endTime
+                ? new Date(performancePhase2.endTime)
+                : null;
+              const newPerfEnd = new Date(cursor);
+
+              if (!oldPerfEnd || newPerfEnd.getTime() !== oldPerfEnd.getTime()) {
+                const deltaMs = oldPerfEnd ? newPerfEnd.getTime() - oldPerfEnd.getTime() : 0;
+                performancePhase2.endTime = newPerfEnd;
+                performancePhase2.duration =
+                  (newPerfEnd.getTime() - new Date(performancePhase2.startTime).getTime()) / 60000;
+
+                // Shift phases that occur after performance by the delta.
+                if (oldPerfEnd && deltaMs !== 0) {
+                  for (let i = perfIndex + 1; i < timeline.phases.length; i++) {
+                    const ph = timeline.phases[i];
+                    if (ph?.startTime)
+                      ph.startTime = new Date(new Date(ph.startTime).getTime() + deltaMs);
+                    if (ph?.endTime)
+                      ph.endTime = new Date(new Date(ph.endTime).getTime() + deltaMs);
+                  }
+                }
+              }
+            }
+          } catch (appendScheduleErr) {
+            console.error(
+              "⚠️ [TIMELINE] Failed to schedule appended performances:",
+              appendScheduleErr
+            );
+          }
 
           await timeline.save();
 
@@ -3239,87 +3343,178 @@ exports.getStructuredTimeline = async (req, res) => {
       );
     }
 
-    // AUTO-ADVANCE (time-based) phases when they expire.
-    // Without this, phases like welcome/voting can remain "active" forever once started.
-    // Performance is intentionally excluded because it advances per-video via /auto-advance-performance.
+    // TV-style progression: sync current phase/performance by server time.
+    // This avoids shifting the schedule based on when clients poll.
     try {
-      const canAutoAdvance =
+      const canSyncByTime =
         timeline.isLive &&
         timeline.eventStatus !== "completed" &&
         !timeline.isPaused &&
         !(timeline.manualOverride && timeline.manualOverride.active);
 
-      if (canAutoAdvance && Array.isArray(timeline.phases) && timeline.phases.length > 0) {
-        // Commercial phase is advanced explicitly by the client once all adverts have played.
-        // Auto-advancing by time can cut the break short if commercials are uploaded/changed after
-        // timeline creation or if durations drift.
-        const eligible = new Set(["welcome", "voting", "winner", "thankyou"]);
+      if (canSyncByTime && Array.isArray(timeline.phases) && timeline.phases.length > 0) {
+        const nowTime = new Date(serverNow);
+        let changed = false;
+        const previousPhaseName =
+          typeof timeline.currentPhase === "object"
+            ? timeline.currentPhase.name
+            : timeline.currentPhase;
 
-        let guard = 0;
-        while (guard < 10) {
-          guard += 1;
+        // Determine the scheduled phase for "now".
+        const timeBasedPhase = timeline.phases.find(
+          (phase) =>
+            phase?.startTime &&
+            phase?.endTime &&
+            nowTime >= new Date(phase.startTime) &&
+            nowTime <= new Date(phase.endTime)
+        );
 
-          let activePhase = timeline.phases.find((p) => p.status === "active");
+        if (timeBasedPhase) {
+          const desiredName = timeBasedPhase.name;
 
-          // Recovery: if no phase is active, activate the first non-completed phase.
-          if (!activePhase) {
-            const nextIndex = timeline.phases.findIndex((p) => p.status !== "completed");
-            if (nextIndex === -1) break;
-            timeline.phases.forEach((p, idx) => {
-              if (p.status !== "completed") {
-                p.status = idx === nextIndex ? "active" : "pending";
-              }
-            });
-            timeline.currentPhase = timeline.phases[nextIndex].name;
-            await timeline.save();
-            continue;
+          // Sync phase statuses to match time window (without changing start/end times).
+          timeline.phases.forEach((phase) => {
+            if (!phase?.startTime || !phase?.endTime) return;
+            const start = new Date(phase.startTime);
+            const end = new Date(phase.endTime);
+
+            const desiredStatus =
+              nowTime < start ? "pending" : nowTime > end ? "completed" : "active";
+            if (phase.status !== desiredStatus) {
+              phase.status = desiredStatus;
+              changed = true;
+            }
+          });
+
+          if (timeline.currentPhase !== desiredName) {
+            timeline.currentPhase = desiredName;
+            changed = true;
           }
 
-          const phaseName = activePhase.name;
-          if (!eligible.has(phaseName)) break;
-          if (!activePhase.endTime) break;
+          // If we're in performance phase, also sync which performance is active by time.
+          if (desiredName === "performance" && Array.isArray(timeline.performances)) {
+            const performancePhase = timeline.phases.find((p) => p?.name === "performance");
+            if (performancePhase?.startTime) {
+              const fallbackSeconds = (timeline.config?.performanceSlotDuration || 5) * 60;
+              const sortedPerformances = timeline.performances
+                .slice()
+                .sort(
+                  (a, b) => Number(a?.performanceOrder || 0) - Number(b?.performanceOrder || 0)
+                );
 
-          const nowTime = new Date();
-          const phaseEnd = new Date(activePhase.endTime);
-          if (nowTime <= phaseEnd) break;
+              // Ensure start/end times exist for time-based matching.
+              if (sortedPerformances.some((p) => !p?.startTime || !p?.endTime)) {
+                let cursor = new Date(performancePhase.startTime);
+                sortedPerformances.forEach((perf) => {
+                  const seconds =
+                    Number.isFinite(Number(perf?.videoDuration)) && Number(perf?.videoDuration) > 0
+                      ? Number(perf.videoDuration)
+                      : fallbackSeconds;
+                  perf.startTime = perf.startTime ? new Date(perf.startTime) : new Date(cursor);
+                  perf.endTime = perf.endTime
+                    ? new Date(perf.endTime)
+                    : new Date(cursor.getTime() + seconds * 1000);
+                  cursor = new Date(perf.endTime);
+                });
+                changed = true;
+              }
 
-          console.log(
-            `⏭️ [AUTO-ADVANCE] Phase "${phaseName}" expired at ${phaseEnd.toISOString()}, advancing...`
-          );
+              const timeBasedPerf = sortedPerformances.find(
+                (perf) =>
+                  perf?.startTime &&
+                  perf?.endTime &&
+                  nowTime >= new Date(perf.startTime) &&
+                  nowTime <= new Date(perf.endTime)
+              );
 
-          const nextPhase = timeline.advancePhase();
+              if (timeBasedPerf) {
+                sortedPerformances.forEach((perf) => {
+                  if (!perf?.startTime || !perf?.endTime) return;
+                  const start = new Date(perf.startTime);
+                  const end = new Date(perf.endTime);
+                  const desiredStatus =
+                    nowTime < start ? "pending" : nowTime > end ? "completed" : "active";
+                  if (perf.status !== desiredStatus) {
+                    perf.status = desiredStatus;
+                    changed = true;
+                  }
+                });
 
-          // Keep voting state + winner announcement in sync on phase changes.
-          try {
+                if (
+                  !timeline.currentPerformance ||
+                  String(timeline.currentPerformance?.contestant || "") !==
+                    String(timeBasedPerf.contestant?._id || timeBasedPerf.contestant)
+                ) {
+                  timeline.currentPerformance = {
+                    contestant: timeBasedPerf.contestant?._id || timeBasedPerf.contestant,
+                    performanceOrder: timeBasedPerf.performanceOrder,
+                    startTime: timeBasedPerf.startTime,
+                    timeRemaining: Math.max(
+                      0,
+                      Math.floor(
+                        (new Date(timeBasedPerf.endTime).getTime() - nowTime.getTime()) / 1000
+                      )
+                    ),
+                  };
+                  changed = true;
+                }
+              }
+            }
+          }
+
+          // Keep showcase voting state + winner announcement aligned when phase changes.
+          if (previousPhaseName !== desiredName) {
             const showcaseId = timeline.showcase?._id?.toString() || String(timeline.showcase);
-            if (nextPhase?.name === "voting") {
+            if (desiredName === "voting") {
               await TalentShowcase.findByIdAndUpdate(showcaseId, {
                 isVotingOpen: true,
                 status: "voting",
-                votingStartTime: nextPhase.startTime,
-                votingEndTime: nextPhase.endTime,
+                votingStartTime: timeBasedPhase.startTime,
+                votingEndTime: timeBasedPhase.endTime,
+              });
+            } else if (previousPhaseName === "voting" && desiredName !== "voting") {
+              await TalentShowcase.findByIdAndUpdate(showcaseId, {
+                isVotingOpen: false,
               });
             }
-            if (nextPhase?.name === "winner") {
+
+            if (desiredName === "winner") {
               await TalentShowcase.findByIdAndUpdate(showcaseId, {
                 isVotingOpen: false,
               });
               await ensureWinnerAnnouncement(timeline, showcaseId);
             }
-          } catch (syncErr) {
-            console.error("⚠️ [AUTO-ADVANCE] Phase transition sync failed:", syncErr);
           }
+        } else {
+          // If we're past the end of the last phase, end the event.
+          const last = timeline.phases[timeline.phases.length - 1];
+          if (last?.endTime && nowTime > new Date(last.endTime)) {
+            timeline.phases.forEach((p) => {
+              if (p.status !== "completed") {
+                p.status = "completed";
+                changed = true;
+              }
+            });
+            timeline.currentPhase = "ended";
+            timeline.eventStatus = "completed";
+            timeline.isLive = false;
+            timeline.actualEndTime = nowTime;
+            changed = true;
 
-          await timeline.save();
-
-          // Stop once we enter performance (manual per-video) or the event ends.
-          if (!nextPhase || nextPhase.name === "performance") {
-            break;
+            const showcaseId = timeline.showcase?._id?.toString() || String(timeline.showcase);
+            await TalentShowcase.findByIdAndUpdate(showcaseId, {
+              status: "completed",
+              isVotingOpen: false,
+            });
           }
         }
+
+        if (changed) {
+          await timeline.save();
+        }
       }
-    } catch (autoErr) {
-      console.error("⚠️ [AUTO-ADVANCE] Failed to auto-advance phase:", autoErr);
+    } catch (syncErr) {
+      console.error("⚠️ [TIME-SYNC] Failed to sync timeline by time:", syncErr);
     }
 
     // Get current phase and time remaining
@@ -3363,12 +3558,28 @@ exports.getStructuredTimeline = async (req, res) => {
       console.error("⚠️ Failed to populate winnerAnnouncement.winner:", populateErr);
     }
 
-    // Find current active phase
+    // Find current active phase (after time-sync)
     const activePhase = timeline.phases.find((p) => p.status === "active");
     if (activePhase) {
       currentPhaseObj = activePhase;
       const phaseEnd = new Date(activePhase.endTime);
       timeRemaining = Math.floor(Math.max(0, (phaseEnd - now) / 1000)); // in seconds
+    } else {
+      // Fallback: compute phase purely by schedule.
+      const timeBasedPhase = Array.isArray(timeline.phases)
+        ? timeline.phases.find(
+            (p) =>
+              p?.startTime &&
+              p?.endTime &&
+              now >= new Date(p.startTime) &&
+              now <= new Date(p.endTime)
+          )
+        : null;
+      if (timeBasedPhase) {
+        currentPhaseObj = timeBasedPhase;
+        const phaseEnd = new Date(timeBasedPhase.endTime);
+        timeRemaining = Math.floor(Math.max(0, (phaseEnd - now) / 1000));
+      }
     }
 
     // If we're in the performance phase, find the current performer
@@ -3409,7 +3620,7 @@ exports.getStructuredTimeline = async (req, res) => {
         });
       });
 
-      // Find the active performance
+      // Find the active performance (time-sync should keep this correct)
       activePerformance = timeline.performances.find((p) => p.status === "active");
 
       // CRITICAL: Ensure only ONE performance is active at a time
@@ -3428,11 +3639,15 @@ exports.getStructuredTimeline = async (req, res) => {
         activePerformance = multipleActive[0];
       }
 
-      // If no active performance found but we're in performance phase, use the first pending one
+      // If no active performance found, use time-based lookup before falling back to pending.
       if (!activePerformance) {
-        activePerformance = timeline.performances.find((p) => p.status === "pending");
+        const byTime = timeline.performances.find(
+          (p) =>
+            p?.startTime && p?.endTime && now >= new Date(p.startTime) && now <= new Date(p.endTime)
+        );
+        activePerformance = byTime || timeline.performances.find((p) => p.status === "pending");
         console.log(
-          "⚠️ [TIMELINE] No active performance found, using first pending:",
+          "⚠️ [TIMELINE] No active performance found, using time-based/pending:",
           activePerformance?.contestant?.performanceTitle
         );
       }
@@ -4402,7 +4617,11 @@ exports.getLiveEventControl = async (req, res) => {
 exports.advancePerformance = async (req, res) => {
   try {
     const { id } = req.params;
+    const requestedPerformerId = req?.body?.performerId ? String(req.body.performerId) : null;
+    const requestedSource = req?.body?.source ? String(req.body.source) : null;
     const ShowcaseEventTimeline = require("../models/ShowcaseEventTimeline");
+
+    const serverNow = new Date();
 
     const timeline = await ShowcaseEventTimeline.findOne({ showcase: id }).populate(
       "performances.contestant"
@@ -4415,11 +4634,23 @@ exports.advancePerformance = async (req, res) => {
       });
     }
 
-    // Prevent accidental double-advances when multiple clients fire the "ended" trigger
-    // (or the same client fires twice). If we're not in the performance phase, this
-    // endpoint should be a no-op.
-    const activePhaseName = timeline?.phases?.find((p) => p.status === "active")?.name;
-    const phaseName = activePhaseName || timeline.currentPhase;
+    // TV-style: derive current phase by schedule time.
+    const scheduledPhase = Array.isArray(timeline.phases)
+      ? timeline.phases.find(
+          (p) =>
+            p?.startTime &&
+            p?.endTime &&
+            serverNow >= new Date(p.startTime) &&
+            serverNow <= new Date(p.endTime)
+        )
+      : null;
+
+    // Prevent accidental double-advances when multiple clients fire the "ended" trigger.
+    // If we're not in the scheduled performance phase, this endpoint is a no-op.
+    const phaseName =
+      scheduledPhase?.name ||
+      timeline?.phases?.find((p) => p.status === "active")?.name ||
+      timeline.currentPhase;
     if (phaseName !== "performance") {
       return res.json({
         success: true,
@@ -4437,11 +4668,51 @@ exports.advancePerformance = async (req, res) => {
       });
     }
 
-    // CRITICAL: Sort performances by performanceOrder to ensure correct sequence
-    timeline.performances.sort((a, b) => a.performanceOrder - b.performanceOrder);
+    // Determine the current performance by time (preferred) or by explicit status.
+    const sortedPerformances = Array.isArray(timeline.performances)
+      ? timeline.performances.slice().sort((a, b) => a.performanceOrder - b.performanceOrder)
+      : [];
 
-    // Find current active performance
-    let currentIndex = timeline.performances.findIndex((p) => p.status === "active");
+    const timeBasedPerf = sortedPerformances.find(
+      (p) =>
+        p?.startTime &&
+        p?.endTime &&
+        serverNow >= new Date(p.startTime) &&
+        serverNow <= new Date(p.endTime)
+    );
+
+    const statusBasedPerf = sortedPerformances.find((p) => p.status === "active");
+    const currentPerf = timeBasedPerf || statusBasedPerf || null;
+
+    // If the client includes a performerId, ensure it matches the *current* performance.
+    if (requestedPerformerId && currentPerf) {
+      const currentContestantId = currentPerf?.contestant?._id || currentPerf?.contestant;
+      const currentPerformerId = currentContestantId ? String(currentContestantId) : null;
+
+      if (currentPerformerId && currentPerformerId !== requestedPerformerId) {
+        console.warn(
+          `⚠️ [ADVANCE] Ignoring stale advance request (requested ${requestedPerformerId}, current ${currentPerformerId})` +
+            (requestedSource ? ` source=${requestedSource}` : "")
+        );
+        return res.json({
+          success: true,
+          message: "Stale advance ignored",
+          requestedPerformerId,
+          activePerformerId: currentPerformerId,
+          source: requestedSource,
+        });
+      }
+    }
+
+    // Find current index (prefer time-based performer)
+    let currentIndex = -1;
+    if (currentPerf) {
+      currentIndex = sortedPerformances.findIndex((p) => p._id.equals(currentPerf._id));
+    }
+
+    if (currentIndex === -1) {
+      currentIndex = sortedPerformances.findIndex((p) => p.status === "active");
+    }
 
     console.log(
       `📡 [ADVANCE] Current active index: ${currentIndex}, Total performances: ${timeline.performances.length}`
@@ -4449,10 +4720,10 @@ exports.advancePerformance = async (req, res) => {
 
     // If no active performance found, find the last completed one to determine next
     if (currentIndex === -1) {
-      const completedPerformances = timeline.performances.filter((p) => p.status === "completed");
+      const completedPerformances = sortedPerformances.filter((p) => p.status === "completed");
       if (completedPerformances.length > 0) {
         // Find the highest index among completed performances
-        currentIndex = timeline.performances.findIndex((p) =>
+        currentIndex = sortedPerformances.findIndex((p) =>
           p._id.equals(completedPerformances[completedPerformances.length - 1]._id)
         );
         console.log(
@@ -4460,7 +4731,7 @@ exports.advancePerformance = async (req, res) => {
         );
       } else {
         // No active and no completed: treat as "not started yet" and start the first pending.
-        const firstPendingIndex = timeline.performances.findIndex((p) => p.status === "pending");
+        const firstPendingIndex = sortedPerformances.findIndex((p) => p.status === "pending");
         if (firstPendingIndex >= 0) {
           console.warn(
             `⚠️ [ADVANCE] No active/completed performances found; starting first pending at index ${firstPendingIndex}`
@@ -4475,6 +4746,27 @@ exports.advancePerformance = async (req, res) => {
             message: "Invalid performance state - no performances available",
           });
         }
+      }
+    }
+
+    // Guard: don't allow advancing early vs the scheduled end time.
+    // This keeps the event deterministic across devices.
+    if (currentPerf?.endTime) {
+      const endMs = new Date(currentPerf.endTime).getTime();
+      const nowMs = serverNow.getTime();
+      const GRACE_MS = 1000;
+      if (nowMs + GRACE_MS < endMs) {
+        return res.json({
+          success: true,
+          message: "Advance ignored (too early)",
+          source: requestedSource,
+          requestedPerformerId,
+          currentPerformerId:
+            currentPerf?.contestant?._id || currentPerf?.contestant
+              ? String(currentPerf?.contestant?._id || currentPerf?.contestant)
+              : null,
+          secondsRemaining: Math.max(0, Math.ceil((endMs - nowMs) / 1000)),
+        });
       }
     }
 
@@ -4493,9 +4785,10 @@ exports.advancePerformance = async (req, res) => {
 
     if (nextIndex < timeline.performances.length) {
       // Start next performance
-      const nextPerf = timeline.performances[nextIndex];
+      const nextPerf = timeline.performances
+        .slice()
+        .sort((a, b) => a.performanceOrder - b.performanceOrder)[nextIndex];
       nextPerf.status = "active";
-      nextPerf.startTime = new Date();
 
       // Ensure videoDuration is set - if not, get from contestant
       if (!nextPerf.videoDuration) {
@@ -4506,13 +4799,22 @@ exports.advancePerformance = async (req, res) => {
         );
       }
 
-      nextPerf.endTime = new Date(Date.now() + nextPerf.videoDuration * 1000);
+      // Preserve scheduled times when present; only backfill if missing.
+      if (!nextPerf.startTime) {
+        nextPerf.startTime = new Date(serverNow);
+      }
+      if (!nextPerf.endTime) {
+        nextPerf.endTime = new Date(nextPerf.startTime.getTime() + nextPerf.videoDuration * 1000);
+      }
 
       timeline.currentPerformance = {
         contestant: nextPerf.contestant._id,
         performanceOrder: nextPerf.performanceOrder,
-        startTime: new Date(),
-        timeRemaining: nextPerf.videoDuration,
+        startTime: nextPerf.startTime,
+        timeRemaining: Math.max(
+          0,
+          Math.floor((new Date(nextPerf.endTime).getTime() - serverNow.getTime()) / 1000)
+        ),
       };
 
       console.log(
@@ -4529,7 +4831,7 @@ exports.advancePerformance = async (req, res) => {
         message: "Advanced to next performance",
         currentPerformance: timeline.performances[nextIndex],
         currentPerformer: timeline.performances[nextIndex].contestant,
-        timeRemaining: timeline.performances[nextIndex].videoDuration,
+        timeRemaining: timeline.currentPerformance.timeRemaining,
       });
     } else {
       // All performances complete - advance to next phase (commercial)
@@ -4545,13 +4847,13 @@ exports.advancePerformance = async (req, res) => {
         });
       }
 
-      timeline.advancePhase();
-      await timeline.save();
+      // TV-style: do not shift the schedule by calling advancePhase() here.
+      // The timeline GET handler will sync phases based on server time.
 
       res.json({
         success: true,
-        message: "All performances complete, advancing to next phase",
-        nextPhase: timeline.currentPhase,
+        message: "All performances complete (schedule will move to next phase by time)",
+        nextPhase: "commercial",
       });
     }
   } catch (error) {
@@ -4601,19 +4903,13 @@ exports.commercialsComplete = async (req, res) => {
       });
     }
 
-    console.log("📺 All commercials completed, advancing to next phase...");
-
-    // Advance to next phase (voting)
-    timeline.advancePhase();
-    await timeline.save();
-
-    console.log("✅ Advanced from commercial to:", timeline.currentPhase);
+    console.log("📺 Commercials complete signal received (TV-style schedule preserves timings)");
 
     res.json({
       success: true,
-      message: "All commercials completed, advanced to next phase",
+      message: "Commercials completion acknowledged (schedule continues by time)",
       previousPhase: "commercial",
-      nextPhase: timeline.currentPhase,
+      nextPhase: "voting",
     });
   } catch (error) {
     console.error("❌ Error handling commercials complete:", error);
