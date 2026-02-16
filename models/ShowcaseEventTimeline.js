@@ -590,15 +590,32 @@ showcaseEventTimeline.methods.advancePhase = function () {
     return null;
   }
 
-  const currentPhaseIndex = this.phases.findIndex((p) => p.status === "active");
+  const now = new Date();
+
+  // Prefer explicitly active phase, but fall back to currentPhase/time-based
+  // lookup if statuses got out of sync (e.g., after restarts/manual edits).
+  let currentPhaseIndex = this.phases.findIndex((p) => p.status === "active");
+
+  if (currentPhaseIndex < 0 && this.currentPhase && this.currentPhase !== "ended") {
+    currentPhaseIndex = this.phases.findIndex(
+      (p) => p.name === this.currentPhase && p.status !== "completed"
+    );
+  }
+
+  if (currentPhaseIndex < 0) {
+    // Time-based fallback (mirrors getCurrentPhase logic, but doesn't require an active status)
+    currentPhaseIndex = this.phases.findIndex(
+      (phase) => now >= phase.startTime && now <= phase.endTime && phase.status !== "completed"
+    );
+  }
+
   if (currentPhaseIndex >= 0) {
     this.phases[currentPhaseIndex].status = "completed";
   }
 
-  const nextPhaseIndex = currentPhaseIndex + 1;
+  const nextPhaseIndex = currentPhaseIndex >= 0 ? currentPhaseIndex + 1 : 0;
   if (nextPhaseIndex < this.phases.length) {
     this.phases[nextPhaseIndex].status = "active";
-    const now = new Date();
     let phaseDuration = this.phases[nextPhaseIndex].duration;
 
     // For performance phase, recalculate duration from actual performances
