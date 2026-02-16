@@ -454,6 +454,21 @@ showcaseEventTimeline.methods.schedulePerformances = function (contestants) {
     currentTime = new Date(performancePhase.endTime);
     for (let i = performanceIndex + 1; i < this.phases.length; i++) {
       this.phases[i].startTime = new Date(currentTime);
+
+      // Countdown is a continuous phase whose endTime should NOT be derived from duration (duration is 0).
+      // Preserve existing endTime (typically thankYouMessage.nextEventDate) or fall back to 30 days.
+      if (this.phases[i].name === "countdown") {
+        if (!this.phases[i].endTime) {
+          this.phases[i].endTime =
+            this.thankYouMessage?.nextEventDate ||
+            new Date(currentTime.getTime() + 30 * 24 * 60 * 60 * 1000);
+        }
+
+        // Countdown is expected to be the last phase; don't advance currentTime based on it.
+        currentTime = new Date(this.phases[i].startTime);
+        continue;
+      }
+
       this.phases[i].endTime = new Date(currentTime.getTime() + this.phases[i].duration * 60000);
       currentTime = this.phases[i].endTime;
     }

@@ -254,10 +254,6 @@ afri_connect_api/
 │       ├── ForbiddenError.js
 │       ├── NotFoundError.js
 │       └── index.js
-├── scripts/                  # Utility scripts
-│   ├── check-replies.js     # Check forum replies
-│   ├── migrate-replies.js   # Migrate replies
-│   └── restore-replies.js   # Restore replies
 ├── uploads/                  # Local file storage
 │   ├── listings/            # Listing images
 │   └── profiles/            # Profile images

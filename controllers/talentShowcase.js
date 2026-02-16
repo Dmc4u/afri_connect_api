@@ -1369,7 +1369,7 @@ exports.updateContestantStatus = async (req, res) => {
         const approvedContestants = await TalentContestant.find({
           showcase: contestant.showcase._id,
           status: { $in: ["approved", "selected"] },
-        });
+        }).sort({ rafflePosition: 1, _id: 1 });
 
         // Reschedule performances with updated contestant list
         timeline.schedulePerformances(approvedContestants);
@@ -3314,8 +3314,11 @@ exports.getStructuredTimeline = async (req, res) => {
                     const ph = timeline.phases[i];
                     if (ph?.startTime)
                       ph.startTime = new Date(new Date(ph.startTime).getTime() + deltaMs);
-                    if (ph?.endTime)
+
+                    // Countdown endTime is typically a fixed nextEventDate; don't shift it.
+                    if (ph?.endTime && ph?.name !== "countdown") {
                       ph.endTime = new Date(new Date(ph.endTime).getTime() + deltaMs);
+                    }
                   }
                 }
               }
@@ -3341,6 +3344,93 @@ exports.getStructuredTimeline = async (req, res) => {
         "⚠️ [TIMELINE] Failed to ensure performances include all selected contestants:",
         ensureErr
       );
+    }
+
+    // Ensure performance order + schedule always matches selected contestants raffle order.
+    // This fixes cases where schedulePerformances() was previously called with an unsorted array.
+    try {
+      const shouldResyncPerformanceSchedule =
+        timeline &&
+        Array.isArray(timeline.phases) &&
+        Array.isArray(timeline.performances) &&
+        Array.isArray(contestants) &&
+        contestants.length > 0;
+
+      if (shouldResyncPerformanceSchedule) {
+        const performancePhase = timeline.phases.find((p) => p?.name === "performance");
+        const perfIndex = timeline.phases.findIndex((p) => p?.name === "performance");
+
+        if (performancePhase?.startTime && perfIndex >= 0) {
+          const desiredIds = contestants.map((c) => String(c?._id)).filter(Boolean);
+          const currentSorted = timeline.performances
+            .slice()
+            .sort((a, b) => Number(a?.performanceOrder || 0) - Number(b?.performanceOrder || 0));
+          const currentIds = currentSorted
+            .map((p) => String(p?.contestant?._id || p?.contestant || ""))
+            .filter(Boolean);
+
+          const isSameOrder =
+            currentIds.length === desiredIds.length &&
+            currentIds.every((id, idx) => id === desiredIds[idx]);
+
+          if (!isSameOrder) {
+            const fallbackSeconds = (timeline.config?.performanceSlotDuration || 5) * 60;
+            const oldPerfEnd = performancePhase.endTime ? new Date(performancePhase.endTime) : null;
+
+            // Rebuild performances sequentially using contestant video durations in raffle order.
+            let cursor = new Date(performancePhase.startTime);
+            const nextPerformances = [];
+
+            desiredIds.forEach((contestantId, idx) => {
+              const contestant = contestants[idx];
+              const raw = Number(contestant?.videoDuration);
+              const seconds = Number.isFinite(raw) && raw > 0 ? raw : fallbackSeconds;
+
+              nextPerformances.push({
+                contestant: contestant?._id,
+                performanceOrder: idx + 1,
+                videoDuration: seconds,
+                startTime: new Date(cursor),
+                endTime: new Date(cursor.getTime() + seconds * 1000),
+                status: "pending",
+              });
+
+              cursor = new Date(cursor.getTime() + seconds * 1000);
+            });
+
+            timeline.performances = nextPerformances;
+
+            const newPerfEnd = new Date(cursor);
+            performancePhase.endTime = newPerfEnd;
+            performancePhase.duration =
+              (newPerfEnd.getTime() - new Date(performancePhase.startTime).getTime()) / 60000;
+
+            // Shift phases after performance by delta (but keep countdown endTime fixed).
+            if (oldPerfEnd) {
+              const deltaMs = newPerfEnd.getTime() - oldPerfEnd.getTime();
+              if (deltaMs !== 0) {
+                for (let i = perfIndex + 1; i < timeline.phases.length; i++) {
+                  const ph = timeline.phases[i];
+                  if (ph?.startTime)
+                    ph.startTime = new Date(new Date(ph.startTime).getTime() + deltaMs);
+                  if (ph?.endTime && ph?.name !== "countdown")
+                    ph.endTime = new Date(new Date(ph.endTime).getTime() + deltaMs);
+                }
+              }
+            }
+
+            await timeline.save();
+
+            // Re-populate for response with user details.
+            await timeline.populate({
+              path: "performances.contestant",
+              populate: { path: "user", select: "name username profilePhoto" },
+            });
+          }
+        }
+      }
+    } catch (resyncErr) {
+      console.error("⚠️ [TIMELINE] Failed to resync performance schedule:", resyncErr);
     }
 
     // TV-style progression: sync current phase/performance by server time.

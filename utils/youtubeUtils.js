@@ -1,5 +1,11 @@
 let ytdl;
 
+// Prevent @distube/ytdl-core from writing `*-player-script.js` debug artifacts to disk.
+// This is safe: it only disables saving the debug file; it does not block fetching video info.
+if (process.env.YTDL_NO_DEBUG_FILE === undefined) {
+  process.env.YTDL_NO_DEBUG_FILE = "1";
+}
+
 try {
   // Preferred fork (often more up-to-date for YouTube changes)
   // eslint-disable-next-line global-require

@@ -1,4 +1,14 @@
 require("dotenv").config();
+
+// Prevent @distube/ytdl-core from dumping huge debug files like `*-player-script.js`
+// into the project root when YouTube signature parsing fails.
+//
+// If you ever need those debug artifacts, explicitly set `YTDL_NO_DEBUG_FILE=` (empty)
+// in your environment to re-enable saving.
+if (process.env.YTDL_NO_DEBUG_FILE === undefined) {
+  process.env.YTDL_NO_DEBUG_FILE = "1";
+}
+
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
