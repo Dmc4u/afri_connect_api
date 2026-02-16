@@ -496,6 +496,41 @@ showcaseEventTimeline.methods.getCurrentPhase = function () {
 
   const now = new Date();
 
+  // If multiple phases are marked active (can happen after restarts/manual edits),
+  // normalize to a single active phase to avoid UI/scheduler mismatches.
+  const activePhases = this.phases
+    .map((phase, index) => ({ phase, index }))
+    .filter(({ phase }) => phase.status === "active");
+
+  if (activePhases.length > 1) {
+    // Prefer the phase matching currentPhase; otherwise prefer the most recently started.
+    let intendedIndex = -1;
+    if (this.currentPhase && this.currentPhase !== "ended") {
+      intendedIndex = this.phases.findIndex((p) => p.name === this.currentPhase);
+      if (!activePhases.some((p) => p.index === intendedIndex)) intendedIndex = -1;
+    }
+
+    if (intendedIndex < 0) {
+      intendedIndex = activePhases.slice().sort((a, b) => {
+        const aStart = a.phase.startTime ? new Date(a.phase.startTime).getTime() : 0;
+        const bStart = b.phase.startTime ? new Date(b.phase.startTime).getTime() : 0;
+        if (aStart !== bStart) return bStart - aStart;
+        return b.index - a.index;
+      })[0].index;
+    }
+
+    // Normalize statuses in order: past completed, intended active, future pending.
+    this.phases.forEach((p, idx) => {
+      if (idx < intendedIndex) p.status = "completed";
+      else if (idx === intendedIndex) p.status = "active";
+      else if (p.status !== "completed") p.status = "pending";
+    });
+    this.currentPhase = this.phases[intendedIndex]?.name || this.currentPhase;
+
+    // Best-effort persist; keep method sync.
+    this.save().catch((err) => console.error("Error normalizing phase statuses:", err));
+  }
+
   // First, check if there's an explicitly active phase
   const activePhase = this.phases.find((phase) => phase.status === "active");
   if (activePhase) {
@@ -592,6 +627,35 @@ showcaseEventTimeline.methods.advancePhase = function () {
 
   const now = new Date();
 
+  // Normalize phase statuses before advancing so we never carry multiple actives forward.
+  const activeIndexes = this.phases
+    .map((p, idx) => (p.status === "active" ? idx : -1))
+    .filter((idx) => idx >= 0);
+
+  if (activeIndexes.length > 1) {
+    let intendedIndex = -1;
+    if (this.currentPhase && this.currentPhase !== "ended") {
+      intendedIndex = this.phases.findIndex((p) => p.name === this.currentPhase);
+      if (!activeIndexes.includes(intendedIndex)) intendedIndex = -1;
+    }
+
+    if (intendedIndex < 0) {
+      intendedIndex = activeIndexes.slice().sort((a, b) => {
+        const aStart = this.phases[a]?.startTime ? new Date(this.phases[a].startTime).getTime() : 0;
+        const bStart = this.phases[b]?.startTime ? new Date(this.phases[b].startTime).getTime() : 0;
+        if (aStart !== bStart) return bStart - aStart;
+        return b - a;
+      })[0];
+    }
+
+    this.phases.forEach((p, idx) => {
+      if (idx < intendedIndex) p.status = "completed";
+      else if (idx === intendedIndex) p.status = "active";
+      else if (p.status !== "completed") p.status = "pending";
+    });
+    this.currentPhase = this.phases[intendedIndex]?.name || this.currentPhase;
+  }
+
   // Prefer explicitly active phase, but fall back to currentPhase/time-based
   // lookup if statuses got out of sync (e.g., after restarts/manual edits).
   let currentPhaseIndex = this.phases.findIndex((p) => p.status === "active");
@@ -615,6 +679,13 @@ showcaseEventTimeline.methods.advancePhase = function () {
 
   const nextPhaseIndex = currentPhaseIndex >= 0 ? currentPhaseIndex + 1 : 0;
   if (nextPhaseIndex < this.phases.length) {
+    // Ensure only the next phase becomes active.
+    this.phases.forEach((p, idx) => {
+      if (idx !== nextPhaseIndex && p.status === "active") {
+        p.status = idx < nextPhaseIndex ? "completed" : "pending";
+      }
+    });
+
     this.phases[nextPhaseIndex].status = "active";
     let phaseDuration = this.phases[nextPhaseIndex].duration;
 
