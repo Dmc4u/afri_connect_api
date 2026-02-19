@@ -12,6 +12,21 @@ let schedulerInterval = null;
 let lastRaffleCheckAt = 0;
 let lastTimelineEnsureAt = 0;
 
+// Prevent repeated scheduler warnings from spamming logs.
+// This is in-memory (resets on process restart), which is perfect for log-noise control.
+const warnedSchedulerKeys = new Set();
+
+function warnOnce(key, message) {
+  const logOrphanTimelines =
+    process.env.LOG_ORPHAN_TIMELINES === "1" ||
+    String(process.env.LOG_ORPHAN_TIMELINES || "").toLowerCase() === "true";
+
+  if (!logOrphanTimelines) return;
+  if (warnedSchedulerKeys.has(key)) return;
+  warnedSchedulerKeys.add(key);
+  console.warn(message);
+}
+
 // Helper function to calculate showcase status based on dates
 const calculateShowcaseStatus = async (showcase) => {
   const now = new Date();
@@ -191,15 +206,18 @@ async function checkAndStartScheduledEvents() {
     }
 
     // Find all scheduled events that should start now (within 1 minute window)
+    // Only consider timelines that still have a showcase reference.
     const timelines = await ShowcaseEventTimeline.find({
       eventStatus: "scheduled",
       isLive: false,
+      showcase: { $exists: true, $ne: null },
     }).populate("showcase");
 
     for (const timeline of timelines) {
       if (!timeline.showcase || !timeline.showcase.eventDate) {
-        console.warn(
-          `⚠️  Timeline ${timeline._id} has no associated showcase or event date - skipping`
+        warnOnce(
+          `scheduled-missing-showcase-or-date:${timeline._id}`,
+          `⚠️  Timeline ${timeline._id} is missing showcase or showcase.eventDate - skipping (warn once)`
         );
         continue;
       }
@@ -327,7 +345,10 @@ async function checkAndAdvancePhases() {
     for (const timeline of liveTimelines) {
       // Skip if showcase is null or deleted
       if (!timeline.showcase) {
-        console.warn(`⚠️  Timeline ${timeline._id} has no associated showcase - marking as ended`);
+        warnOnce(
+          `live-missing-showcase:${timeline._id}`,
+          `⚠️  Timeline ${timeline._id} has no associated showcase - marking as ended (warn once)`
+        );
         timeline.isLive = false;
         timeline.eventStatus = "cancelled";
         await timeline.save();
