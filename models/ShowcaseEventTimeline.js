@@ -213,7 +213,7 @@ const showcaseEventTimeline = new mongoose.Schema(
     // Total displayed viewers = viewerCountBase + activeViewers.length
     viewerCountBase: {
       type: Number,
-      default: 2000,
+      default: 4320,
     },
     viewerCount: {
       type: Number,

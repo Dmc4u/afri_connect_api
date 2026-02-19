@@ -123,10 +123,8 @@ router.get("/", async (req, res) => {
     }
 
     // Update showcase status dynamically before returning
-    const computedShowcaseStatus =
-      showcase && showcase.status !== "cancelled" && showcase.status !== "completed"
-        ? calculateShowcaseStatus(showcase)
-        : showcase?.status || null;
+    // (For structured showcases, the timeline is the source of truth.)
+    let computedShowcaseStatus = showcase?.status || null;
 
     // Get timeline if it exists
     let timeline = null;
@@ -135,6 +133,18 @@ router.get("/", async (req, res) => {
     if (showcase) {
       timeline = await ShowcaseEventTimeline.findOne({ showcase: showcase._id });
       // NOTE: This endpoint is intentionally read-only. Timeline creation/starting is handled by the scheduler.
+
+      if (showcase.showcaseType === "structured" && timeline) {
+        if (timeline.eventStatus === "completed") {
+          computedShowcaseStatus = "completed";
+        } else if (timeline.isLive) {
+          computedShowcaseStatus = timeline.currentPhase === "voting" ? "voting" : "live";
+        } else if (showcase.status !== "cancelled" && showcase.status !== "completed") {
+          computedShowcaseStatus = calculateShowcaseStatus(showcase);
+        }
+      } else if (showcase.status !== "cancelled" && showcase.status !== "completed") {
+        computedShowcaseStatus = calculateShowcaseStatus(showcase);
+      }
 
       // Determine status based on timeline phases if available
       if (timeline && timeline.phases && timeline.phases.length > 0) {

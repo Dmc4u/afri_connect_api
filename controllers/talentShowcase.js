@@ -441,12 +441,34 @@ exports.getShowcases = async (req, res) => {
 
     // Update status for each showcase based on current time
     for (const showcase of showcases) {
-      if (showcase.status !== "cancelled" && showcase.status !== "completed") {
-        const newStatus = calculateShowcaseStatus(showcase);
-        if (newStatus !== showcase.status) {
-          showcase.status = newStatus;
-          await showcase.save();
+      if (showcase.status === "cancelled") continue;
+
+      let newStatus = null;
+
+      if (showcase.showcaseType === "structured") {
+        const timeline = await ShowcaseEventTimeline.findOne({
+          showcase: showcase._id,
+        }).select("eventStatus isLive currentPhase");
+
+        if (timeline) {
+          if (timeline.eventStatus === "completed") {
+            newStatus = "completed";
+          } else if (timeline.isLive) {
+            // Preserve the special voting label when the structured timeline is in voting.
+            newStatus = timeline.currentPhase === "voting" ? "voting" : "live";
+          }
         }
+      }
+
+      // Fallback for legacy/uninitialized timelines.
+      if (!newStatus) {
+        if (showcase.status === "completed") continue;
+        newStatus = calculateShowcaseStatus(showcase);
+      }
+
+      if (newStatus && newStatus !== showcase.status) {
+        showcase.status = newStatus;
+        await showcase.save();
       }
     }
 
@@ -772,8 +794,30 @@ exports.updateShowcase = async (req, res) => {
 
     // Calculate and update status automatically if not manually set to cancelled or completed
     if (showcase.status !== "cancelled" && showcase.status !== "completed") {
-      showcase.status = calculateShowcaseStatus(showcase);
-      await showcase.save();
+      let newStatus = null;
+
+      if (showcase.showcaseType === "structured") {
+        const timeline = await ShowcaseEventTimeline.findOne({
+          showcase: showcase._id,
+        }).select("eventStatus isLive currentPhase");
+
+        if (timeline) {
+          if (timeline.eventStatus === "completed") {
+            newStatus = "completed";
+          } else if (timeline.isLive) {
+            newStatus = timeline.currentPhase === "voting" ? "voting" : "live";
+          }
+        }
+      }
+
+      if (!newStatus) {
+        newStatus = calculateShowcaseStatus(showcase);
+      }
+
+      if (newStatus && newStatus !== showcase.status) {
+        showcase.status = newStatus;
+        await showcase.save();
+      }
     }
 
     // If welcomeDuration is changed, update any existing timeline so the Welcome phase timer
@@ -3842,7 +3886,7 @@ exports.getStructuredTimeline = async (req, res) => {
     // Viewer count: baseline + real unique sessions
     const baseViewers = Number.isFinite(Number(timeline.viewerCountBase))
       ? Math.max(0, Number(timeline.viewerCountBase))
-      : 2000;
+      : 4320;
     const activeViewersCount = Array.isArray(timeline.activeViewers)
       ? timeline.activeViewers.length
       : 0;
@@ -4759,8 +4803,12 @@ exports.advancePerformance = async (req, res) => {
     }
 
     // Determine the current performance by time (preferred) or by explicit status.
+    // IMPORTANT: Always operate on performances sorted by performanceOrder so the
+    // playback sequence is deterministic (1 -> last).
     const sortedPerformances = Array.isArray(timeline.performances)
-      ? timeline.performances.slice().sort((a, b) => a.performanceOrder - b.performanceOrder)
+      ? timeline.performances
+          .slice()
+          .sort((a, b) => Number(a?.performanceOrder || 0) - Number(b?.performanceOrder || 0))
       : [];
 
     const timeBasedPerf = sortedPerformances.find(
@@ -4805,7 +4853,7 @@ exports.advancePerformance = async (req, res) => {
     }
 
     console.log(
-      `📡 [ADVANCE] Current active index: ${currentIndex}, Total performances: ${timeline.performances.length}`
+      `📡 [ADVANCE] Current active index: ${currentIndex}, Total performances: ${sortedPerformances.length}`
     );
 
     // If no active performance found, find the last completed one to determine next
@@ -4873,11 +4921,9 @@ exports.advancePerformance = async (req, res) => {
     // Move to next performance
     const nextIndex = currentIndex + 1;
 
-    if (nextIndex < timeline.performances.length) {
-      // Start next performance
-      const nextPerf = timeline.performances
-        .slice()
-        .sort((a, b) => a.performanceOrder - b.performanceOrder)[nextIndex];
+    if (nextIndex < sortedPerformances.length) {
+      // Start next performance (in strict order)
+      const nextPerf = sortedPerformances[nextIndex];
       nextPerf.status = "active";
 
       // Ensure videoDuration is set - if not, get from contestant
@@ -4919,8 +4965,8 @@ exports.advancePerformance = async (req, res) => {
       res.json({
         success: true,
         message: "Advanced to next performance",
-        currentPerformance: timeline.performances[nextIndex],
-        currentPerformer: timeline.performances[nextIndex].contestant,
+        currentPerformance: nextPerf,
+        currentPerformer: nextPerf.contestant,
         timeRemaining: timeline.currentPerformance.timeRemaining,
       });
     } else {

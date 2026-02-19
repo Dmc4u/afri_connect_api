@@ -13,7 +13,7 @@ let lastRaffleCheckAt = 0;
 let lastTimelineEnsureAt = 0;
 
 // Helper function to calculate showcase status based on dates
-const calculateShowcaseStatus = (showcase) => {
+const calculateShowcaseStatus = async (showcase) => {
   const now = new Date();
   const eventDate = new Date(showcase.eventDate);
   const registrationStart = showcase.registrationStartDate
@@ -26,6 +26,23 @@ const calculateShowcaseStatus = (showcase) => {
 
   if (showcase.status === "cancelled") {
     return "cancelled";
+  }
+
+  // For structured showcases, the timeline is the source of truth for whether
+  // the event is live/voting/completed (fixed-duration estimates are unreliable).
+  if (showcase.showcaseType === "structured") {
+    try {
+      const timeline = await ShowcaseEventTimeline.findOne({ showcase: showcase._id }).select(
+        "eventStatus isLive currentPhase"
+      );
+
+      if (timeline) {
+        if (timeline.eventStatus === "completed") return "completed";
+        if (timeline.isLive) return timeline.currentPhase === "voting" ? "voting" : "live";
+      }
+    } catch (e) {
+      // Fall through to date-based logic
+    }
   }
 
   if (registrationStart && now < registrationStart) {
@@ -73,7 +90,7 @@ async function ensureLiveTalentEventTimeline() {
 
   // Keep persisted status reasonably in-sync without relying on a public GET
   if (showcase.status !== "cancelled" && showcase.status !== "completed") {
-    const newStatus = calculateShowcaseStatus(showcase);
+    const newStatus = await calculateShowcaseStatus(showcase);
     if (newStatus !== showcase.status) {
       await TalentShowcase.findByIdAndUpdate(showcase._id, { status: newStatus });
       showcase.status = newStatus;
