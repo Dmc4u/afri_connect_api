@@ -243,9 +243,10 @@ async function checkAndStartScheduledEvents() {
 
         // Set first phase to active - start from NOW
         if (timeline.phases.length > 0) {
-          // Reset any non-completed phases to pending so welcome can activate cleanly
+          // Reset all phases to pending so welcome can activate cleanly
+          // (important when re-starting or rescheduling an event).
           timeline.phases.forEach((phase) => {
-            if (phase.status !== "completed") phase.status = "pending";
+            phase.status = "pending";
           });
 
           timeline.phases[0].status = "active";
@@ -254,6 +255,16 @@ async function checkAndStartScheduledEvents() {
           let currentTime = new Date(startTime);
           timeline.phases.forEach((phase) => {
             phase.startTime = new Date(currentTime);
+
+            if (phase.name === "countdown") {
+              phase.endTime =
+                timeline.thankYouMessage?.nextEventDate ||
+                phase.endTime ||
+                new Date(currentTime.getTime() + 30 * 24 * 60 * 60 * 1000);
+              currentTime = new Date(phase.endTime);
+              return;
+            }
+
             phase.endTime = new Date(currentTime.getTime() + phase.duration * 60000);
             currentTime = phase.endTime;
           });

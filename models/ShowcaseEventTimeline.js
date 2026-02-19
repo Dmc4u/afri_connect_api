@@ -465,7 +465,7 @@ showcaseEventTimeline.methods.schedulePerformances = function (contestants) {
         }
 
         // Countdown is expected to be the last phase; don't advance currentTime based on it.
-        currentTime = new Date(this.phases[i].startTime);
+        currentTime = new Date(this.phases[i].endTime);
         continue;
       }
 
