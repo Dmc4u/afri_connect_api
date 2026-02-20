@@ -1347,7 +1347,8 @@ exports.updateContestantRegistration = async (req, res) => {
     }
 
     // Update contestant details
-    const MAX_PERFORMANCE_DURATION = 300; // 5 minutes max
+    // videoDuration is stored in seconds. Do not hard-cap it here; the live event schedule
+    // depends on the stored duration matching the actual uploaded media duration.
 
     if (videoCloudinaryId !== undefined) {
       const newId = videoCloudinaryId || null;
@@ -1360,8 +1361,11 @@ exports.updateContestantRegistration = async (req, res) => {
     contestant.themeCreator = themeCreator || contestant.themeCreator;
     contestant.country = country || contestant.country;
     contestant.videoUrl = videoUrl || contestant.videoUrl;
-    if (videoDuration !== undefined)
-      contestant.videoDuration = Math.min(videoDuration, MAX_PERFORMANCE_DURATION); // Cap at 5 minutes
+    if (videoDuration !== undefined) {
+      const durationSeconds = Number(videoDuration);
+      contestant.videoDuration =
+        Number.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds : null;
+    }
     contestant.thumbnailUrl = thumbnailUrl || contestant.thumbnailUrl;
     if (socialMedia) contestant.socialMedia = socialMedia;
 
@@ -4210,8 +4214,12 @@ exports.skipToStage = async (req, res) => {
     const timeline = await ShowcaseEventTimeline.findOne({ showcase: id });
 
     if (timeline) {
+      const now = new Date();
+
       // Update all phase statuses
-      const targetPhaseIndex = timeline.phases.findIndex((p) => p.name === stage);
+      const targetPhaseIndex = Array.isArray(timeline.phases)
+        ? timeline.phases.findIndex((p) => p?.name === stage)
+        : -1;
       if (targetPhaseIndex === -1) {
         return res.status(400).json({
           success: false,
@@ -4219,23 +4227,99 @@ exports.skipToStage = async (req, res) => {
         });
       }
 
-      // Set previous phases to completed
-      for (let i = 0; i < targetPhaseIndex; i++) {
-        timeline.phases[i].status = "completed";
+      // Mark statuses deterministically
+      for (let i = 0; i < timeline.phases.length; i++) {
+        if (i < targetPhaseIndex) timeline.phases[i].status = "completed";
+        else if (i === targetPhaseIndex) timeline.phases[i].status = "active";
+        else timeline.phases[i].status = "pending";
       }
 
-      // Set target phase to active
-      timeline.phases[targetPhaseIndex].status = "active";
-      timeline.phases[targetPhaseIndex].startTime = new Date();
+      // Rebase the schedule from the target phase so the event continues automatically.
+      // This prevents the structured timeline from getting stuck when admin skips stages.
+      let cursor = new Date(now);
+      for (let i = targetPhaseIndex; i < timeline.phases.length; i++) {
+        const ph = timeline.phases[i];
+        ph.startTime = new Date(cursor);
 
-      // Set future phases to pending
-      for (let i = targetPhaseIndex + 1; i < timeline.phases.length; i++) {
-        timeline.phases[i].status = "pending";
+        if (ph.name === "countdown") {
+          // Countdown is continuous; keep a valid future endTime.
+          const existingEnd = ph.endTime ? new Date(ph.endTime) : null;
+          const fallbackEnd = new Date(cursor.getTime() + 30 * 24 * 60 * 60 * 1000);
+          const desiredEnd = existingEnd && existingEnd > cursor ? existingEnd : fallbackEnd;
+          ph.endTime = desiredEnd;
+          break;
+        }
+
+        const minutes = Number(ph.duration);
+        const safeMinutes = Number.isFinite(minutes) && minutes >= 0 ? minutes : 0;
+        ph.endTime = new Date(cursor.getTime() + safeMinutes * 60000);
+        cursor = new Date(ph.endTime);
       }
 
-      // Update timeline to skip to the requested phase
+      // If skipping to performance phase, schedule performances sequentially starting now.
+      if (
+        stage === "performance" &&
+        Array.isArray(timeline.performances) &&
+        timeline.performances.length > 0
+      ) {
+        const performancePhase = timeline.phases[targetPhaseIndex];
+        const fallbackSeconds = (timeline.config?.performanceSlotDuration || 5) * 60;
+
+        const sorted = timeline.performances
+          .slice()
+          .sort((a, b) => Number(a?.performanceOrder || 0) - Number(b?.performanceOrder || 0));
+
+        let perfCursor = new Date(performancePhase.startTime);
+        sorted.forEach((perf, idx) => {
+          const seconds = Number(perf?.videoDuration);
+          const safeSeconds = Number.isFinite(seconds) && seconds > 0 ? seconds : fallbackSeconds;
+
+          perf.status = idx === 0 ? "active" : "pending";
+          perf.startTime = new Date(perfCursor);
+          perf.endTime = new Date(perfCursor.getTime() + safeSeconds * 1000);
+          perf.videoDuration = safeSeconds;
+          perfCursor = new Date(perf.endTime);
+        });
+
+        // Align performance phase to the actual performances end.
+        performancePhase.endTime = new Date(perfCursor);
+        performancePhase.duration =
+          (new Date(performancePhase.endTime).getTime() -
+            new Date(performancePhase.startTime).getTime()) /
+          60000;
+
+        // Rebase subsequent phases to start after performances.
+        cursor = new Date(performancePhase.endTime);
+        for (let i = targetPhaseIndex + 1; i < timeline.phases.length; i++) {
+          const ph = timeline.phases[i];
+          ph.startTime = new Date(cursor);
+
+          if (ph.name === "countdown") {
+            const existingEnd = ph.endTime ? new Date(ph.endTime) : null;
+            const fallbackEnd = new Date(cursor.getTime() + 30 * 24 * 60 * 60 * 1000);
+            const desiredEnd = existingEnd && existingEnd > cursor ? existingEnd : fallbackEnd;
+            ph.endTime = desiredEnd;
+            break;
+          }
+
+          const minutes = Number(ph.duration);
+          const safeMinutes = Number.isFinite(minutes) && minutes >= 0 ? minutes : 0;
+          ph.endTime = new Date(cursor.getTime() + safeMinutes * 60000);
+          cursor = new Date(ph.endTime);
+        }
+      }
+
+      // Update timeline to the requested phase
       timeline.currentPhase = stage;
-      timeline.currentPhaseStartTime = new Date();
+      timeline.currentPhaseStartTime = new Date(timeline.phases[targetPhaseIndex].startTime);
+
+      // Record the override but DO NOT disable time-based sync indefinitely.
+      // We rebased the schedule above, so the normal scheduler can continue.
+      if (!timeline.manualOverride) timeline.manualOverride = {};
+      timeline.manualOverride.active = false;
+      timeline.manualOverride.reason = "skip-to-stage";
+      timeline.manualOverride.overriddenAt = now;
+      timeline.manualOverride.overriddenBy = req.user._id;
 
       // Keep voting state + winner announcement consistent.
       if (stage === "voting") {
@@ -4249,23 +4333,6 @@ exports.skipToStage = async (req, res) => {
           isVotingOpen: false,
         });
         await ensureWinnerAnnouncement(timeline, id);
-      }
-
-      if (!timeline.manualOverride) {
-        timeline.manualOverride = {};
-      }
-      timeline.manualOverride.active = true;
-      timeline.manualOverride.overriddenAt = new Date();
-      timeline.manualOverride.overriddenBy = req.user._id;
-
-      // If skipping to performance phase, reset to first performance
-      if (stage === "performance" && timeline.performances && timeline.performances.length > 0) {
-        timeline.currentPerformerIndex = 0;
-        // Reset all performances to pending
-        timeline.performances.forEach((p) => (p.status = "pending"));
-        // Set first to active
-        timeline.performances[0].status = "active";
-        timeline.performances[0].startTime = new Date();
       }
 
       await timeline.save();
@@ -4647,7 +4714,9 @@ exports.resumePerformancePhase = async (req, res) => {
     }
 
     // Find the performance phase
-    const performancePhaseIndex = timeline.phases.findIndex((p) => p.name === "performance");
+    const performancePhaseIndex = Array.isArray(timeline.phases)
+      ? timeline.phases.findIndex((p) => p?.name === "performance")
+      : -1;
 
     if (performancePhaseIndex === -1) {
       return res.status(400).json({
@@ -4658,43 +4727,56 @@ exports.resumePerformancePhase = async (req, res) => {
 
     const now = new Date();
 
-    // Set all phases before performance to completed
-    timeline.phases.forEach((phase, index) => {
-      if (index < performancePhaseIndex) {
-        phase.status = "completed";
-      } else if (index === performancePhaseIndex) {
-        // Performance phase - set it active
-        phase.status = "active";
-        phase.startTime = now;
-        // Calculate end time based on total performance duration
-        const totalDuration = timeline.performances.reduce((sum, perf) => {
-          return sum + (perf.videoDuration || 300);
-        }, 0);
-        phase.endTime = new Date(now.getTime() + totalDuration * 1000);
-      } else {
-        // Future phases - keep pending
-        phase.status = "pending";
-        phase.startTime = null;
-        phase.endTime = null;
+    // Rebase phase schedule starting at performance, so the event can keep progressing.
+    for (let i = 0; i < timeline.phases.length; i++) {
+      if (i < performancePhaseIndex) timeline.phases[i].status = "completed";
+      else if (i === performancePhaseIndex) timeline.phases[i].status = "active";
+      else timeline.phases[i].status = "pending";
+    }
+
+    const performancePhase = timeline.phases[performancePhaseIndex];
+    performancePhase.startTime = new Date(now);
+
+    const fallbackSeconds = (timeline.config?.performanceSlotDuration || 5) * 60;
+    const sorted = timeline.performances
+      .slice()
+      .sort((a, b) => Number(a?.performanceOrder || 0) - Number(b?.performanceOrder || 0));
+
+    let perfCursor = new Date(performancePhase.startTime);
+    sorted.forEach((perf, idx) => {
+      const seconds = Number(perf?.videoDuration);
+      const safeSeconds = Number.isFinite(seconds) && seconds > 0 ? seconds : fallbackSeconds;
+      perf.videoDuration = safeSeconds;
+      perf.status = idx === 0 ? "active" : "pending";
+      perf.startTime = new Date(perfCursor);
+      perf.endTime = new Date(perfCursor.getTime() + safeSeconds * 1000);
+      perfCursor = new Date(perf.endTime);
+    });
+
+    performancePhase.endTime = new Date(perfCursor);
+    performancePhase.duration =
+      (new Date(performancePhase.endTime).getTime() -
+        new Date(performancePhase.startTime).getTime()) /
+      60000;
+
+    // Rebase all subsequent phases sequentially using their configured durations.
+    let cursor = new Date(performancePhase.endTime);
+    for (let i = performancePhaseIndex + 1; i < timeline.phases.length; i++) {
+      const ph = timeline.phases[i];
+      ph.startTime = new Date(cursor);
+
+      if (ph.name === "countdown") {
+        const existingEnd = ph.endTime ? new Date(ph.endTime) : null;
+        const fallbackEnd = new Date(cursor.getTime() + 30 * 24 * 60 * 60 * 1000);
+        const desiredEnd = existingEnd && existingEnd > cursor ? existingEnd : fallbackEnd;
+        ph.endTime = desiredEnd;
+        break;
       }
-    });
 
-    // Reset all performances to pending
-    timeline.performances.forEach((perf) => {
-      perf.status = "pending";
-      perf.startTime = null;
-      perf.endTime = null;
-    });
-
-    // Set first performance as active
-    if (timeline.performances.length > 0) {
-      timeline.performances[0].status = "active";
-      timeline.performances[0].startTime = now;
-      const videoDuration = timeline.performances[0].videoDuration || 300;
-      timeline.performances[0].endTime = new Date(now.getTime() + videoDuration * 1000);
-      console.log(
-        `✅ [RESUME PERFORMANCE] First performance activated: ${timeline.performances[0].contestant}`
-      );
+      const minutes = Number(ph.duration);
+      const safeMinutes = Number.isFinite(minutes) && minutes >= 0 ? minutes : 0;
+      ph.endTime = new Date(cursor.getTime() + safeMinutes * 60000);
+      cursor = new Date(ph.endTime);
     }
 
     // Update timeline state
@@ -4702,6 +4784,12 @@ exports.resumePerformancePhase = async (req, res) => {
     timeline.eventStatus = "live";
     timeline.currentPhase = "performance";
     timeline.isPaused = false;
+
+    if (!timeline.manualOverride) timeline.manualOverride = {};
+    timeline.manualOverride.active = false;
+    timeline.manualOverride.reason = "resume-performance";
+    timeline.manualOverride.overriddenAt = now;
+    timeline.manualOverride.overriddenBy = req.user._id;
 
     await timeline.save();
 
