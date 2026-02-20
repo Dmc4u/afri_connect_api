@@ -126,9 +126,9 @@ exports.initializeEventTimeline = async (req, res) => {
 
     await timeline.save();
 
-    // Update showcase status to 'live'
-    showcase.status = "live";
-    await showcase.save();
+    // Do not force the showcase into "live" during initialization.
+    // Initialization prepares the schedule; going live is handled by the start endpoint
+    // (or the timeline auto-initialize when the scheduled time has passed).
 
     res.status(201).json({
       message: "Event timeline initialized successfully",
@@ -198,6 +198,11 @@ exports.startLiveEvent = async (req, res) => {
   try {
     const { showcaseId } = req.params;
 
+    const showcase = await TalentShowcase.findById(showcaseId);
+    if (!showcase) {
+      return res.status(404).json({ message: "Showcase not found" });
+    }
+
     const timeline = await ShowcaseEventTimeline.findOne({ showcase: showcaseId });
     if (!timeline) {
       return res
@@ -209,27 +214,89 @@ exports.startLiveEvent = async (req, res) => {
       return res.status(400).json({ message: "Event is already live" });
     }
 
-    // Start the event
-    timeline.actualStartTime = new Date();
+    // Start the event now and REBASE the entire schedule so timers match the configured durations.
+    // Previously only the welcome phase was rebased, causing later phase timers to drift.
+    const now = new Date();
+    timeline.actualStartTime = now;
     timeline.isLive = true;
     timeline.eventStatus = "live";
     timeline.currentPhase = "welcome";
+    timeline.isPaused = false;
+    timeline.pausedAt = null;
+    timeline.pausedBy = null;
 
-    // Make sure ALL phases start as pending first
-    timeline.phases.forEach((phase) => {
-      phase.status = "pending";
-    });
+    // Rebase phases sequentially from "now".
+    let cursor = new Date(now);
+    if (Array.isArray(timeline.phases) && timeline.phases.length > 0) {
+      timeline.phases.forEach((phase, index) => {
+        phase.status = index === 0 ? "active" : "pending";
+      });
 
-    // Set first phase (welcome) to active - keep original timing from generateTimeline()
-    if (timeline.phases.length > 0 && timeline.phases[0].name === "welcome") {
-      timeline.phases[0].status = "active";
-      // Only update startTime to now, keep the pre-calculated endTime to maintain full duration
-      const originalDuration = timeline.phases[0].duration;
-      timeline.phases[0].startTime = new Date();
-      timeline.phases[0].endTime = new Date(Date.now() + originalDuration * 60000);
-      console.log(
-        `✅ Welcome phase activated: ${originalDuration} minutes (ends at ${timeline.phases[0].endTime.toLocaleTimeString()})`
-      );
+      for (let i = 0; i < timeline.phases.length; i++) {
+        const phase = timeline.phases[i];
+        phase.startTime = new Date(cursor);
+
+        if (phase.name === "countdown") {
+          // Countdown is continuous. Preserve a future endTime if it exists; otherwise default to 30 days.
+          const existingEnd = phase.endTime ? new Date(phase.endTime) : null;
+          const fallbackEnd = new Date(cursor.getTime() + 30 * 24 * 60 * 60 * 1000);
+          phase.endTime = existingEnd && existingEnd > cursor ? existingEnd : fallbackEnd;
+          cursor = new Date(phase.endTime);
+          break;
+        }
+
+        const minutes = Number(phase.duration);
+        const safeMinutes = Number.isFinite(minutes) && minutes >= 0 ? minutes : 0;
+        phase.endTime = new Date(cursor.getTime() + safeMinutes * 60000);
+        cursor = new Date(phase.endTime);
+      }
+
+      // Rebase performances to the (new) performance phase startTime.
+      const performancePhase = timeline.phases.find((p) => p?.name === "performance");
+      if (performancePhase?.startTime && Array.isArray(timeline.performances)) {
+        const fallbackSeconds = (timeline.config?.performanceSlotDuration || 5) * 60;
+        const sorted = timeline.performances
+          .slice()
+          .sort((a, b) => Number(a?.performanceOrder || 0) - Number(b?.performanceOrder || 0));
+
+        let perfCursor = new Date(performancePhase.startTime);
+        sorted.forEach((perf) => {
+          const seconds = Number(perf?.videoDuration);
+          const safeSeconds = Number.isFinite(seconds) && seconds > 0 ? seconds : fallbackSeconds;
+          perf.videoDuration = safeSeconds;
+          perf.status = "pending";
+          perf.startTime = new Date(perfCursor);
+          perf.endTime = new Date(perfCursor.getTime() + safeSeconds * 1000);
+          perfCursor = new Date(perf.endTime);
+        });
+
+        // Ensure performance phase end matches the last performance end.
+        performancePhase.endTime = new Date(perfCursor);
+        performancePhase.duration =
+          (new Date(performancePhase.endTime).getTime() -
+            new Date(performancePhase.startTime).getTime()) /
+          60000;
+
+        // Rebase phases AFTER performance so everything stays contiguous.
+        const perfIndex = timeline.phases.findIndex((p) => p?.name === "performance");
+        if (perfIndex >= 0) {
+          cursor = new Date(performancePhase.endTime);
+          for (let i = perfIndex + 1; i < timeline.phases.length; i++) {
+            const ph = timeline.phases[i];
+            ph.startTime = new Date(cursor);
+            if (ph.name === "countdown") {
+              const existingEnd = ph.endTime ? new Date(ph.endTime) : null;
+              const fallbackEnd = new Date(cursor.getTime() + 30 * 24 * 60 * 60 * 1000);
+              ph.endTime = existingEnd && existingEnd > cursor ? existingEnd : fallbackEnd;
+              break;
+            }
+            const minutes = Number(ph.duration);
+            const safeMinutes = Number.isFinite(minutes) && minutes >= 0 ? minutes : 0;
+            ph.endTime = new Date(cursor.getTime() + safeMinutes * 60000);
+            cursor = new Date(ph.endTime);
+          }
+        }
+      }
     }
 
     await timeline.save();
@@ -237,7 +304,7 @@ exports.startLiveEvent = async (req, res) => {
     // Update showcase status
     await TalentShowcase.findByIdAndUpdate(showcaseId, {
       status: "live",
-      liveStartTime: new Date(),
+      liveStartTime: now,
     });
 
     res.json({
