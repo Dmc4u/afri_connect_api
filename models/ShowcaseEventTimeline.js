@@ -310,14 +310,17 @@ showcaseEventTimeline.methods.generateTimeline = function () {
   // 3. Commercial Phase - Calculate from actual commercial videos
   let commercialDurationMinutes = this.config.commercialDuration || 1; // Default fallback
 
-  // Cap a single advert duration (seconds). Default: 2 minutes 30 seconds.
+  // Cap a single advert duration (seconds). Default: 30 minutes.
   // NOTE: This cap is applied per-commercial when computing the total commercial phase duration.
-  const MAX_COMMERCIAL_SECONDS = Number(process.env.COMMERCIAL_MAX_SECONDS || 150);
+  // Set COMMERCIAL_MAX_SECONDS lower if you want to hard-limit individual ad length.
+  const MAX_COMMERCIAL_SECONDS = Number(process.env.COMMERCIAL_MAX_SECONDS || 1800);
 
   // If showcase has commercials array with actual videos, calculate total duration
   if (this.showcase && this.showcase.commercials && this.showcase.commercials.length > 0) {
     const getCommercialSeconds = (commercial, fallbackSeconds = 30) => {
-      const raw = Number(commercial?.duration);
+      const raw = Number(
+        commercial?.duration || commercial?.videoDuration || commercial?.durationSeconds
+      );
       // Guard against bad durations (e.g. 0/1) that would prematurely end the commercial phase.
       const seconds = Number.isFinite(raw) && raw > 3 ? raw : fallbackSeconds;
       return Math.min(seconds, MAX_COMMERCIAL_SECONDS);

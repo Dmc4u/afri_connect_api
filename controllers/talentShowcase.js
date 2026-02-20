@@ -3477,6 +3477,84 @@ exports.getStructuredTimeline = async (req, res) => {
       console.error("⚠️ [TIMELINE] Failed to resync performance schedule:", resyncErr);
     }
 
+    // Align the performance phase endTime to the latest performance endTime.
+    // This prevents a "gap" where all performances have ended (and may be marked completed)
+    // but the performance phase is still considered active due to an outdated phase endTime.
+    // If we shift phase timings, keep countdown endTime fixed.
+    try {
+      const canAdjustSchedule =
+        timeline.isLive &&
+        timeline.eventStatus !== "completed" &&
+        !(timeline.manualOverride && timeline.manualOverride.active);
+
+      const perfIndex = Array.isArray(timeline.phases)
+        ? timeline.phases.findIndex((p) => p?.name === "performance")
+        : -1;
+      const performancePhase = perfIndex >= 0 ? timeline.phases[perfIndex] : null;
+
+      if (
+        canAdjustSchedule &&
+        performancePhase?.startTime &&
+        Array.isArray(timeline.performances)
+      ) {
+        const startMs = new Date(performancePhase.startTime).getTime();
+        if (Number.isFinite(startMs)) {
+          const sorted = timeline.performances
+            .slice()
+            .sort((a, b) => Number(a?.performanceOrder || 0) - Number(b?.performanceOrder || 0));
+
+          let maxEndMs = null;
+          for (const perf of sorted) {
+            let endMs = perf?.endTime ? new Date(perf.endTime).getTime() : null;
+            if (!Number.isFinite(endMs)) {
+              const perfStartMs = perf?.startTime ? new Date(perf.startTime).getTime() : null;
+              const seconds = Number(perf?.videoDuration);
+              if (Number.isFinite(perfStartMs) && Number.isFinite(seconds) && seconds > 0) {
+                endMs = perfStartMs + seconds * 1000;
+              }
+            }
+            if (Number.isFinite(endMs)) {
+              maxEndMs = maxEndMs === null ? endMs : Math.max(maxEndMs, endMs);
+            }
+          }
+
+          if (Number.isFinite(maxEndMs)) {
+            const oldPerfEndMs = performancePhase?.endTime
+              ? new Date(performancePhase.endTime).getTime()
+              : null;
+            const deltaMs = Number.isFinite(oldPerfEndMs) ? maxEndMs - oldPerfEndMs : null;
+
+            // Only update when meaningfully different (> 1s) to avoid flapping.
+            const shouldUpdate =
+              !Number.isFinite(oldPerfEndMs) ||
+              (Number.isFinite(deltaMs) && Math.abs(deltaMs) > 1000);
+
+            if (shouldUpdate) {
+              const oldEnd = Number.isFinite(oldPerfEndMs) ? new Date(oldPerfEndMs) : null;
+              performancePhase.endTime = new Date(maxEndMs);
+              performancePhase.duration = (maxEndMs - startMs) / 60000;
+
+              if (oldEnd && Number.isFinite(deltaMs) && deltaMs !== 0) {
+                for (let i = perfIndex + 1; i < timeline.phases.length; i++) {
+                  const ph = timeline.phases[i];
+                  if (ph?.startTime) {
+                    ph.startTime = new Date(new Date(ph.startTime).getTime() + deltaMs);
+                  }
+                  if (ph?.endTime && ph?.name !== "countdown") {
+                    ph.endTime = new Date(new Date(ph.endTime).getTime() + deltaMs);
+                  }
+                }
+              }
+
+              await timeline.save();
+            }
+          }
+        }
+      }
+    } catch (alignPerfPhaseErr) {
+      console.error("⚠️ [TIMELINE] Failed to align performance phase endTime:", alignPerfPhaseErr);
+    }
+
     // TV-style progression: sync current phase/performance by server time.
     // This avoids shifting the schedule based on when clients poll.
     try {
