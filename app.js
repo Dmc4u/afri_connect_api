@@ -395,6 +395,10 @@ app.use("/api/live-showcase", liveShowcaseRouter);
 const adminEventConfigRouter = require("./routes/adminEventConfig");
 app.use("/api/admin/event-config", adminEventConfigRouter);
 
+// Admin utility routes
+const adminUtilsRouter = require("./routes/adminUtils");
+app.use("/api/admin", adminUtilsRouter);
+
 // Upload routes (video, images, etc.)
 const uploadRouter = require("./routes/upload");
 app.use("/api/upload", uploadRouter);

@@ -129,9 +129,9 @@ async function ensureLiveTalentEventTimeline() {
         welcomeDuration: showcase.welcomeDuration ?? 5,
         performanceSlotDuration: showcase.performanceDuration || 0,
         commercialDuration: showcase.commercialDuration || 0,
-        votingDuration: showcase.votingDisplayDuration || 3,
-        winnerDeclarationDuration: showcase.winnerDisplayDuration || 3,
-        thankYouDuration: showcase.thankYouDuration || 2,
+        votingDuration: showcase.votingDisplayDuration ?? 10,
+        winnerDeclarationDuration: showcase.winnerDisplayDuration ?? 5,
+        thankYouDuration: showcase.thankYouDuration ?? 2,
         countdownDuration: showcase.countdownDuration ?? 1,
       },
       eventStatus: "scheduled",
@@ -881,7 +881,7 @@ async function checkAndExecuteScheduledRaffles() {
 
 /**
  * Start the event scheduler
- * Checks every 10 seconds for events to start and phases to advance
+ * Checks every second for events to start and phases to advance
  */
 function startScheduler() {
   if (schedulerInterval) {
@@ -895,9 +895,9 @@ function startScheduler() {
   checkAndStartScheduledEvents();
 
   // Check frequently so phase transitions feel immediate
-  schedulerInterval = setInterval(checkAndStartScheduledEvents, 2000);
+  schedulerInterval = setInterval(checkAndStartScheduledEvents, 1000);
 
-  console.log("✅ Event scheduler started (checking every 2 seconds; heavy checks throttled)");
+  console.log("✅ Event scheduler started (checking every 1 second for smooth phase transitions)");
 }
 
 /**
