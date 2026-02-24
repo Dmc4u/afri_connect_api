@@ -89,11 +89,27 @@ exports.initializeEventTimeline = async (req, res) => {
       });
     }
 
+    // Calculate welcome phase duration from granular fields (all in seconds)
+    const welcomeMessageSec = showcase.welcomeMessageDuration ?? 5;
+    const rulesSec = showcase.rulesDuration ?? 10;
+    const perContestantSec = showcase.contestantsIntroDuration ?? 3;
+    const totalWelcomeSeconds =
+      welcomeMessageSec + rulesSec + perContestantSec * contestants.length;
+    const welcomeDurationMinutes = totalWelcomeSeconds / 60;
+
+    console.log(`📋 [LIVE SHOWCASE] Calculated welcome duration:`, {
+      welcomeMessage: welcomeMessageSec + "s",
+      rules: rulesSec + "s",
+      perContestant: perContestantSec + "s",
+      numContestants: contestants.length,
+      totalMinutes: welcomeDurationMinutes.toFixed(2),
+    });
+
     // Create new timeline with showcase configured durations
     timeline = new ShowcaseEventTimeline({
       showcase: showcaseId,
       config: {
-        welcomeDuration: showcase.welcomeDuration ?? 5,
+        welcomeDuration: welcomeDurationMinutes,
         performanceSlotDuration: showcase.performanceDuration || 0, // Total performance duration from actual video lengths
         commercialDuration: showcase.commercialDuration || 0,
         votingDuration: showcase.votingDisplayDuration ?? 10,

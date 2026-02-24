@@ -122,11 +122,28 @@ async function ensureLiveTalentEventTimeline() {
       .sort({ voteCount: -1 })
       .limit(showcase.maxContestants || 5);
 
+    // Calculate welcome phase duration from granular fields (all in seconds)
+    const welcomeMessageSec = showcase.welcomeMessageDuration ?? 5;
+    const rulesSec = showcase.rulesDuration ?? 10;
+    const perContestantSec = showcase.contestantsIntroDuration ?? 3;
+    const totalWelcomeSeconds =
+      welcomeMessageSec + rulesSec + perContestantSec * contestants.length;
+    const welcomeDurationMinutes = totalWelcomeSeconds / 60;
+
+    console.log(`📋 [ENSURE TIMELINE] Calculated welcome duration:`, {
+      welcomeMessage: welcomeMessageSec + "s",
+      rules: rulesSec + "s",
+      perContestant: perContestantSec + "s",
+      numContestants: contestants.length,
+      totalSeconds: totalWelcomeSeconds,
+      totalMinutes: welcomeDurationMinutes.toFixed(2),
+    });
+
     timeline = new ShowcaseEventTimeline({
       showcase: showcase._id,
       actualStartTime: showcase.eventDate,
       config: {
-        welcomeDuration: showcase.welcomeDuration ?? 5,
+        welcomeDuration: welcomeDurationMinutes,
         performanceSlotDuration: showcase.performanceDuration ?? 5,
         commercialDuration: showcase.commercialDuration ?? 2,
         votingDuration: showcase.votingDisplayDuration ?? 10,
@@ -167,6 +184,8 @@ async function ensureLiveTalentEventTimeline() {
       countdownDuration: timeline.config.countdownDuration,
     });
 
+    // CRITICAL: Assign full showcase document (not just ID) so generateTimeline() can access showcase.commercials
+    timeline.showcase = showcase;
     timeline.generateTimeline();
     if (contestants.length > 0) {
       timeline.schedulePerformances(contestants);

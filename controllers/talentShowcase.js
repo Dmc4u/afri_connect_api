@@ -314,13 +314,38 @@ exports.createShowcase = async (req, res) => {
       const ShowcaseEventTimeline = require("../models/ShowcaseEventTimeline");
 
       // Calculate total duration dynamically
-      const welcomeDuration = showcase.welcomeDuration ?? 5;
+      // Calculate welcome phase duration from granular fields (all in seconds)
+      const welcomeMessageSec = showcase.welcomeMessageDuration ?? 5;
+      const rulesSec = showcase.rulesDuration ?? 10;
+      const perContestantSec = showcase.contestantsIntroDuration ?? 3;
+      const numContestants = selectedContestants.length;
+      const totalWelcomeSeconds = welcomeMessageSec + rulesSec + perContestantSec * numContestants;
+      const welcomeDuration = totalWelcomeSeconds / 60; // Convert to minutes
+
       const performanceSlotDuration = showcase.performanceDuration ?? 5;
-      const commercialDuration = showcase.commercialDuration ?? 5;
+      const commercialDuration = showcase.commercialDuration ?? 2;
       const votingDuration = showcase.votingDisplayDuration ?? 10;
       const winnerDeclarationDuration = showcase.winnerDisplayDuration ?? 3;
       const thankYouDuration = showcase.thankYouDuration ?? 2;
-      const countdownDuration = showcase.countdownDuration ?? 5;
+      const countdownDuration = 2; // Always 2 minutes for countdown
+
+      console.log(`📋 [CREATE TIMELINE] Calculated welcome duration:`, {
+        welcomeMessage: welcomeMessageSec + "s",
+        rules: rulesSec + "s",
+        perContestant: perContestantSec + "s",
+        numContestants: numContestants,
+        totalWelcomeMinutes: welcomeDuration.toFixed(2),
+      });
+
+      console.log(`📋 [CREATE TIMELINE] Using config from showcase:`, {
+        welcomeDuration,
+        performanceSlotDuration,
+        commercialDuration,
+        votingDuration,
+        winnerDeclarationDuration,
+        thankYouDuration,
+        countdownDuration,
+      });
 
       // Total will be recalculated when performances are scheduled with actual video lengths
       const estimatedTotalDuration =
@@ -3147,11 +3172,27 @@ exports.getStructuredTimeline = async (req, res) => {
           }).sort({ rafflePosition: 1 });
 
           if (contestants.length > 0) {
+            // Calculate welcome phase duration from granular fields (all in seconds)
+            const welcomeMessageSec = showcase.welcomeMessageDuration ?? 5;
+            const rulesSec = showcase.rulesDuration ?? 10;
+            const perContestantSec = showcase.contestantsIntroDuration ?? 3;
+            const totalWelcomeSeconds =
+              welcomeMessageSec + rulesSec + perContestantSec * contestants.length;
+            const welcomeDurationMinutes = totalWelcomeSeconds / 60;
+
+            console.log(`📋 [AUTO-INIT TIMELINE] Calculated welcome duration:`, {
+              welcomeMessage: welcomeMessageSec + "s",
+              rules: rulesSec + "s",
+              perContestant: perContestantSec + "s",
+              numContestants: contestants.length,
+              totalMinutes: welcomeDurationMinutes.toFixed(2),
+            });
+
             // Create new timeline
             timeline = new ShowcaseEventTimeline({
               showcase: req.params.id,
               config: {
-                welcomeDuration: showcase.welcomeDuration ?? 5,
+                welcomeDuration: welcomeDurationMinutes,
                 performanceSlotDuration: showcase.performanceDuration || 0,
                 commercialDuration: showcase.commercialDuration || 0,
                 votingDuration: showcase.votingDisplayDuration || 3,
