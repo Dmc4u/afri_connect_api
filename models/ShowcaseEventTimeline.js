@@ -451,7 +451,20 @@ showcaseEventTimeline.methods.schedulePerformances = function (contestants) {
   performancePhase.duration = totalDuration;
   performancePhase.endTime = new Date(performancePhase.startTime.getTime() + totalDuration * 60000);
 
-  // Recalculate all subsequent phases
+  // CRITICAL FIX: Only recalculate subsequent phases if event is NOT live yet.
+  // Once live, the schedule is locked to prevent timer accumulation.
+  if (this.isLive) {
+    console.log(
+      `🔒 Event is LIVE - schedule is locked. Performance phase updated but subsequent phases preserved.`
+    );
+    // Update total duration config only
+    const calculatedTotalDuration = this.phases.reduce((sum, phase) => sum + phase.duration, 0);
+    this.config.totalDuration = calculatedTotalDuration;
+    return; // Exit early - don't touch subsequent phase times
+  }
+
+  // Recalculate all subsequent phases (only during initialization)
+  console.log(`📅 Event NOT live - recalculating all phase times from performance phase forward`);
   const performanceIndex = this.phases.findIndex((p) => p.name === "performance");
   if (performanceIndex >= 0 && performanceIndex < this.phases.length - 1) {
     currentTime = new Date(performancePhase.endTime);
@@ -754,13 +767,31 @@ showcaseEventTimeline.methods.advancePhase = function () {
         firstPerf.videoDuration || (this.config?.performanceSlotDuration || 5) * 60;
 
       firstPerf.status = "active";
-      firstPerf.startTime = now;
-      firstPerf.endTime = new Date(now.getTime() + durationSeconds * 1000); // seconds -> ms
+
+      // CRITICAL: Respect pre-calculated performance schedule to prevent accumulation.
+      // Only set times if they're missing (e.g., after manual override or init).
+      const hasValidPerfSchedule =
+        firstPerf.startTime &&
+        firstPerf.endTime &&
+        Number.isFinite(new Date(firstPerf.startTime).getTime()) &&
+        Number.isFinite(new Date(firstPerf.endTime).getTime());
+
+      if (!hasValidPerfSchedule) {
+        firstPerf.startTime = now;
+        firstPerf.endTime = new Date(now.getTime() + durationSeconds * 1000);
+        console.log(
+          `⚠️ Performance #${firstPerf.performanceOrder} missing schedule, rebasing to now`
+        );
+      } else {
+        console.log(
+          `✅ Performance #${firstPerf.performanceOrder} using pre-calculated schedule: ${new Date(firstPerf.startTime).toLocaleTimeString()} - ${new Date(firstPerf.endTime).toLocaleTimeString()}`
+        );
+      }
 
       this.currentPerformance = {
         contestant: firstPerf.contestant,
         performanceOrder: firstPerf.performanceOrder,
-        startTime: now,
+        startTime: firstPerf.startTime,
         timeRemaining: durationSeconds,
       };
       console.log(

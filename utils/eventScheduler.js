@@ -520,12 +520,32 @@ async function checkAndAdvancePhases() {
               `🎭 Auto-starting performance Order #${nextPerf.performanceOrder} (was pending)`
             );
             nextPerf.status = "active";
-            nextPerf.startTime = new Date();
-            // Use actual video duration instead of slot duration
+
+            // CRITICAL: Respect pre-calculated performance schedule to prevent timer accumulation.
+            // Only set times if they're missing (e.g., after manual override or init).
+            const hasValidPerfSchedule =
+              nextPerf.startTime &&
+              nextPerf.endTime &&
+              Number.isFinite(new Date(nextPerf.startTime).getTime()) &&
+              Number.isFinite(new Date(nextPerf.endTime).getTime());
+
+            if (!hasValidPerfSchedule) {
+              nextPerf.startTime = new Date();
+              const videoDuration =
+                nextPerf.videoDuration || timeline.config.performanceSlotDuration * 60;
+              nextPerf.endTime = new Date(Date.now() + videoDuration * 1000);
+              console.log(
+                `⚠️ Performance #${nextPerf.performanceOrder} missing schedule, rebasing to now`
+              );
+            } else {
+              console.log(
+                `✅ Performance #${nextPerf.performanceOrder} using pre-calculated schedule: ${new Date(nextPerf.startTime).toLocaleTimeString()} - ${new Date(nextPerf.endTime).toLocaleTimeString()}`
+              );
+            }
+
+            await timeline.save();
             const videoDuration =
               nextPerf.videoDuration || timeline.config.performanceSlotDuration * 60;
-            nextPerf.endTime = new Date(Date.now() + videoDuration * 1000);
-            await timeline.save();
             console.log(
               `✅ Started performance ${nextPerf.performanceOrder}/${timeline.performances.length}, duration: ${videoDuration}s`
             );
