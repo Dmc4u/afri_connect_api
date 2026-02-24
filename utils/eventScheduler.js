@@ -376,6 +376,44 @@ async function checkAndAdvancePhases() {
 
       let currentPhase = timeline.getCurrentPhase();
 
+      // FIX: Detect and repair countdown phases with incorrect far-future endTimes
+      // (Legacy data where countdown was set to next event date instead of 2 minute duration)
+      const countdownPhase = timeline.phases?.find((p) => p.name === "countdown");
+      if (countdownPhase && countdownPhase.status !== "completed") {
+        const countdownDuration = timeline.config?.countdownDuration || 2; // Should be 2 minutes
+        const expectedDurationMs = countdownDuration * 60 * 1000; // 2 minutes in ms
+
+        if (countdownPhase.startTime && countdownPhase.endTime) {
+          const actualDurationMs =
+            new Date(countdownPhase.endTime).getTime() -
+            new Date(countdownPhase.startTime).getTime();
+
+          // If countdown duration is more than 10 minutes, it's broken (should be 2 minutes)
+          if (actualDurationMs > 10 * 60 * 1000) {
+            console.warn(
+              `🔧 [FIX COUNTDOWN] Detected broken countdown phase endTime (${Math.floor(actualDurationMs / (24 * 60 * 60 * 1000))} days duration). Fixing to ${countdownDuration} minutes...`
+            );
+
+            // Fix countdown endTime based on either its original startTime or thank you phase endTime
+            const thankYouPhase = timeline.phases?.find((p) => p.name === "thankyou");
+            const baseTime = thankYouPhase?.endTime
+              ? new Date(thankYouPhase.endTime)
+              : countdownPhase.startTime
+                ? new Date(countdownPhase.startTime)
+                : now;
+
+            countdownPhase.startTime = baseTime;
+            countdownPhase.endTime = new Date(baseTime.getTime() + expectedDurationMs);
+            countdownPhase.duration = countdownDuration;
+
+            await timeline.save();
+            console.log(
+              `✅ [FIX COUNTDOWN] Fixed countdown phase: ${countdownPhase.startTime.toISOString()} → ${countdownPhase.endTime.toISOString()}`
+            );
+          }
+        }
+      }
+
       if (!currentPhase) {
         // No current phase means event should have ended
         const lastPhase = timeline.phases[timeline.phases.length - 1];
