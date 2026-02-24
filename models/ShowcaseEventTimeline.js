@@ -383,14 +383,13 @@ showcaseEventTimeline.methods.generateTimeline = function () {
   });
   currentTime = new Date(currentTime.getTime() + this.config.thankYouDuration * 60000);
 
-  // 7. Next Event Countdown (continuous until next event)
+  // 7. Next Event Countdown (2 minutes to wrap up the event)
+  const countdownDuration = this.config.countdownDuration || 2; // 2 minutes default
   this.phases.push({
     name: "countdown",
-    duration: 0, // Continuous phase
+    duration: countdownDuration, // 2 minutes to show next event info and end gracefully
     startTime: new Date(currentTime),
-    endTime:
-      this.thankYouMessage.nextEventDate ||
-      new Date(currentTime.getTime() + 30 * 24 * 60 * 60 * 1000), // 30 days default
+    endTime: new Date(currentTime.getTime() + countdownDuration * 60000),
     status: "pending",
   });
 
@@ -470,21 +469,6 @@ showcaseEventTimeline.methods.schedulePerformances = function (contestants) {
     currentTime = new Date(performancePhase.endTime);
     for (let i = performanceIndex + 1; i < this.phases.length; i++) {
       this.phases[i].startTime = new Date(currentTime);
-
-      // Countdown is a continuous phase whose endTime should NOT be derived from duration (duration is 0).
-      // Preserve existing endTime (typically thankYouMessage.nextEventDate) or fall back to 30 days.
-      if (this.phases[i].name === "countdown") {
-        if (!this.phases[i].endTime) {
-          this.phases[i].endTime =
-            this.thankYouMessage?.nextEventDate ||
-            new Date(currentTime.getTime() + 30 * 24 * 60 * 60 * 1000);
-        }
-
-        // Countdown is expected to be the last phase; don't advance currentTime based on it.
-        currentTime = new Date(this.phases[i].endTime);
-        continue;
-      }
-
       this.phases[i].endTime = new Date(currentTime.getTime() + this.phases[i].duration * 60000);
       currentTime = this.phases[i].endTime;
     }

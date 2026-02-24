@@ -437,9 +437,26 @@ async function checkAndAdvancePhases() {
           console.warn(`⚠️  Phase advance guard tripped for: ${timeline.showcase.title}`);
           break;
         }
-        // Don't auto-advance from countdown phase - it runs until next event
+
+        // When countdown phase ends, complete the event
         if (currentPhase.name === "countdown") {
-          console.log(`⏰ Event in countdown mode: ${timeline.showcase.title}`);
+          console.log(`⏰ Countdown phase complete - ending event: ${timeline.showcase.title}`);
+
+          // Mark event as completed
+          timeline.actualEndTime = new Date();
+          timeline.isLive = false;
+          timeline.eventStatus = "completed";
+          timeline.currentPhase = "ended";
+
+          await timeline.save();
+
+          // Update showcase to completed
+          await TalentShowcase.findByIdAndUpdate(timeline.showcase._id, {
+            status: "completed",
+            endDate: new Date(),
+          });
+
+          console.log(`✅ Event completed after countdown: ${timeline.showcase.title}`);
           break;
         }
 
