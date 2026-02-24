@@ -406,10 +406,21 @@ async function checkAndAdvancePhases() {
             countdownPhase.endTime = new Date(baseTime.getTime() + expectedDurationMs);
             countdownPhase.duration = countdownDuration;
 
-            await timeline.save();
-            console.log(
-              `✅ [FIX COUNTDOWN] Fixed countdown phase: ${countdownPhase.startTime.toISOString()} → ${countdownPhase.endTime.toISOString()}`
-            );
+            try {
+              await timeline.save();
+              console.log(
+                `✅ [FIX COUNTDOWN] Fixed countdown phase: ${countdownPhase.startTime.toISOString()} → ${countdownPhase.endTime.toISOString()}`
+              );
+            } catch (saveErr) {
+              // Version error means another process already updated it - that's OK
+              if (saveErr.name === "VersionError") {
+                console.log(
+                  `⚠️ [FIX COUNTDOWN] Version conflict - countdown fixed by another process`
+                );
+              } else {
+                console.error(`❌ [FIX COUNTDOWN] Failed to save:`, saveErr.message);
+              }
+            }
           }
         }
       }
