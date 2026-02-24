@@ -3246,11 +3246,20 @@ exports.getStructuredTimeline = async (req, res) => {
       .populate("user", "name username profilePhoto")
       .sort({ rafflePosition: 1 }); // Sort by raffle position for performance order
 
+    // GUARD: Prevent schedule mutations during live events (except during init or admin override).
+    // This prevents timer accumulation caused by continuous deltaMs shifts on every GET poll.
+    const isEventStable =
+      timeline.isLive && timeline.eventStatus === "live" && timeline.actualStartTime;
+    const canMutateSchedule =
+      !isEventStable || (timeline.manualOverride && timeline.manualOverride.active);
+
     // If contestants selection changed after timeline creation, ensure performances includes ALL selected.
     // This prevents the performance phase from only ever playing the contestants that were selected at
     // the time the timeline was first created.
+    // ONLY do this during initialization (before going live) to prevent accumulation.
     try {
       const shouldEnsurePerformances =
+        canMutateSchedule &&
         timeline &&
         Array.isArray(timeline.performances) &&
         Array.isArray(contestants) &&
@@ -3396,8 +3405,10 @@ exports.getStructuredTimeline = async (req, res) => {
 
     // Ensure performance order + schedule always matches selected contestants raffle order.
     // This fixes cases where schedulePerformances() was previously called with an unsorted array.
+    // ONLY do this during initialization (before going live) to prevent accumulation.
     try {
       const shouldResyncPerformanceSchedule =
+        canMutateSchedule &&
         timeline &&
         Array.isArray(timeline.phases) &&
         Array.isArray(timeline.performances) &&
@@ -3485,8 +3496,10 @@ exports.getStructuredTimeline = async (req, res) => {
     // This prevents a "gap" where all performances have ended (and may be marked completed)
     // but the performance phase is still considered active due to an outdated phase endTime.
     // If we shift phase timings, keep countdown endTime fixed.
+    // DISABLED during live events to prevent accumulation - schedule is locked once event starts.
     try {
       const canAdjustSchedule =
+        canMutateSchedule &&
         timeline.isLive &&
         timeline.eventStatus !== "completed" &&
         !(timeline.manualOverride && timeline.manualOverride.active);

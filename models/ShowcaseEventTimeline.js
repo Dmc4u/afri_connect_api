@@ -692,7 +692,7 @@ showcaseEventTimeline.methods.advancePhase = function () {
     this.phases[nextPhaseIndex].status = "active";
     let phaseDuration = this.phases[nextPhaseIndex].duration;
 
-    // For performance phase, recalculate duration from actual performances
+    // For performance phase, recalculate duration from actual performances (during initialization only)
     if (this.phases[nextPhaseIndex].name === "performance" && this.performances.length > 0) {
       phaseDuration = this.performances.reduce((total, perf) => {
         const seconds = perf.videoDuration || (this.config?.performanceSlotDuration || 5) * 60;
@@ -704,8 +704,26 @@ showcaseEventTimeline.methods.advancePhase = function () {
       );
     }
 
-    this.phases[nextPhaseIndex].startTime = now;
-    this.phases[nextPhaseIndex].endTime = new Date(now.getTime() + phaseDuration * 60000);
+    // CRITICAL FIX: Respect pre-calculated schedule times to prevent accumulation.
+    // Only rebase times if the phase doesn't have valid start/end times already.
+    const hasValidSchedule =
+      this.phases[nextPhaseIndex].startTime &&
+      this.phases[nextPhaseIndex].endTime &&
+      Number.isFinite(new Date(this.phases[nextPhaseIndex].startTime).getTime()) &&
+      Number.isFinite(new Date(this.phases[nextPhaseIndex].endTime).getTime());
+
+    if (!hasValidSchedule) {
+      // Only rebase if schedule is missing (e.g., during init or after manual override)
+      this.phases[nextPhaseIndex].startTime = now;
+      this.phases[nextPhaseIndex].endTime = new Date(now.getTime() + phaseDuration * 60000);
+      console.log(`⚠️ Phase ${this.phases[nextPhaseIndex].name} missing schedule, rebasing to now`);
+    } else {
+      // Respect pre-calculated schedule (TV-style fixed timing)
+      console.log(
+        `✅ Phase ${this.phases[nextPhaseIndex].name} using pre-calculated schedule: ${new Date(this.phases[nextPhaseIndex].startTime).toLocaleTimeString()} - ${new Date(this.phases[nextPhaseIndex].endTime).toLocaleTimeString()}`
+      );
+    }
+
     this.currentPhase = this.phases[nextPhaseIndex].name;
 
     // If transitioning to performance phase, automatically start first performance
