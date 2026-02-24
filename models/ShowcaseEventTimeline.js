@@ -545,36 +545,6 @@ showcaseEventTimeline.methods.getCurrentPhase = function () {
   // First, check if there's an explicitly active phase
   const activePhase = this.phases.find((phase) => phase.status === "active");
   if (activePhase) {
-    // Log countdown phase timing
-    if (activePhase.name === "countdown") {
-      const timeRemaining = activePhase.endTime - now;
-      console.log(`⏰ [COUNTDOWN CHECK] Countdown phase active:`, {
-        now: now.toISOString(),
-        endTime: activePhase.endTime.toISOString(),
-        timeRemaining: `${Math.floor(timeRemaining / 1000)}s`,
-        hasExpired: now > activePhase.endTime,
-      });
-    }
-
-    // If countdown phase has passed its end time, mark as completed and end event
-    if (activePhase.name === "countdown" && now > activePhase.endTime) {
-      console.log(`✅ [COUNTDOWN COMPLETE] Ending event now`);
-      activePhase.status = "completed";
-      this.currentPhase = "ended";
-      this.eventStatus = "completed";
-      this.isLive = false;
-
-      // Also update the showcase status
-      const TalentShowcase = require("./TalentShowcase");
-      TalentShowcase.findByIdAndUpdate(this.showcase, {
-        status: "completed",
-      })
-        .exec()
-        .catch((err) => console.error("Error updating showcase status:", err));
-
-      this.save().catch((err) => console.error("Error saving timeline:", err));
-      return null;
-    }
     return activePhase;
   }
 
@@ -582,25 +552,6 @@ showcaseEventTimeline.methods.getCurrentPhase = function () {
   const timeBasedPhase = this.phases.find(
     (phase) => now >= phase.startTime && now <= phase.endTime && phase.status !== "completed"
   );
-
-  // Auto-complete countdown if it has ended
-  if (timeBasedPhase && timeBasedPhase.name === "countdown" && now > timeBasedPhase.endTime) {
-    timeBasedPhase.status = "completed";
-    this.currentPhase = "ended";
-    this.eventStatus = "completed";
-    this.isLive = false;
-
-    // Also update the showcase status
-    const TalentShowcase = require("./TalentShowcase");
-    TalentShowcase.findByIdAndUpdate(this.showcase, {
-      status: "completed",
-    })
-      .exec()
-      .catch((err) => console.error("Error updating showcase status:", err));
-
-    this.save().catch((err) => console.error("Error saving timeline:", err));
-    return null;
-  }
 
   return timeBasedPhase || null;
 };
@@ -746,15 +697,27 @@ showcaseEventTimeline.methods.advancePhase = function () {
 
     this.currentPhase = this.phases[nextPhaseIndex].name;
 
-    // Log countdown phase activation with timing details
+    // INSTANT EVENT COMPLETION: When countdown phase starts, immediately complete the event
     if (this.currentPhase === "countdown") {
-      const countdownPhase = this.phases[nextPhaseIndex];
-      console.log(`⏰ [COUNTDOWN STARTED] Countdown phase now active:`, {
-        duration: countdownPhase.duration + " minutes",
-        startTime: countdownPhase.startTime.toISOString(),
-        endTime: countdownPhase.endTime.toISOString(),
-        willExpireIn: `${countdownPhase.duration * 60}s`,
-      });
+      console.log(`⏰ [COUNTDOWN STARTED] Immediately completing event`);
+
+      // Mark countdown as completed immediately
+      this.phases[nextPhaseIndex].status = "completed";
+      this.currentPhase = "ended";
+      this.eventStatus = "completed";
+      this.isLive = false;
+      this.actualEndTime = new Date();
+
+      // Update showcase to completed
+      const TalentShowcase = require("./TalentShowcase");
+      TalentShowcase.findByIdAndUpdate(this.showcase, {
+        status: "completed",
+      })
+        .exec()
+        .catch((err) => console.error("Error updating showcase status:", err));
+
+      console.log(`✅ Event completed instantly on countdown transition`);
+      return null; // Return null to indicate event has ended
     }
 
     // If transitioning to performance phase, automatically start first performance

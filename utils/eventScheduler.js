@@ -504,28 +504,6 @@ async function checkAndAdvancePhases() {
           now: now.toISOString(),
         });
 
-        // When countdown phase ends, complete the event
-        if (currentPhase.name === "countdown") {
-          console.log(`⏰ [COUNTDOWN EXPIRED] Ending event: ${timeline.showcase.title}`);
-
-          // Mark event as completed
-          timeline.actualEndTime = new Date();
-          timeline.isLive = false;
-          timeline.eventStatus = "completed";
-          timeline.currentPhase = "ended";
-
-          await timeline.save();
-
-          // Update showcase to completed
-          await TalentShowcase.findByIdAndUpdate(timeline.showcase._id, {
-            status: "completed",
-            endDate: new Date(),
-          });
-
-          console.log(`✅ Event completed after countdown: ${timeline.showcase.title}`);
-          break;
-        }
-
         // Don't auto-advance from performance phase based on time alone
         // Performance phase should only advance when all performances are completed
         if (currentPhase.name === "performance") {
