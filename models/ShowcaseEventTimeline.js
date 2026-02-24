@@ -276,6 +276,17 @@ showcaseEventTimeline.methods.generateTimeline = function () {
   const startTime = new Date(eventDate.getTime());
   let currentTime = new Date(startTime);
 
+  console.log(`📅 [GENERATE TIMELINE] Using config:`, {
+    showcaseId: this.showcase?._id || this.showcase,
+    welcomeDuration: this.config.welcomeDuration,
+    performanceSlotDuration: this.config.performanceSlotDuration,
+    commercialDuration: this.config.commercialDuration,
+    votingDuration: this.config.votingDuration,
+    winnerDeclarationDuration: this.config.winnerDeclarationDuration,
+    thankYouDuration: this.config.thankYouDuration,
+    countdownDuration: this.config.countdownDuration,
+  });
+
   this.phases = [];
 
   // 1. Welcome Phase - starts at event time
@@ -534,8 +545,20 @@ showcaseEventTimeline.methods.getCurrentPhase = function () {
   // First, check if there's an explicitly active phase
   const activePhase = this.phases.find((phase) => phase.status === "active");
   if (activePhase) {
+    // Log countdown phase timing
+    if (activePhase.name === "countdown") {
+      const timeRemaining = activePhase.endTime - now;
+      console.log(`⏰ [COUNTDOWN CHECK] Countdown phase active:`, {
+        now: now.toISOString(),
+        endTime: activePhase.endTime.toISOString(),
+        timeRemaining: `${Math.floor(timeRemaining / 1000)}s`,
+        hasExpired: now > activePhase.endTime,
+      });
+    }
+
     // If countdown phase has passed its end time, mark as completed and end event
     if (activePhase.name === "countdown" && now > activePhase.endTime) {
+      console.log(`✅ [COUNTDOWN COMPLETE] Ending event now`);
       activePhase.status = "completed";
       this.currentPhase = "ended";
       this.eventStatus = "completed";
@@ -722,6 +745,17 @@ showcaseEventTimeline.methods.advancePhase = function () {
     }
 
     this.currentPhase = this.phases[nextPhaseIndex].name;
+
+    // Log countdown phase activation with timing details
+    if (this.currentPhase === "countdown") {
+      const countdownPhase = this.phases[nextPhaseIndex];
+      console.log(`⏰ [COUNTDOWN STARTED] Countdown phase now active:`, {
+        duration: countdownPhase.duration + " minutes",
+        startTime: countdownPhase.startTime.toISOString(),
+        endTime: countdownPhase.endTime.toISOString(),
+        willExpireIn: `${countdownPhase.duration * 60}s`,
+      });
+    }
 
     // If transitioning to performance phase, automatically start first performance
     if (this.currentPhase === "performance" && this.performances.length > 0) {

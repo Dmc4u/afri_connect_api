@@ -127,12 +127,12 @@ async function ensureLiveTalentEventTimeline() {
       actualStartTime: showcase.eventDate,
       config: {
         welcomeDuration: showcase.welcomeDuration ?? 5,
-        performanceSlotDuration: showcase.performanceDuration || 0,
-        commercialDuration: showcase.commercialDuration || 0,
+        performanceSlotDuration: showcase.performanceDuration ?? 5,
+        commercialDuration: showcase.commercialDuration ?? 2,
         votingDuration: showcase.votingDisplayDuration ?? 10,
-        winnerDeclarationDuration: showcase.winnerDisplayDuration ?? 5,
+        winnerDeclarationDuration: showcase.winnerDisplayDuration ?? 3,
         thankYouDuration: showcase.thankYouDuration ?? 2,
-        countdownDuration: showcase.countdownDuration ?? 1,
+        countdownDuration: 2, // Always 2 minutes for countdown
       },
       eventStatus: "scheduled",
       isLive: false,
@@ -154,6 +154,17 @@ async function ensureLiveTalentEventTimeline() {
           return nextMonth;
         })(),
       },
+    });
+
+    console.log(`📋 [ENSURE TIMELINE] Created timeline with config:`, {
+      showcaseTitle: showcase.title,
+      welcomeDuration: timeline.config.welcomeDuration,
+      performanceSlotDuration: timeline.config.performanceSlotDuration,
+      commercialDuration: timeline.config.commercialDuration,
+      votingDuration: timeline.config.votingDuration,
+      winnerDeclarationDuration: timeline.config.winnerDeclarationDuration,
+      thankYouDuration: timeline.config.thankYouDuration,
+      countdownDuration: timeline.config.countdownDuration,
     });
 
     timeline.generateTimeline();
@@ -438,9 +449,15 @@ async function checkAndAdvancePhases() {
           break;
         }
 
+        console.log(`⏭️  [PHASE ADVANCE] Phase ended:`, {
+          phase: currentPhase.name,
+          endTime: currentPhase.endTime.toISOString(),
+          now: now.toISOString(),
+        });
+
         // When countdown phase ends, complete the event
         if (currentPhase.name === "countdown") {
-          console.log(`⏰ Countdown phase complete - ending event: ${timeline.showcase.title}`);
+          console.log(`⏰ [COUNTDOWN EXPIRED] Ending event: ${timeline.showcase.title}`);
 
           // Mark event as completed
           timeline.actualEndTime = new Date();
