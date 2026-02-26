@@ -17,32 +17,35 @@ router.get("/config/template", auth, async (req, res) => {
       return res.status(403).json({ message: "Admin access required" });
     }
 
-    // TEST MODE: Faster intervals for testing
+    // Default configuration template - Production values
+    // Note: These are defaults. Actual values come from showcase settings when creating timeline.
     const defaultConfig = {
-      totalDuration: 15, // 15 min (normal: 60)
-      welcomeDuration: 1, // 1 min (normal: 5)
-      performanceSlotDuration: 2, // 2 min per contestant (normal: 5)
-      maxVideoLength: 3600, // 3600 sec = 1 hour (normal: 3600)
-      commercialDuration: 1, // 1 min (normal: 5)
-      votingDuration: 3, // 3 min (normal: 20)
-      winnerDeclarationDuration: 1, // 1 min (normal: 3)
-      thankYouDuration: 1, // 1 min (normal: 2)
+      totalDuration: 60, // minutes (calculated based on performance count + phase durations)
+      welcomeDuration: 5, // minutes (calculated from welcomeMessageDuration + rulesDuration + contestantsIntroDuration * count)
+      performanceSlotDuration: 5, // minutes per contestant (actual video durations used when available)
+      maxVideoLength: 3600, // seconds = 1 hour max per video
+      commercialDuration: 2, // minutes (calculated from actual commercial video durations)
+      votingDuration: 10, // minutes
+      winnerDeclarationDuration: 3, // minutes
+      thankYouDuration: 2, // minutes
+      countdownDuration: 0, // instant completion (event ends immediately when thank you phase completes)
     };
 
     res.json({
       success: true,
       config: defaultConfig,
       phases: [
-        { name: "welcome", description: "Welcome & Rules", defaultDuration: 1 },
+        { name: "welcome", description: "Welcome & Rules", defaultDuration: 5 },
         {
           name: "performance",
-          description: "Contestant Performances (auto-calculated)",
-          perContestant: 2,
+          description: "Contestant Performances (auto-calculated from video durations)",
+          perContestant: 5,
         },
-        { name: "commercial", description: "Commercial Break", defaultDuration: 1 },
-        { name: "voting", description: "Voting Period", defaultDuration: 3 },
-        { name: "winner", description: "Winner Declaration", defaultDuration: 1 },
-        { name: "thankyou", description: "Thank You Message", defaultDuration: 1 },
+        { name: "commercial", description: "Commercial Break", defaultDuration: 2 },
+        { name: "voting", description: "Voting Period", defaultDuration: 10 },
+        { name: "winner", description: "Winner Declaration", defaultDuration: 3 },
+        { name: "thankyou", description: "Thank You Message", defaultDuration: 2 },
+        { name: "countdown", description: "Event Completion (instant)", defaultDuration: 0 },
       ],
     });
   } catch (error) {
@@ -77,19 +80,30 @@ router.put("/:showcaseId/config", auth, async (req, res) => {
     let timeline = await ShowcaseEventTimeline.findOne({ showcase: showcaseId });
 
     if (!timeline) {
-      // Create new timeline with config - TEST MODE values
+      // Create new timeline with config - Use values from showcase model
+      // Calculate welcome duration from granular fields (all in seconds)
+      const welcomeMessageSec = showcase.welcomeMessageDuration ?? 5;
+      const rulesSec = showcase.rulesDuration ?? 10;
+      const perContestantSec = showcase.contestantsIntroDuration ?? 3;
+      // Estimate contestant count for initial calculation (will be recalculated when performances are scheduled)
+      const estimatedContestants = showcase.maxContestants || 5;
+      const totalWelcomeSeconds =
+        welcomeMessageSec + rulesSec + perContestantSec * estimatedContestants;
+      const welcomeDurationMinutes = totalWelcomeSeconds / 60;
+
       timeline = new ShowcaseEventTimeline({
         showcase: showcaseId,
         config: {
-          totalDuration: 15,
-          welcomeDuration: 1,
-          performanceSlotDuration: 2,
-          maxVideoLength: 90,
-          commercialDuration: 1,
-          votingDuration: 3,
-          winnerDeclarationDuration: 1,
-          thankYouDuration: 1,
-          ...config,
+          totalDuration: 60, // Will be recalculated after performances scheduled
+          welcomeDuration: welcomeDurationMinutes, // Calculated from granular showcase settings
+          performanceSlotDuration: showcase.performanceDuration || 5,
+          maxVideoLength: 3600, // 1 hour max per video
+          commercialDuration: showcase.commercialDuration || 2,
+          votingDuration: showcase.votingDisplayDuration || 10,
+          winnerDeclarationDuration: showcase.winnerDisplayDuration || 5,
+          thankYouDuration: showcase.thankYouDuration || 2,
+          countdownDuration: 0, // Instant completion (event ends after thank you)
+          ...config, // Allow override from request body if provided
         },
         eventStatus: "scheduled",
         isLive: false,
@@ -111,16 +125,19 @@ router.put("/:showcaseId/config", auth, async (req, res) => {
       };
     }
 
-    // Recalculate total duration - TEST MODE values
+    // Recalculate total duration based on actual configuration
+    // NOTE: Countdown phase is excluded because it instantly completes the event
     const performanceDuration =
-      timeline.performances.length * (timeline.config.performanceSlotDuration || 2);
+      timeline.performances.length *
+      (timeline.config.performanceSlotDuration || showcase.performanceDuration || 5);
     timeline.config.totalDuration =
-      (timeline.config.welcomeDuration || 1) +
+      (timeline.config.welcomeDuration || showcase.welcomeDuration || 5) +
       performanceDuration +
-      (timeline.config.commercialDuration || 1) +
-      (timeline.config.votingDuration || 3) +
-      (timeline.config.winnerDeclarationDuration || 1) +
-      (timeline.config.thankYouDuration || 1);
+      (timeline.config.commercialDuration || showcase.commercialDuration || 2) +
+      (timeline.config.votingDuration || showcase.votingDisplayDuration || 10) +
+      (timeline.config.winnerDeclarationDuration || showcase.winnerDisplayDuration || 5) +
+      (timeline.config.thankYouDuration || showcase.thankYouDuration || 2);
+    // Countdown is NOT included - it instantly completes the event
 
     await timeline.save();
 
@@ -158,20 +175,30 @@ router.get("/:showcaseId/config", auth, async (req, res) => {
       "title eventDate"
     );
 
-    // If no timeline exists, return default config
+    // If no timeline exists, return default config based on showcase settings
     if (!timeline) {
+      // Calculate welcome duration from granular fields (all in seconds)
+      const welcomeMessageSec = showcase.welcomeMessageDuration ?? 5;
+      const rulesSec = showcase.rulesDuration ?? 10;
+      const perContestantSec = showcase.contestantsIntroDuration ?? 3;
+      const estimatedContestants = showcase.maxContestants || 5;
+      const totalWelcomeSeconds =
+        welcomeMessageSec + rulesSec + perContestantSec * estimatedContestants;
+      const welcomeDurationMinutes = totalWelcomeSeconds / 60;
+
       return res.json({
         success: true,
         showcase: { _id: showcase._id, title: showcase.title, eventDate: showcase.eventDate },
         config: {
-          totalDuration: 60,
-          welcomeDuration: 5,
-          performanceSlotDuration: 5,
-          maxVideoLength: 3600,
-          commercialDuration: 5,
-          votingDuration: 20,
-          winnerDeclarationDuration: 3,
-          thankYouDuration: 2,
+          totalDuration: 60, // Will be calculated based on actual performance count
+          welcomeDuration: welcomeDurationMinutes,
+          performanceSlotDuration: showcase.performanceDuration || 5,
+          maxVideoLength: 3600, // 1 hour max
+          commercialDuration: showcase.commercialDuration || 2,
+          votingDuration: showcase.votingDisplayDuration || 10,
+          winnerDeclarationDuration: showcase.winnerDisplayDuration || 5,
+          thankYouDuration: showcase.thankYouDuration || 2,
+          countdownDuration: 0, // Instant completion
           musicUrl: showcase.musicUrl || null,
         },
         phases: [],

@@ -3195,11 +3195,12 @@ exports.getStructuredTimeline = async (req, res) => {
               showcase: req.params.id,
               config: {
                 welcomeDuration: welcomeDurationMinutes,
-                performanceSlotDuration: showcase.performanceDuration || 0,
-                commercialDuration: showcase.commercialDuration || 0,
-                votingDuration: showcase.votingDisplayDuration || 3,
-                winnerDeclarationDuration: showcase.winnerDisplayDuration || 3,
+                performanceSlotDuration: showcase.performanceDuration || 5,
+                commercialDuration: showcase.commercialDuration || 2,
+                votingDuration: showcase.votingDisplayDuration || 10,
+                winnerDeclarationDuration: showcase.winnerDisplayDuration || 5,
                 thankYouDuration: showcase.thankYouDuration || 2,
+                countdownDuration: 0,
               },
               welcomeMessage: {
                 title: showcase.welcomeMessage || `Welcome to ${showcase.title}!`,

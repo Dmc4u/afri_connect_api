@@ -366,9 +366,8 @@ router.get("/", async (req, res) => {
           const voting = showcase.votingDisplayDuration || 10;
           const winner = showcase.winnerDisplayDuration || 5;
           const thankYou = showcase.thankYouDuration || 2;
-          const countdown = showcase.countdownDuration || 1; // Next event countdown phase duration (default 1 minute)
-          const total =
-            welcome + performances + commercial + voting + winner + thankYou + countdown;
+          // Countdown is instant completion - not included in total duration
+          const total = welcome + performances + commercial + voting + winner + thankYou;
           return parseFloat(total.toFixed(2)); // Exact decimal value
         })(),
         prize: showcase.prizeDetails?.amount || 0,

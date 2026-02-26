@@ -123,7 +123,7 @@ const validateShowcaseCreation = [
     .optional()
     .custom((value) => {
       // Each commercial duration is expressed in seconds.
-      const maxSeconds = Number(process.env.COMMERCIAL_MAX_SECONDS || 180);
+      const maxSeconds = Number(process.env.COMMERCIAL_MAX_SECONDS || 150); // 2m30s default
       const num = Number(value);
       if (!Number.isFinite(num)) throw new Error("Commercial duration must be a number");
       if (!Number.isInteger(num)) throw new Error("Commercial duration must be an integer");

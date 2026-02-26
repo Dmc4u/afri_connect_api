@@ -82,7 +82,7 @@ const showcaseEventTimeline = new mongoose.Schema(
       },
       welcomeDuration: {
         type: Number,
-        default: 3,
+        default: 5, // Production default (calculated from showcase settings)
       },
       performanceSlotDuration: {
         type: Number,
@@ -90,11 +90,11 @@ const showcaseEventTimeline = new mongoose.Schema(
       },
       commercialDuration: {
         type: Number,
-        default: 1,
+        default: 2, // Production default
       },
       votingDuration: {
         type: Number,
-        default: 3,
+        default: 10, // Production default
       },
       winnerDeclarationDuration: {
         type: Number,
@@ -103,6 +103,10 @@ const showcaseEventTimeline = new mongoose.Schema(
       thankYouDuration: {
         type: Number,
         default: 2,
+      },
+      countdownDuration: {
+        type: Number,
+        default: 0, // Instant completion - event ends immediately after thank you phase
       },
     },
 
@@ -321,10 +325,10 @@ showcaseEventTimeline.methods.generateTimeline = function () {
   // 3. Commercial Phase - Calculate from actual commercial videos
   let commercialDurationMinutes = this.config.commercialDuration || 1; // Default fallback
 
-  // Cap a single advert duration (seconds). Default: 30 minutes.
+  // Cap a single advert duration (seconds). Default: 150 seconds (2m30s).
   // NOTE: This cap is applied per-commercial when computing the total commercial phase duration.
   // Set COMMERCIAL_MAX_SECONDS lower if you want to hard-limit individual ad length.
-  const MAX_COMMERCIAL_SECONDS = Number(process.env.COMMERCIAL_MAX_SECONDS || 1800);
+  const MAX_COMMERCIAL_SECONDS = Number(process.env.COMMERCIAL_MAX_SECONDS || 150);
 
   // If showcase has commercials array with actual videos, calculate total duration
   if (this.showcase && this.showcase.commercials && this.showcase.commercials.length > 0) {
@@ -394,13 +398,16 @@ showcaseEventTimeline.methods.generateTimeline = function () {
   });
   currentTime = new Date(currentTime.getTime() + this.config.thankYouDuration * 60000);
 
-  // 7. Next Event Countdown (2 minutes to wrap up the event)
-  const countdownDuration = this.config.countdownDuration || 2; // 2 minutes default
+  // 7. Countdown Phase (Instant Completion)
+  // This phase exists in the schedule but immediately completes the event when reached.
+  // It's created with a nominal 30-day duration for database consistency,
+  // but advancePhase() will instantly mark it complete and end the event.
+  const countdownDuration = this.config.countdownDuration || 0;
   this.phases.push({
     name: "countdown",
-    duration: countdownDuration, // 2 minutes to show next event info and end gracefully
+    duration: 0, // Not a real duration - instant completion
     startTime: new Date(currentTime),
-    endTime: new Date(currentTime.getTime() + countdownDuration * 60000),
+    endTime: new Date(currentTime.getTime() + 30 * 24 * 60 * 60 * 1000), // 30 days placeholder
     status: "pending",
   });
 
