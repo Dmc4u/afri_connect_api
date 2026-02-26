@@ -318,7 +318,9 @@ exports.createShowcase = async (req, res) => {
       const welcomeMessageSec = showcase.welcomeMessageDuration ?? 5;
       const rulesSec = showcase.rulesDuration ?? 10;
       const perContestantSec = showcase.contestantsIntroDuration ?? 3;
-      const numContestants = selectedContestants.length;
+      // At creation time, no contestants are registered yet - use 0 for initial calculation
+      // Timeline will be updated when contestants register and are selected
+      const numContestants = 0;
       const totalWelcomeSeconds = welcomeMessageSec + rulesSec + perContestantSec * numContestants;
       const welcomeDuration = totalWelcomeSeconds / 60; // Convert to minutes
 
@@ -327,7 +329,7 @@ exports.createShowcase = async (req, res) => {
       const votingDuration = showcase.votingDisplayDuration ?? 10;
       const winnerDeclarationDuration = showcase.winnerDisplayDuration ?? 3;
       const thankYouDuration = showcase.thankYouDuration ?? 2;
-      const countdownDuration = 2; // Always 2 minutes for countdown
+      const countdownDuration = 0; // Instant completion - event ends after thank you
 
       console.log(`📋 [CREATE TIMELINE] Calculated welcome duration:`, {
         welcomeMessage: welcomeMessageSec + "s",
@@ -348,13 +350,13 @@ exports.createShowcase = async (req, res) => {
       });
 
       // Total will be recalculated when performances are scheduled with actual video lengths
+      // Countdown is NOT included - it instantly completes the event
       const estimatedTotalDuration =
         welcomeDuration +
         commercialDuration +
         votingDuration +
         winnerDeclarationDuration +
-        thankYouDuration +
-        countdownDuration;
+        thankYouDuration;
 
       const timeline = new ShowcaseEventTimeline({
         showcase: showcase._id,
