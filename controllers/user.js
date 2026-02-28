@@ -7,7 +7,12 @@ const { RECENT_VIEWS_MAX, RECENT_VIEWS_TTL_DAYS } = require("../utils/config");
 const Listing = require("../models/Listing");
 const { isAdminEmail } = require("../utils/adminCheck");
 const { logActivity } = require("../utils/activityLogger");
-const { emailTemplates, sendEmail, utils: notificationUtils } = require("../utils/notifications");
+const {
+  emailTemplates,
+  sendEmail,
+  utils: notificationUtils,
+  sendWelcomeEmail,
+} = require("../utils/notifications");
 const {
   BadRequestError,
   ConflictError,
@@ -124,6 +129,11 @@ const createUser = (req, res, next) => {
         targetType: "user",
         targetId: user._id,
         details: { email, phone, country },
+      });
+
+      // Send welcome email to new user (async, don't block response)
+      sendWelcomeEmail(user).catch((err) => {
+        console.error(`Failed to send welcome email to ${email}:`, err.message);
       });
 
       // Generate token for immediate login after signup
