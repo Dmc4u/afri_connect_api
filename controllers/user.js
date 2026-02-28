@@ -99,6 +99,7 @@ const createUser = (req, res, next) => {
         location,
         password: hash,
         role,
+        tier: "Pro", // ✅ All new users automatically get Pro tier
         // Auto-enable 2FA for admins (high-privilege accounts)
         settings: {
           emailNotifications: true,

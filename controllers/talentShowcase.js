@@ -6,9 +6,10 @@ const User = require("../models/User");
 const SponsorshipRequest = require("../models/SponsorshipRequest");
 const { performRaffle, verifyRaffle, generatePublicReport } = require("../utils/raffleSelection");
 const path = require("path");
-const fs = require("fs");
+const fsSync = require("fs");
+const fs = require("fs").promises;
 const { v4: uuidv4 } = require("uuid");
-const { isGcsEnabled, getGcsBucketName, buildObjectName, uploadFromPath } = require("../utils/gcs");
+const gcs = require("../utils/gcs");
 const { stripCloudinaryUrl } = require("../utils/mediaSanitize");
 
 function parseBoolEnv(value) {
@@ -1293,8 +1294,42 @@ exports.uploadTalentVideo = async (req, res) => {
       console.log("⚠️ ffprobe not available, video duration will not be auto-detected");
     }
 
-    // Return the uploaded file path
-    const videoUrl = `/uploads/talent-videos/${req.file.filename}`;
+    // Upload to GCS if enabled, otherwise use local storage
+    let videoUrl = `/uploads/talent-videos/${req.file.filename}`;
+
+    if (gcs.isGcsEnabled()) {
+      const bucketName = gcs.getGcsBucketName();
+      const objectName = gcs.buildObjectName({
+        resourceType: "video",
+        purpose: "talent",
+        filename: req.file.originalname,
+      });
+
+      const localPath = req.file.path;
+
+      try {
+        videoUrl = await gcs.uploadFromPath({
+          bucketName,
+          objectName,
+          localPath,
+          contentType: req.file.mimetype,
+        });
+
+        console.log(`✅ Talent video uploaded to GCS: ${videoUrl}`);
+
+        // Delete local file after successful GCS upload
+        try {
+          await fs.unlink(localPath);
+        } catch (unlinkErr) {
+          console.warn(`⚠️ Could not delete local file ${localPath}:`, unlinkErr.message);
+        }
+      } catch (gcsErr) {
+        console.error(
+          `⚠️ GCS upload failed for ${req.file.filename}, using local storage:`,
+          gcsErr.message
+        );
+      }
+    }
 
     res.json({
       success: true,
@@ -2832,7 +2867,7 @@ exports.initCommercialUpload = async (req, res) => {
       createdAt: new Date().toISOString(),
     };
 
-    fs.writeFileSync(path.join(dir, "meta.json"), JSON.stringify(meta));
+    fsSync.writeFileSync(path.join(dir, "meta.json"), JSON.stringify(meta));
 
     res.json({
       success: true,
@@ -2877,7 +2912,7 @@ exports.uploadCommercialChunk = async (req, res) => {
 
     // Basic access check: ensure session matches this showcase and requester is admin (already enforced)
     const chunkName = `chunk-${String(idx).padStart(6, "0")}`;
-    fs.writeFileSync(path.join(dir, chunkName), req.file.buffer);
+    fsSync.writeFileSync(path.join(dir, chunkName), req.file.buffer);
 
     res.json({ success: true, uploadId, chunkIndex: idx });
   } catch (error) {
@@ -2910,7 +2945,7 @@ exports.completeCommercialUpload = async (req, res) => {
     const totalChunks = Number(meta.totalChunks);
     for (let i = 0; i < totalChunks; i++) {
       const chunkName = `chunk-${String(i).padStart(6, "0")}`;
-      if (!fs.existsSync(path.join(dir, chunkName))) {
+      if (!fsSync.existsSync(path.join(dir, chunkName))) {
         return res.status(400).json({
           success: false,
           message: `Missing chunk ${i}/${totalChunks - 1}`,
@@ -3028,8 +3063,8 @@ exports.deleteCommercialVideo = async (req, res) => {
         const fs = require("fs");
         const relativeVideoPath = localUrl.replace(/^\/+/, "");
         const filePath = path.join(__dirname, "..", relativeVideoPath);
-        if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
+        if (fsSync.existsSync(filePath)) {
+          fsSync.unlinkSync(filePath);
         }
       }
     } catch (err) {

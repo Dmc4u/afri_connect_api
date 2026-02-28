@@ -3,25 +3,28 @@ const User = require("../models/User");
 const { BadRequestError, NotFoundError, ForbiddenError } = require("../utils/errors");
 const path = require("path");
 const fs = require("fs").promises;
+const gcs = require("../utils/gcs");
 
 // --- Slug helpers (mirror model logic) ---
 function slugify(text = "") {
   return String(text)
     .toLowerCase()
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9\s-]/g, '')
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s-]/g, "")
     .trim()
-    .replace(/[\s_-]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+    .replace(/[\s_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 async function generateUniqueSlug(base, currentId) {
-  if (!base) base = 'listing';
+  if (!base) base = "listing";
   let candidate = base;
   let i = 2;
   while (true) {
-    const exists = await Listing.findOne({ slug: candidate, _id: { $ne: currentId } }).select('_id').lean();
+    const exists = await Listing.findOne({ slug: candidate, _id: { $ne: currentId } })
+      .select("_id")
+      .lean();
     if (!exists) return candidate;
     candidate = `${base}-${i++}`;
   }
@@ -51,14 +54,14 @@ const getAllListings = async (req, res, next) => {
 
     // Exclude talent showcase contestants ONLY when explicitly requested (for business listings page)
     // Talent directory (/discover-talent) should include all talent contestants
-    if (excludeWinners === 'true') {
+    if (excludeWinners === "true") {
       const TalentContestant = require("../models/TalentContestant");
       // Exclude ALL listings that are associated with talent showcase contestants
       // This ensures showcase contestants don't appear on business listings page
       const contestantListingIds = await TalentContestant.find({
-        listing: { $exists: true, $ne: null }
+        listing: { $exists: true, $ne: null },
       })
-        .distinct('listing')
+        .distinct("listing")
         .lean();
 
       if (contestantListingIds.length > 0) {
@@ -131,7 +134,9 @@ const getListingById = async (req, res, next) => {
         const slug = await generateUniqueSlug(base, listing._id);
         listing.slug = slug;
         Listing.updateOne({ _id: listing._id }, { $set: { slug } }).exec();
-      } catch { /* noop */ }
+      } catch {
+        /* noop */
+      }
     }
 
     // Increment views (don't await to avoid slowing response)
@@ -213,6 +218,9 @@ const createListing = async (req, res, next) => {
     // Check user tier for listing limits
     const user = await User.findById(req.user._id);
 
+    // Log tier for debugging
+    console.log(`[Listing Creation] User: ${user.email}, Tier: ${user.tier}, Role: ${user.role}`);
+
     // Admin bypass: Allow admins to create listings at any tier
     const isAdmin = user.role === "admin";
 
@@ -230,13 +238,19 @@ const createListing = async (req, res, next) => {
         Pro: Infinity,
       };
 
-      const limit = tierLimits[user.tier] ?? 1;
+      // Normalize tier to handle case variations and undefined/null
+      const userTier = user.tier || "Free";
+      const limit = tierLimits[userTier] ?? 1;
+
+      console.log(
+        `[Listing Creation] User has ${userListingsCount} listings, Tier: ${userTier}, Limit: ${limit}`
+      );
 
       if (userListingsCount >= limit) {
         throw new ForbiddenError(
-          `Your ${user.tier || "Free"} tier allows maximum ${
+          `Your ${userTier} tier allows maximum ${
             Number.isFinite(limit) ? limit : "unlimited"
-          } listing(s).`
+          } listing(s). Current count: ${userListingsCount}`
         );
       }
     }
@@ -294,20 +308,60 @@ const createListing = async (req, res, next) => {
         }
       }
 
-      listingData.mediaFiles = req.files.map((file) => ({
-        filename: file.filename,
-        originalname: file.originalname,
-        mimetype: file.mimetype,
-        size: file.size,
-        url: `/uploads/listings/${file.filename}`,
-        type: file.mimetype.startsWith("image/")
-          ? "image"
-          : file.mimetype.startsWith("video/")
-            ? "video"
-            : file.mimetype.startsWith("audio/")
-              ? "audio"
-              : "document",
-      }));
+      // Upload files to GCS if enabled, otherwise use local storage
+      const uploadPromises = req.files.map(async (file) => {
+        let fileUrl = `/uploads/listings/${file.filename}`;
+
+        if (gcs.isGcsEnabled()) {
+          const bucketName = gcs.getGcsBucketName();
+          const resourceType = file.mimetype.startsWith("image/") ? "image" : "video";
+          const objectName = gcs.buildObjectName({
+            resourceType,
+            purpose: "listing",
+            filename: file.originalname,
+          });
+
+          const localPath = path.join(__dirname, "..", "uploads", "listings", file.filename);
+
+          try {
+            fileUrl = await gcs.uploadFromPath({
+              bucketName,
+              objectName,
+              localPath,
+              contentType: file.mimetype,
+            });
+
+            // Delete local file after successful GCS upload
+            try {
+              await fs.unlink(localPath);
+            } catch (unlinkErr) {
+              console.warn(`⚠️ Could not delete local file ${localPath}:`, unlinkErr.message);
+            }
+          } catch (gcsErr) {
+            console.error(
+              `⚠️ GCS upload failed for ${file.filename}, using local storage:`,
+              gcsErr.message
+            );
+          }
+        }
+
+        return {
+          filename: file.filename,
+          originalname: file.originalname,
+          mimetype: file.mimetype,
+          size: file.size,
+          url: fileUrl,
+          type: file.mimetype.startsWith("image/")
+            ? "image"
+            : file.mimetype.startsWith("video/")
+              ? "video"
+              : file.mimetype.startsWith("audio/")
+                ? "audio"
+                : "document",
+        };
+      });
+
+      listingData.mediaFiles = await Promise.all(uploadPromises);
     }
 
     const listing = await Listing.create(listingData);
@@ -493,13 +547,48 @@ const uploadMedia = async (req, res, next) => {
       }
     }
 
-    // Add media file to listing (using local storage)
+    // Upload to GCS if enabled, otherwise use local storage
+    let fileUrl = `/uploads/listings/${req.file.filename}`;
+
+    if (gcs.isGcsEnabled()) {
+      const bucketName = gcs.getGcsBucketName();
+      const resourceType = req.file.mimetype.startsWith("image/") ? "image" : "video";
+      const objectName = gcs.buildObjectName({
+        resourceType,
+        purpose: "listing",
+        filename: req.file.originalname,
+      });
+
+      const localPath = path.join(__dirname, "..", "uploads", "listings", req.file.filename);
+
+      try {
+        fileUrl = await gcs.uploadFromPath({
+          bucketName,
+          objectName,
+          localPath,
+          contentType: req.file.mimetype,
+        });
+
+        // Delete local file after successful GCS upload
+        try {
+          await fs.unlink(localPath);
+        } catch (unlinkErr) {
+          console.warn(`⚠️ Could not delete local file ${localPath}:`, unlinkErr.message);
+        }
+      } catch (gcsErr) {
+        console.error(
+          `⚠️ GCS upload failed for ${req.file.filename}, using local storage:`,
+          gcsErr.message
+        );
+      }
+    }
+
     const mediaFile = {
       filename: req.file.filename,
       originalname: req.file.originalname,
       mimetype: req.file.mimetype,
       size: req.file.size,
-      url: `/uploads/listings/${req.file.filename}`,
+      url: fileUrl,
       type: req.file.mimetype.startsWith("image/")
         ? "image"
         : req.file.mimetype.startsWith("video/")
