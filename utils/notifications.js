@@ -63,14 +63,16 @@ const emailTemplates = {
           <p>Thank you for joining ${APP_NAME}. We're excited to have you as part of our community.</p>
           <p>Your account has been successfully created with the email: <strong>${user.email}</strong></p>
           <p>Here's what you can do next:</p>
-          <ul>
-            <li>Complete your profile</li>
-            <li>Create your first business listing</li>
-            <li>Explore other businesses in your area</li>
-            <li>Connect with other entrepreneurs</li>
+          <ul style="line-height: 1.8;">
+            <li><a href="${FRONTEND_URL}/profile" style="color: #007bff; text-decoration: none;">Complete your profile</a> to showcase your expertise</li>
+            <li><a href="${FRONTEND_URL}/profile#listings/create-listing" style="color: #007bff; text-decoration: none;">Create your first business listing</a> to reach potential customers</li>
+            <li><a href="${FRONTEND_URL}/profile#listings/create-talent" style="color: #007bff; text-decoration: none;">Create your first talent listing</a> to showcase your skills</li>
+            <li><a href="${FRONTEND_URL}/search" style="color: #007bff; text-decoration: none;">Explore other businesses</a> in your area</li>
+            <li><a href="${FRONTEND_URL}/forum" style="color: #007bff; text-decoration: none;">Connect with other entrepreneurs</a> in our community forum</li>
+            <li><a href="${FRONTEND_URL}/advertise" style="color: #007bff; text-decoration: none;">Promote your business</a> with targeted advertising</li>
           </ul>
           <div style="text-align: center; margin: 30px 0;">
-            <a href="${FRONTEND_URL}/profile" style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px;">Complete Your Profile</a>
+            <a href="${FRONTEND_URL}/profile" style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">Get Started Now</a>
           </div>
           <p>If you have any questions, feel free to reach out to our support team.</p>
           <p>Best regards,<br>The ${APP_NAME} Team</p>
