@@ -42,6 +42,7 @@ const {
 const { createUser, login, verifyLoginOtp } = require("./controllers/user");
 const { initializeSocket } = require("./utils/socket");
 const PricingSettings = require("./models/PricingSettings");
+const { bulkCorrectLegacyAutoProUsers } = require("./utils/adminProvisioning");
 // Event scheduler - automatically starts events at scheduled time
 const { startScheduler } = require("./utils/eventScheduler");
 const { startAdMediaCleanupJob } = require("./utils/adMediaCleanup");
@@ -102,6 +103,10 @@ mongoose
     console.log("✅ Connected to MongoDB");
     // Initialize default pricing settings
     await initializeDefaultPricing();
+    const correctedUsers = await bulkCorrectLegacyAutoProUsers();
+    if (correctedUsers > 0) {
+      console.log(`✅ Corrected ${correctedUsers} legacy auto-Pro user account(s)`);
+    }
   })
   .catch((err) => console.error("❌ MongoDB connection error:", err));
 

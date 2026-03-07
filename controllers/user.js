@@ -6,6 +6,7 @@ const { JWT_SECRET } = require("../utils/config");
 const { RECENT_VIEWS_MAX, RECENT_VIEWS_TTL_DAYS } = require("../utils/config");
 const Listing = require("../models/Listing");
 const { isAdminEmail } = require("../utils/adminCheck");
+const { syncAdminProvisioning } = require("../utils/adminProvisioning");
 const { logActivity } = require("../utils/activityLogger");
 const {
   emailTemplates,
@@ -91,10 +92,10 @@ const createUser = (req, res, next) => {
       return bcrypt.hash(password, 10);
     })
     .then((hash) => {
-      // Determine role based on ADMIN_EMAILS configuration
-      const role = isAdminEmail(email) ? "admin" : "user";
       // Create location string from city and country
       const location = city && country ? `${city}, ${country}` : country || city || null;
+      const isProvisionedAdmin = isAdminEmail(email);
+
       return User.create({
         name,
         email,
@@ -103,14 +104,15 @@ const createUser = (req, res, next) => {
         country,
         location,
         password: hash,
-        role,
-        tier: "Pro", // ✅ All new users automatically get Pro tier
+        role: isProvisionedAdmin ? "admin" : "user",
+        tier: isProvisionedAdmin ? "Pro" : "Free",
+        adminProvisioned: isProvisionedAdmin,
         // Auto-enable 2FA for admins (high-privilege accounts)
         settings: {
           emailNotifications: true,
           profileVisibility: true,
           phoneVisibility: false,
-          twoFactorAuth: role === "admin",
+          twoFactorAuth: isProvisionedAdmin,
         },
       });
     })
@@ -172,10 +174,17 @@ const login = (req, res, next) => {
 
   return User.findUserByCredentials(email, password)
     .then(async (user) => {
-      // Sync role with ADMIN_EMAILS configuration
-      const expectedRole = isAdminEmail(user.email) ? "admin" : "user";
-      if (user.role !== expectedRole) {
-        user.role = expectedRole;
+      const previousRole = user.role;
+      const previousTier = user.tier;
+      const previousProvisionedState = user.adminProvisioned;
+
+      syncAdminProvisioning(user);
+
+      if (
+        user.role !== previousRole ||
+        user.tier !== previousTier ||
+        user.adminProvisioned !== previousProvisionedState
+      ) {
         await user.save();
       }
 
@@ -296,7 +305,7 @@ const verifyLoginOtp = async (req, res, next) => {
 
     // Need the OTP hash (select: false)
     const user = await User.findById(payload._id).select(
-      "+loginOtp.hash name email role tier settings loginOtp.expiresAt loginOtp.attempts loginOtp.lastSentAt"
+      "+loginOtp.hash name email role tier adminProvisioned tierExpiresAt subscriptionId subscriptionStatus settings loginOtp.expiresAt loginOtp.attempts loginOtp.lastSentAt"
     );
     if (!user) return next(new NotFoundError("User not found"));
     if (!(user.settings && user.settings.twoFactorAuth === true)) {
@@ -326,11 +335,7 @@ const verifyLoginOtp = async (req, res, next) => {
     // OTP verified: clear it
     user.loginOtp = { hash: null, expiresAt: null, attempts: 0, lastSentAt: null };
 
-    // Sync role with ADMIN_EMAILS configuration
-    const expectedRole = isAdminEmail(user.email) ? "admin" : "user";
-    if (user.role !== expectedRole) {
-      user.role = expectedRole;
-    }
+    syncAdminProvisioning(user);
 
     await user.save();
 

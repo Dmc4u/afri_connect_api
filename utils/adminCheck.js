@@ -3,16 +3,13 @@
  * Centralized logic for determining admin status based on email configuration
  */
 
-const { ADMIN_EMAIL, ADMIN_EMAILS } = require("./config");
+const { ADMIN_EMAILS } = require("./config");
 
-// Build an effective admin email list with a sensible fallback
-// Prefer the explicit ADMIN_EMAILS list; if empty, include ADMIN_EMAIL
-const EFFECTIVE_ADMIN_EMAILS = (() => {
-  const list = Array.isArray(ADMIN_EMAILS) ? ADMIN_EMAILS : [];
-  const fallback = ADMIN_EMAIL ? [String(ADMIN_EMAIL).toLowerCase()] : [];
-  // Use a Set to avoid duplicates if ADMIN_EMAIL is also in ADMIN_EMAILS
-  return Array.from(new Set([...list, ...fallback]));
-})();
+// Admin role assignment must come only from the explicit admin allowlist.
+// ADMIN_EMAIL is also used by email delivery config and must not imply app admin access.
+const EFFECTIVE_ADMIN_EMAILS = Array.isArray(ADMIN_EMAILS)
+  ? Array.from(new Set(ADMIN_EMAILS.map((email) => String(email).toLowerCase())))
+  : [];
 
 /**
  * Check if an email is configured as an admin
@@ -63,11 +60,11 @@ const syncUserRole = async (user) => {
  */
 const adminCheckMiddleware = (req, res, next) => {
   if (!req.user) {
-    return res.status(401).json({ error: 'Authentication required' });
+    return res.status(401).json({ error: "Authentication required" });
   }
 
-  if (req.user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required' });
+  if (req.user.role !== "admin") {
+    return res.status(403).json({ error: "Admin access required" });
   }
 
   next();
@@ -77,7 +74,7 @@ module.exports = {
   isAdminEmail,
   getRoleForEmail,
   syncUserRole,
-  adminCheckMiddleware
+  adminCheckMiddleware,
 };
 
 // Default export for backward compatibility

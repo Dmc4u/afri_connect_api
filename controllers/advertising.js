@@ -47,6 +47,8 @@ const normalizeMediaFiles = (mediaFiles = []) => {
           cloudinaryId: file.cloudinaryId || file.public_id || null,
           type: inferredType,
           duration: file.duration || file.videoDuration,
+          embedUrl: file.embedUrl || null,
+          directUrl: file.directUrl || null,
           uploadedAt: file.uploadedAt ? new Date(file.uploadedAt) : new Date(),
         };
       }

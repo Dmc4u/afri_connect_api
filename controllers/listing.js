@@ -225,32 +225,64 @@ const createListing = async (req, res, next) => {
     const isAdmin = user.role === "admin";
 
     if (!isAdmin) {
-      const userListingsCount = await Listing.countDocuments({
+      // Determine if this is a talent or business listing
+      const talentCategories =
+        /talent|music|comedy|instrumentalist|artist|dancer|singer|rapper|dj|producer|actor|actress|voice over artist|other talent/i;
+      const isTalent = talentCategories.test(category);
+
+      // Count business vs talent listings separately
+      const allUserListings = await Listing.find({
         owner: req.user._id,
         status: { $ne: "deleted" },
-      });
+      })
+        .select("category")
+        .lean();
 
-      // Enforce listing limits based on tier (Free = 1, Starter = 5, Premium/Pro = unlimited)
-      const tierLimits = {
-        Free: 1,
+      const businessCount = allUserListings.filter(
+        (l) => !talentCategories.test(l.category)
+      ).length;
+      const talentCount = allUserListings.filter((l) => talentCategories.test(l.category)).length;
+
+      // Enforce separate limits: Free tier = 4 business + 2 talent
+      const userTier = user.tier || "Free";
+
+      // Business listing limits
+      const businessLimits = {
+        Free: 4,
+        Starter: 10,
+        Premium: Infinity,
+        Pro: Infinity,
+      };
+
+      // Talent showcase limits
+      const talentLimits = {
+        Free: 2,
         Starter: 5,
         Premium: Infinity,
         Pro: Infinity,
       };
 
-      // Normalize tier to handle case variations and undefined/null
-      const userTier = user.tier || "Free";
-      const limit = tierLimits[userTier] ?? 1;
+      const businessLimit = businessLimits[userTier] ?? 4;
+      const talentLimit = talentLimits[userTier] ?? 2;
 
       console.log(
-        `[Listing Creation] User has ${userListingsCount} listings, Tier: ${userTier}, Limit: ${limit}`
+        `[Listing Creation] User: ${user.email}, Category: ${category}, IsTalent: ${isTalent}, Business: ${businessCount}/${businessLimit}, Talent: ${talentCount}/${talentLimit}`
       );
 
-      if (userListingsCount >= limit) {
+      // Check appropriate limit based on listing type
+      if (isTalent && talentCount >= talentLimit) {
         throw new ForbiddenError(
           `Your ${userTier} tier allows maximum ${
-            Number.isFinite(limit) ? limit : "unlimited"
-          } listing(s). Current count: ${userListingsCount}`
+            Number.isFinite(talentLimit) ? talentLimit : "unlimited"
+          } talent showcase(s). Upgrade to create more talent showcases.`
+        );
+      }
+
+      if (!isTalent && businessCount >= businessLimit) {
+        throw new ForbiddenError(
+          `Your ${userTier} tier allows maximum ${
+            Number.isFinite(businessLimit) ? businessLimit : "unlimited"
+          } business listing(s). Upgrade to create more listings.`
         );
       }
     }

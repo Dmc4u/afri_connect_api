@@ -386,7 +386,11 @@ CLIENT_URL=http://localhost:3001
 # ADMIN CONFIGURATION
 # ============================================
 ADMIN_EMAIL=admin@afrionet.com
+ADMIN_EMAILS=admin@afrionet.com
 ```
+
+`ADMIN_EMAILS` is the only setting that grants application admin access and automatic `Pro` tier at signup.
+`ADMIN_EMAIL` is safe to use for outbound email delivery and does not grant admin access by itself.
 
 ### Generate JWT Secrets
 

@@ -61,6 +61,10 @@ const userSchema = new mongoose.Schema(
       enum: ["user", "admin"],
       default: "user",
     },
+    adminProvisioned: {
+      type: Boolean,
+      default: false,
+    },
     settings: {
       emailNotifications: {
         type: Boolean,
