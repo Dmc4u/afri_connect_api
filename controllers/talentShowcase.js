@@ -121,38 +121,106 @@ async function addCommercialToShowcase({ showcaseId, filePath, title, requestedD
     throw err;
   }
 
-  const uploadsRoot = path.join(__dirname, "..", "uploads");
-  const relToUploads = path.relative(uploadsRoot, filePath).replace(/\\/g, "/");
-  const localVideoUrl = `/uploads/${relToUploads.replace(/^\/+/, "")}`;
+  const originalSize = fsSync.statSync(filePath).size;
+  let duration = 30;
+  let compressed = false;
+  let finalVideoPath = filePath;
+  let finalSize = originalSize;
+  let compressedPath = null;
 
-  const { getVideoDurationInSeconds } = require("get-video-duration");
-  // Cap a single advert to 2 minutes 30 seconds by default.
+  console.log(
+    `📹 Processing commercial video: ${path.basename(filePath)} (${(originalSize / 1024 / 1024).toFixed(2)}MB)`
+  );
+
+  // Cap a single advert to 2 minutes 30 seconds by default
   const MAX_COMMERCIAL_SECONDS = Number(process.env.COMMERCIAL_MAX_SECONDS || 150);
   const requestedDuration = Number(requestedDurationSeconds);
-  let duration = 30;
 
+  // Step 1: Detect video duration (optional - gracefully handle FFmpeg absence)
   try {
-    const durationInSeconds = await getVideoDurationInSeconds(filePath);
-    duration = Math.ceil(durationInSeconds);
-    if (duration > MAX_COMMERCIAL_SECONDS) duration = MAX_COMMERCIAL_SECONDS;
-  } catch (err) {
+    const videoProcessing = require("../utils/videoProcessing");
+    duration = await videoProcessing.detectVideoDuration(filePath);
+    console.log(`✅ Duration detected: ${duration} seconds`);
+
+    // Cap to maximum allowed for commercials
+    if (duration > MAX_COMMERCIAL_SECONDS) {
+      console.log(`⚠️ Duration ${duration}s exceeds max ${MAX_COMMERCIAL_SECONDS}s, capping`);
+      duration = MAX_COMMERCIAL_SECONDS;
+    }
+
+    // Step 2: Compress if duration > 15 seconds (optional - gracefully handle FFmpeg absence)
+    if (duration > 15) {
+      try {
+        const videoCompression = require("../utils/videoCompression");
+
+        if (videoCompression.shouldCompressVideo(duration)) {
+          console.log(`🗜️ Commercial is ${duration}s, attempting compression...`);
+
+          compressedPath = await videoCompression.compressVideo(filePath, path.basename(filePath));
+
+          if (compressedPath && fsSync.existsSync(compressedPath)) {
+            const compressedSize = fsSync.statSync(compressedPath).size;
+            const savedMB = ((originalSize - compressedSize) / 1024 / 1024).toFixed(2);
+
+            console.log(
+              `✅ Compression successful: ${(compressedSize / 1024 / 1024).toFixed(2)}MB (saved ${savedMB}MB)`
+            );
+
+            finalVideoPath = compressedPath;
+            finalSize = compressedSize;
+            compressed = true;
+          }
+        } else {
+          console.log(`ℹ️ Commercial duration ${duration}s - no compression needed`);
+        }
+      } catch (compressionError) {
+        console.warn("⚠️ Compression failed:", compressionError.message);
+        console.warn("⚠️ Continuing with original video (FFmpeg may not be installed)");
+      }
+    } else {
+      console.log(`ℹ️ Commercial is ${duration}s (≤15s) - skipping compression`);
+    }
+  } catch (durationError) {
+    console.warn("⚠️ Duration detection failed:", durationError.message);
+    console.warn("⚠️ Continuing without duration (FFmpeg may not be installed)");
+
+    // Fallback: use requested duration or old method
     if (Number.isFinite(requestedDuration) && requestedDuration > 0) {
       duration = Math.ceil(requestedDuration);
       if (duration > MAX_COMMERCIAL_SECONDS) duration = MAX_COMMERCIAL_SECONDS;
+      console.log(`ℹ️ Using requested duration: ${duration}s`);
+    } else {
+      // Try legacy get-video-duration package as last resort
+      try {
+        const { getVideoDurationInSeconds } = require("get-video-duration");
+        const durationInSeconds = await getVideoDurationInSeconds(filePath);
+        duration = Math.ceil(durationInSeconds);
+        if (duration > MAX_COMMERCIAL_SECONDS) duration = MAX_COMMERCIAL_SECONDS;
+        console.log(`✅ Legacy duration detection: ${duration}s`);
+      } catch (legacyErr) {
+        console.warn("⚠️ All duration detection methods failed, using default: 30s");
+        duration = 30;
+      }
     }
   }
 
   if (!showcase.commercials) showcase.commercials = [];
 
-  let videoUrl = localVideoUrl;
+  let videoUrl;
   let localFileToDeleteAfterSave = null;
+  const isProduction = process.env.NODE_ENV === "production";
 
-  if (isGcsEnabled()) {
+  console.log(`📦 Storage mode: ${isProduction ? "production (GCS)" : "development (local)"}`);
+
+  if (!fsSync.existsSync(finalVideoPath)) {
+    throw new Error(`Video file not found at path: ${finalVideoPath}`);
+  }
+
+  if (isProduction && isGcsEnabled()) {
+    // Production: Upload to Google Cloud Storage
     const bucketName = getGcsBucketName();
     if (!bucketName) {
-      const err = new Error("GCS is enabled but GCS_BUCKET is not configured.");
-      err.statusCode = 500;
-      throw err;
+      throw new Error("GCS is enabled but GCS_BUCKET is not configured.");
     }
 
     const deleteLocalAfterUpload =
@@ -161,28 +229,55 @@ async function addCommercialToShowcase({ showcaseId, filePath, title, requestedD
       true;
 
     try {
-      const filename = path.basename(filePath);
+      const filename = path.basename(finalVideoPath);
       const objectName = buildObjectName({
         resourceType: "video",
         purpose: "commercial",
         filename,
       });
 
-      const uploadedUrl = await uploadFromPath({
+      videoUrl = await uploadFromPath({
         bucketName,
         objectName,
-        localPath: filePath,
+        localPath: finalVideoPath,
       });
 
-      if (uploadedUrl) {
-        videoUrl = uploadedUrl;
-        if (deleteLocalAfterUpload) {
-          // Defer deleting the local file until after the showcase is saved.
-          localFileToDeleteAfterSave = filePath;
+      console.log("✅ Commercial video uploaded to Google Cloud Storage:", objectName);
+
+      if (deleteLocalAfterUpload) {
+        // Defer deleting local files until after showcase is saved
+        localFileToDeleteAfterSave = [filePath];
+        if (compressed && compressedPath && compressedPath !== filePath) {
+          localFileToDeleteAfterSave.push(compressedPath);
         }
       }
     } catch (cloudErr) {
       console.warn("⚠️ Commercial GCS upload failed; using local URL:", cloudErr?.message);
+      // Fallback to local URL
+      const uploadsRoot = path.join(__dirname, "..", "uploads");
+      const relToUploads = path.relative(uploadsRoot, finalVideoPath).replace(/\\/g, "/");
+      videoUrl = `/uploads/${relToUploads.replace(/^\/+/, "")}`;
+    }
+  } else {
+    // Development: Use local storage
+    console.log("📦 Using local storage (development mode)");
+    const uploadsRoot = path.join(__dirname, "..", "uploads");
+    const relToUploads = path.relative(uploadsRoot, finalVideoPath).replace(/\\/g, "/");
+    videoUrl = `/uploads/${relToUploads.replace(/^\/+/, "")}`;
+
+    // Clean up temp compressed file if different from original
+    if (
+      compressed &&
+      compressedPath &&
+      compressedPath !== filePath &&
+      fsSync.existsSync(filePath)
+    ) {
+      try {
+        fsSync.unlinkSync(filePath);
+        console.log("✅ Cleaned up original file after compression (dev mode)");
+      } catch (cleanupErr) {
+        console.warn("⚠️ Could not clean up original file:", cleanupErr.message);
+      }
     }
   }
 
@@ -192,6 +287,7 @@ async function addCommercialToShowcase({ showcaseId, filePath, title, requestedD
     duration,
     order: showcase.commercials.length,
     uploadedAt: new Date(),
+    compressed: compressed,
   };
 
   showcase.commercials.push(newCommercial);
@@ -204,23 +300,28 @@ async function addCommercialToShowcase({ showcaseId, filePath, title, requestedD
   showcase.commercialDuration = Math.ceil(totalDurationSeconds / 60);
   await showcase.save();
 
-  // Best-effort cleanup after save when cloud upload succeeded.
-  {
-    const toDelete = localFileToDeleteAfterSave;
-    if (toDelete && typeof toDelete === "string") {
-      try {
-        fs.unlinkSync(toDelete);
-      } catch (e) {
-        console.warn("⚠️ Could not delete local commercial after upload:", e?.message);
+  // Best-effort cleanup after save when cloud upload succeeded
+  if (localFileToDeleteAfterSave && Array.isArray(localFileToDeleteAfterSave)) {
+    for (const toDelete of localFileToDeleteAfterSave) {
+      if (toDelete && typeof toDelete === "string" && fsSync.existsSync(toDelete)) {
+        try {
+          fsSync.unlinkSync(toDelete);
+          console.log("✅ Cleaned up local file:", toDelete);
+        } catch (e) {
+          console.warn("⚠️ Could not delete local commercial after upload:", e?.message);
+        }
       }
     }
   }
+
+  console.log(`📹 Commercial added: ${duration}s duration${compressed ? " (compressed)" : ""}`);
 
   return {
     videoUrl,
     commercials: showcase.commercials,
     totalDurationSeconds,
     commercialDuration: showcase.commercialDuration,
+    compressed,
   };
 }
 
@@ -1137,7 +1238,8 @@ exports.registerContestant = async (req, res) => {
       themeCreator,
       country,
       videoUrl,
-      videoCloudinaryId: videoCloudinaryId || null,
+      videoGcsObjectName: req.body.videoGcsObjectName || null,
+      videoCloudinaryId: videoCloudinaryId || null, // Deprecated, kept for backward compatibility
       videoDuration: videoDuration, // Use provided duration
       thumbnailUrl,
       socialMedia,
@@ -1259,7 +1361,7 @@ exports.getContestants = async (req, res) => {
   }
 };
 
-// Upload talent video
+// Upload talent video with automatic compression
 exports.uploadTalentVideo = async (req, res) => {
   try {
     if (!req.file) {
@@ -1269,82 +1371,191 @@ exports.uploadTalentVideo = async (req, res) => {
       });
     }
 
-    // Get video duration using ffprobe if available
-    let videoDuration = null;
-    try {
-      const ffprobe = require("fluent-ffmpeg").ffprobe;
-      const videoPath = req.file.path;
+    const videoFile = req.file;
+    const originalSize = videoFile.size;
+    let duration = 0;
+    let compressed = false;
+    let finalVideoPath = videoFile.path;
+    let finalSize = originalSize;
+    let compressedPath = null;
 
-      // Make ffprobe async with Promise
-      videoDuration = await new Promise((resolve) => {
-        ffprobe(videoPath, (err, metadata) => {
-          if (!err && metadata && metadata.format && metadata.format.duration) {
-            const duration = Math.round(metadata.format.duration);
-            console.log(
-              `✅ Video duration detected: ${duration} seconds (${(duration / 60).toFixed(2)} minutes)`
+    console.log(
+      `📹 Processing talent video: ${videoFile.originalname} (${(originalSize / 1024 / 1024).toFixed(2)}MB)`
+    );
+
+    // Step 1: Detect video duration (optional - gracefully handle FFmpeg absence)
+    try {
+      const videoProcessing = require("../utils/videoProcessing");
+      duration = await videoProcessing.detectVideoDuration(videoFile.path);
+      console.log(
+        `✅ Duration detected: ${duration} seconds (${(duration / 60).toFixed(2)} minutes)`
+      );
+
+      // Step 2: Compress if duration > 15 seconds (optional - gracefully handle FFmpeg absence)
+      if (duration > 15) {
+        try {
+          const videoCompression = require("../utils/videoCompression");
+
+          if (videoCompression.shouldCompressVideo(duration)) {
+            console.log(`🗜️ Video is ${duration}s, attempting compression...`);
+
+            compressedPath = await videoCompression.compressVideo(
+              videoFile.path,
+              videoFile.originalname
             );
-            resolve(duration);
+
+            if (compressedPath && fsSync.existsSync(compressedPath)) {
+              const compressedSize = fsSync.statSync(compressedPath).size;
+              const savedMB = ((originalSize - compressedSize) / 1024 / 1024).toFixed(2);
+
+              console.log(
+                `✅ Compression successful: ${(compressedSize / 1024 / 1024).toFixed(2)}MB (saved ${savedMB}MB)`
+              );
+
+              finalVideoPath = compressedPath;
+              finalSize = compressedSize;
+              compressed = true;
+            }
           } else {
-            console.log("⚠️ Could not detect video duration");
-            resolve(null);
+            console.log(`ℹ️ Video duration ${duration}s - no compression needed`);
           }
-        });
-      });
-    } catch (error) {
-      console.log("⚠️ ffprobe not available, video duration will not be auto-detected");
+        } catch (compressionError) {
+          console.warn("⚠️ Compression failed:", compressionError.message);
+          console.warn("⚠️ Continuing with original video (FFmpeg may not be installed)");
+          // Continue with original video
+        }
+      } else {
+        console.log(`ℹ️ Video is ${duration}s (≤15s) - skipping compression`);
+      }
+    } catch (durationError) {
+      console.warn("⚠️ Duration detection failed:", durationError.message);
+      console.warn("⚠️ Continuing without duration (FFmpeg may not be installed)");
+      // Continue without duration - set to 0 and use original video
+      duration = 0;
+      finalVideoPath = videoFile.path;
+      finalSize = originalSize;
     }
 
-    // Upload to GCS if enabled, otherwise use local storage
-    let videoUrl = `/uploads/talent-videos/${req.file.filename}`;
+    // Step 3: Upload to storage (GCS for production, local for development)
+    let videoUrl;
+    let objectName;
+    const isProduction = process.env.NODE_ENV === "production";
 
-    if (gcs.isGcsEnabled()) {
-      const bucketName = gcs.getGcsBucketName();
-      const objectName = gcs.buildObjectName({
-        resourceType: "video",
-        purpose: "talent",
-        filename: req.file.originalname,
-      });
+    console.log(`📦 Storage mode: ${isProduction ? "production (GCS)" : "development (local)"}`);
+    console.log(`📂 Final video path: ${finalVideoPath}`);
 
-      const localPath = req.file.path;
+    if (!fsSync.existsSync(finalVideoPath)) {
+      throw new Error(`Video file not found at path: ${finalVideoPath}`);
+    }
 
+    if (isProduction) {
+      // Production: Upload to Google Cloud Storage
       try {
+        const bucketName = gcs.getGcsBucketName();
+        if (!bucketName) {
+          throw new Error("GCS_BUCKET not configured");
+        }
+
+        // Build GCS object name
+        objectName = gcs.buildObjectName({
+          resourceType: "video",
+          purpose: "talent",
+          filename: videoFile.originalname,
+        });
+
+        // Upload video to GCS
         videoUrl = await gcs.uploadFromPath({
           bucketName,
           objectName,
-          localPath,
-          contentType: req.file.mimetype,
+          localPath: finalVideoPath,
+          contentType: videoFile.mimetype,
         });
 
-        console.log(`✅ Talent video uploaded to GCS: ${videoUrl}`);
+        console.log("✅ Talent video uploaded to Google Cloud Storage:", objectName);
+      } catch (uploadError) {
+        console.error("❌ GCS upload failed:", uploadError);
+        // Clean up all temp files
+        if (fsSync.existsSync(videoFile.path)) fsSync.unlinkSync(videoFile.path);
+        if (compressedPath && fsSync.existsSync(compressedPath)) fsSync.unlinkSync(compressedPath);
+        throw new Error("Failed to upload video to cloud storage");
+      }
 
-        // Delete local file after successful GCS upload
-        try {
-          await fs.unlink(localPath);
-        } catch (unlinkErr) {
-          console.warn(`⚠️ Could not delete local file ${localPath}:`, unlinkErr.message);
+      // Clean up all local temp files after successful upload
+      try {
+        if (fsSync.existsSync(videoFile.path)) fsSync.unlinkSync(videoFile.path);
+        if (compressedPath && fsSync.existsSync(compressedPath)) fsSync.unlinkSync(compressedPath);
+      } catch (cleanupError) {
+        console.warn("⚠️ Failed to clean up temp files:", cleanupError);
+      }
+    } else {
+      // Development: Use local storage
+      console.log("📦 Using local storage (development mode)");
+      const uploadDirDev = path.join(__dirname, "..", "uploads", "talent-videos");
+
+      try {
+        if (!fsSync.existsSync(uploadDirDev)) {
+          console.log("📁 Creating directory:", uploadDirDev);
+          fsSync.mkdirSync(uploadDirDev, { recursive: true });
         }
-      } catch (gcsErr) {
-        console.error(
-          `⚠️ GCS upload failed for ${req.file.filename}, using local storage:`,
-          gcsErr.message
-        );
+
+        const finalFilename = `talent-${Date.now()}-${path.basename(finalVideoPath)}`;
+        const finalPath = path.join(uploadDirDev, finalFilename);
+
+        console.log("📤 Moving video from", finalVideoPath, "to", finalPath);
+
+        // Copy instead of rename to avoid cross-device link errors
+        if (finalVideoPath !== finalPath) {
+          fsSync.copyFileSync(finalVideoPath, finalPath);
+
+          // Clean up temp files after successful copy
+          if (fsSync.existsSync(videoFile.path)) {
+            fsSync.unlinkSync(videoFile.path);
+          }
+          if (compressed && compressedPath && fsSync.existsSync(compressedPath)) {
+            fsSync.unlinkSync(compressedPath);
+          }
+        }
+
+        // Generate local URL
+        videoUrl = `/uploads/talent-videos/${finalFilename}`;
+        objectName = finalFilename;
+
+        console.log("✅ Video stored locally (development):", finalPath);
+      } catch (storageError) {
+        console.error("❌ Local storage failed:", storageError.message);
+        throw new Error(`Failed to store video locally: ${storageError.message}`);
       }
     }
 
+    // Return video info with detected duration and compression status
     res.json({
       success: true,
-      message: "Video uploaded successfully",
-      videoUrl: videoUrl,
-      videoDuration: videoDuration,
-      filename: req.file.filename,
-      size: req.file.size,
+      videoUrl,
+      gcsObjectName: objectName,
+      duration,
+      filename: videoFile.originalname,
+      size: finalSize,
+      originalSize: originalSize,
+      compressed,
+      mimetype: videoFile.mimetype,
     });
   } catch (error) {
-    console.error("Error uploading talent video:", error);
+    console.error("❌ Talent video upload error:", error.message);
+    console.error("Error stack:", error.stack);
+
+    // Try to clean up if files exist
+    if (req.file && fsSync.existsSync(req.file.path)) {
+      try {
+        fsSync.unlinkSync(req.file.path);
+      } catch (unlinkErr) {
+        console.warn("⚠️ Could not delete temp file:", unlinkErr);
+      }
+    }
+
     res.status(500).json({
       success: false,
       message: "Failed to upload video",
-      error: error.message,
+      error: process.env.NODE_ENV === "development" ? error.message : "Internal server error",
     });
   }
 };
@@ -1360,6 +1571,7 @@ exports.updateContestantRegistration = async (req, res) => {
       themeCreator,
       country,
       videoUrl,
+      videoGcsObjectName,
       videoCloudinaryId,
       videoDuration, // Video duration in seconds from upload
       thumbnailUrl,
@@ -1411,6 +1623,10 @@ exports.updateContestantRegistration = async (req, res) => {
     // Update contestant details
     // videoDuration is stored in seconds. Do not hard-cap it here; the live event schedule
     // depends on the stored duration matching the actual uploaded media duration.
+
+    if (videoGcsObjectName !== undefined) {
+      contestant.videoGcsObjectName = videoGcsObjectName || null;
+    }
 
     if (videoCloudinaryId !== undefined) {
       const newId = videoCloudinaryId || null;
@@ -2739,6 +2955,7 @@ exports.uploadCommercialVideo = async (req, res) => {
       commercials: result.commercials,
       totalDuration: result.totalDurationSeconds,
       commercialDuration: result.commercialDuration,
+      compressed: result.compressed || false,
     });
   } catch (error) {
     console.error("Error uploading commercial video:", error);
@@ -2998,6 +3215,7 @@ exports.completeCommercialUpload = async (req, res) => {
       commercials: result.commercials,
       totalDuration: result.totalDurationSeconds,
       commercialDuration: result.commercialDuration,
+      compressed: result.compressed || false,
     });
   } catch (error) {
     console.error("completeCommercialUpload error:", error);

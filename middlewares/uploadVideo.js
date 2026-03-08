@@ -14,7 +14,8 @@ const videoStorage = multer.diskStorage({
     cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
-    const uniqueSuffix = `${req.user._id}-${Date.now()}`;
+    const userId = req.user?._id || "anonymous";
+    const uniqueSuffix = `${userId}-${Date.now()}`;
     const ext = path.extname(file.originalname);
     cb(null, `video-${uniqueSuffix}${ext}`);
   },
@@ -26,7 +27,7 @@ const uploadVideo = multer({
   fileFilter: (req, file, cb) => {
     const allowedTypes = /mp4|mpeg|quicktime|x-msvideo|x-ms-wmv|avi|mov|wmv/;
     const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = file.mimetype.startsWith('video/');
+    const mimetype = file.mimetype.startsWith("video/");
     if (mimetype && extname) {
       return cb(null, true);
     }

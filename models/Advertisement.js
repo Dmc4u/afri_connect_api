@@ -22,10 +22,10 @@ const advertisementSchema = new mongoose.Schema(
     targetUrl: { type: String, required: true }, // Where the ad links to
 
     // Media
-    imageUrl: { type: String }, // Cloudinary URL
-    videoUrl: { type: String }, // Cloudinary video URL or embed
-    imageCloudinaryId: { type: String }, // Cloudinary public_id (optional)
-    videoCloudinaryId: { type: String }, // Cloudinary public_id (optional)
+    imageUrl: { type: String }, // Google Cloud Storage URL
+    videoUrl: { type: String }, // Google Cloud Storage video URL
+    imageGcsId: { type: String }, // GCS object name (optional)
+    videoGcsId: { type: String }, // GCS object name (optional)
     mediaFiles: [
       {
         filename: String,
@@ -33,7 +33,7 @@ const advertisementSchema = new mongoose.Schema(
         mimetype: String,
         size: Number,
         url: String,
-        cloudinaryId: String, // Cloudinary public_id (optional)
+        gcsObjectName: String, // GCS object name (optional)
         type: { type: String, enum: ["image", "video"] },
         duration: Number, // For videos - in seconds
         uploadedAt: { type: Date, default: Date.now },

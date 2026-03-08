@@ -41,8 +41,12 @@ const talentContestantSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    videoGcsObjectName: {
+      type: String,
+    },
     videoCloudinaryId: {
       type: String,
+      // Deprecated: kept for backward compatibility
     },
     videoDuration: {
       type: Number, // Duration in seconds (extracted from actual video)

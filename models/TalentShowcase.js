@@ -193,6 +193,10 @@ const talentShowcaseSchema = new mongoose.Schema(
           type: Number,
           default: 0,
         },
+        compressed: {
+          type: Boolean,
+          default: false,
+        },
         uploadedAt: {
           type: Date,
           default: Date.now,

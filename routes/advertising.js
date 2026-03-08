@@ -1,9 +1,10 @@
 const express = require("express");
 const auth = require("../middlewares/auth");
-const optionalAuth = require('../middlewares/optionalAuth');
-const { adminCheckMiddleware } = require('../utils/adminCheck');
+const optionalAuth = require("../middlewares/optionalAuth");
+const { adminCheckMiddleware } = require("../utils/adminCheck");
 const { requireAdvancedAdsAccess } = require("../middlewares/tierCheck");
 const { ForbiddenError, BadRequestError } = require("../utils/errors");
+const uploadVideo = require("../middlewares/uploadVideo");
 const {
   getActiveAds,
   createAdRequest,
@@ -17,30 +18,33 @@ const {
   adminUpdateAd,
   adminDeleteAd,
   adminGetAnalytics,
-  adminCreateAd
-} = require('../controllers/advertising');
+  adminCreateAd,
+  uploadAdvertisingVideo,
+} = require("../controllers/advertising");
 
 const router = express.Router();
 
 // ===== NEW ADVERTISEMENT SYSTEM =====
 // Public routes
-router.get('/ads/active', getActiveAds); // Get active ads for display
-router.post('/ads/request', optionalAuth, createAdRequest); // Submit ad request (public or logged-in)
-router.post('/ads/track/impression/:id', trackImpression); // Track impression
-router.post('/ads/track/click/:id', trackClick); // Track click
+router.get("/ads/active", getActiveAds); // Get active ads for display
+router.post("/ads/request", optionalAuth, createAdRequest); // Submit ad request (public or logged-in)
+router.post("/ads/track/impression/:id", trackImpression); // Track impression
+router.post("/ads/track/click/:id", trackClick); // Track click
+// router.post("/validate-video-duration", validateVideoDuration); // DISABLED: External video URLs removed from frontend
 
 // Authenticated routes
-router.get('/ads/my', auth, getMyAds); // Get my advertisements
-router.get('/ads/:id', auth, getAdById); // Get single advertisement
-router.post('/ads/:id/payment', auth, completeAdPayment); // Complete payment for approved ad
+router.get("/ads/my", auth, getMyAds); // Get my advertisements
+router.get("/ads/:id", auth, getAdById); // Get single advertisement
+router.post("/ads/:id/payment", auth, completeAdPayment); // Complete payment for approved ad
+router.post("/upload-video", auth, uploadVideo.single("video"), uploadAdvertisingVideo); // Upload video with duration detection
 
 // Admin routes
-router.post('/ads/admin/create', auth, adminCheckMiddleware, adminCreateAd); // Admin: Create ad without payment
-router.get('/ads/admin/all', auth, adminCheckMiddleware, adminGetAllAds); // Get all ads
-router.get('/ads/admin/analytics', auth, adminCheckMiddleware, adminGetAnalytics); // Get analytics
-router.patch('/ads/admin/:id/status', auth, adminCheckMiddleware, adminUpdateAdStatus); // Update status
-router.patch('/ads/admin/:id', auth, adminCheckMiddleware, adminUpdateAd); // Update ad details
-router.delete('/ads/admin/:id', auth, adminCheckMiddleware, adminDeleteAd); // Delete ad
+router.post("/ads/admin/create", auth, adminCheckMiddleware, adminCreateAd); // Admin: Create ad without payment
+router.get("/ads/admin/all", auth, adminCheckMiddleware, adminGetAllAds); // Get all ads
+router.get("/ads/admin/analytics", auth, adminCheckMiddleware, adminGetAnalytics); // Get analytics
+router.patch("/ads/admin/:id/status", auth, adminCheckMiddleware, adminUpdateAdStatus); // Update status
+router.patch("/ads/admin/:id", auth, adminCheckMiddleware, adminUpdateAd); // Update ad details
+router.delete("/ads/admin/:id", auth, adminCheckMiddleware, adminDeleteAd); // Delete ad
 
 // ===== LEGACY AD CAMPAIGNS (Pro Feature) =====
 /**

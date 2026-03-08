@@ -1,7 +1,6 @@
 const Advertisement = require("../models/Advertisement");
 const Payment = require("../models/Payment");
 const { BadRequestError, NotFoundError, ForbiddenError } = require("../utils/errors");
-const { stripCloudinaryUrl, sanitizeMediaFiles } = require("../utils/mediaSanitize");
 const {
   sendAdRequestReceived,
   sendAdApproved,
@@ -44,11 +43,9 @@ const normalizeMediaFiles = (mediaFiles = []) => {
           mimetype: file.mimetype,
           size: file.size,
           url,
-          cloudinaryId: file.cloudinaryId || file.public_id || null,
+          gcsObjectName: file.gcsObjectName || file.public_id || null,
           type: inferredType,
           duration: file.duration || file.videoDuration,
-          embedUrl: file.embedUrl || null,
-          directUrl: file.directUrl || null,
           uploadedAt: file.uploadedAt ? new Date(file.uploadedAt) : new Date(),
         };
       }
@@ -144,21 +141,14 @@ exports.getActiveAds = async (req, res, next) => {
       if (!adDoc) return adDoc;
       const ad = typeof adDoc.toObject === "function" ? adDoc.toObject() : adDoc;
 
-      const mediaFiles = sanitizeMediaFiles(ad.mediaFiles);
-      const imageUrl = stripCloudinaryUrl(ad.imageUrl);
-      const videoUrl = stripCloudinaryUrl(ad.videoUrl);
-
-      // Some legacy docs store media URLs in these fields too.
-      const primaryMediaUrl = stripCloudinaryUrl(ad.primaryMediaUrl);
-      const thumbnailUrl = stripCloudinaryUrl(ad.thumbnailUrl);
-
+      // Google Cloud Storage URLs are already public and safe to expose
       return {
         ...ad,
-        mediaFiles,
-        imageUrl,
-        videoUrl,
-        primaryMediaUrl,
-        thumbnailUrl,
+        mediaFiles: ad.mediaFiles,
+        imageUrl: ad.imageUrl,
+        videoUrl: ad.videoUrl,
+        primaryMediaUrl: ad.primaryMediaUrl,
+        thumbnailUrl: ad.thumbnailUrl,
       };
     };
 
@@ -259,17 +249,24 @@ exports.createAdRequest = async (req, res, next) => {
         ? primaryMedia.url
         : normalizedMediaFiles.find((f) => f.type === "video")?.url || null;
 
-    const primaryImageCloudinaryId =
+    const primaryImageGcsId =
       primaryMedia?.type === "image"
-        ? primaryMedia.cloudinaryId
-        : normalizedMediaFiles.find((f) => f.type === "image")?.cloudinaryId || null;
-    const primaryVideoCloudinaryId =
+        ? primaryMedia.gcsObjectName
+        : normalizedMediaFiles.find((f) => f.type === "image")?.gcsObjectName || null;
+    const primaryVideoGcsId =
       primaryMedia?.type === "video"
-        ? primaryMedia.cloudinaryId
-        : normalizedMediaFiles.find((f) => f.type === "video")?.cloudinaryId || null;
+        ? primaryMedia.gcsObjectName
+        : normalizedMediaFiles.find((f) => f.type === "video")?.gcsObjectName || null;
     const derivedVideoDuration = normalizedMediaFiles.find(
       (file) => file.type === "video" && Number.isFinite(file.duration)
     )?.duration;
+
+    // Use backend-detected duration (validated during upload phase)
+    let validatedDuration = videoDuration || derivedVideoDuration || 0;
+    let requiresManualReview = false;
+    let validationNotes = "";
+
+    // Duration is now validated during /upload-video endpoint, so no additional validation needed here
 
     const advertisement = new Advertisement({
       advertiser: {
@@ -296,11 +293,11 @@ exports.createAdRequest = async (req, res, next) => {
       mediaFiles: normalizedMediaFiles,
       imageUrl: primaryImageUrl,
       videoUrl: primaryVideoUrl,
-      imageCloudinaryId: primaryImageCloudinaryId,
-      videoCloudinaryId: primaryVideoCloudinaryId,
-      videoDuration: videoDuration || derivedVideoDuration || 0,
+      imageGcsId: primaryImageGcsId,
+      videoGcsId: primaryVideoGcsId,
+      videoDuration: validatedDuration,
       videoTier: videoTier || null,
-      status: adStatus,
+      status: requiresManualReview && isPaid ? "pending" : adStatus, // Override active status if needs review
       paymentStatus: adPaymentStatus,
       paymentDetails: isPaid
         ? {
@@ -309,7 +306,9 @@ exports.createAdRequest = async (req, res, next) => {
             paidAt: new Date(),
           }
         : undefined,
-      adminNotes: message || "",
+      adminNotes: validationNotes
+        ? `${validationNotes}${message ? " | " + message : ""}`
+        : message || "",
       createdBy: req.user?._id,
     });
 
@@ -547,8 +546,8 @@ exports.adminUpdateAd = async (req, res, next) => {
       "targetUrl",
       "imageUrl",
       "videoUrl",
-      "imageCloudinaryId",
-      "videoCloudinaryId",
+      "imageGcsId",
+      "videoGcsId",
       "mediaFiles",
       "placement",
       "category",
@@ -565,9 +564,9 @@ exports.adminUpdateAd = async (req, res, next) => {
 
     const oldIds = new Set(
       [
-        existing.imageCloudinaryId,
-        existing.videoCloudinaryId,
-        ...(existing.mediaFiles || []).map((f) => f?.cloudinaryId),
+        existing.imageGcsId,
+        existing.videoGcsId,
+        ...(existing.mediaFiles || []).map((f) => f?.gcsObjectName),
       ].filter(Boolean)
     );
 
@@ -596,16 +595,16 @@ exports.adminUpdateAd = async (req, res, next) => {
           null;
       }
 
-      if (!updates.imageCloudinaryId) {
-        updates.imageCloudinaryId =
-          (primaryMedia?.type === "image" ? primaryMedia.cloudinaryId : null) ||
-          normalizedMediaFiles.find((f) => f.type === "image")?.cloudinaryId ||
+      if (!updates.imageGcsId) {
+        updates.imageGcsId =
+          (primaryMedia?.type === "image" ? primaryMedia.gcsObjectName : null) ||
+          normalizedMediaFiles.find((f) => f.type === "image")?.gcsObjectName ||
           null;
       }
-      if (!updates.videoCloudinaryId) {
-        updates.videoCloudinaryId =
-          (primaryMedia?.type === "video" ? primaryMedia.cloudinaryId : null) ||
-          normalizedMediaFiles.find((f) => f.type === "video")?.cloudinaryId ||
+      if (!updates.videoGcsId) {
+        updates.videoGcsId =
+          (primaryMedia?.type === "video" ? primaryMedia.gcsObjectName : null) ||
+          normalizedMediaFiles.find((f) => f.type === "video")?.gcsObjectName ||
           null;
       }
     }
@@ -844,17 +843,23 @@ exports.adminCreateAd = async (req, res, next) => {
         ? primaryMedia.url
         : normalizedMediaFiles.find((f) => f.type === "video")?.url || null;
 
-    const primaryImageCloudinaryId =
+    const primaryImageGcsId =
       primaryMedia?.type === "image"
-        ? primaryMedia.cloudinaryId
-        : normalizedMediaFiles.find((f) => f.type === "image")?.cloudinaryId || null;
-    const primaryVideoCloudinaryId =
+        ? primaryMedia.gcsObjectName
+        : normalizedMediaFiles.find((f) => f.type === "image")?.gcsObjectName || null;
+    const primaryVideoGcsId =
       primaryMedia?.type === "video"
-        ? primaryMedia.cloudinaryId
-        : normalizedMediaFiles.find((f) => f.type === "video")?.cloudinaryId || null;
+        ? primaryMedia.gcsObjectName
+        : normalizedMediaFiles.find((f) => f.type === "video")?.gcsObjectName || null;
     const derivedVideoDuration = normalizedMediaFiles.find(
       (file) => file.type === "video" && Number.isFinite(file.duration)
     )?.duration;
+
+    // Use backend-detected duration (validated during upload phase)
+    let validatedDuration = videoDuration || derivedVideoDuration || 0;
+    let validationWarning = "";
+
+    // Duration is now validated during /upload-video endpoint, so no additional validation needed
 
     const advertisement = new Advertisement({
       advertiser: {
@@ -881,9 +886,9 @@ exports.adminCreateAd = async (req, res, next) => {
       mediaFiles: normalizedMediaFiles,
       imageUrl: primaryImageUrl,
       videoUrl: primaryVideoUrl,
-      imageCloudinaryId: primaryImageCloudinaryId,
-      videoCloudinaryId: primaryVideoCloudinaryId,
-      videoDuration: videoDuration || derivedVideoDuration || 0,
+      imageGcsId: primaryImageGcsId,
+      videoGcsId: primaryVideoGcsId,
+      videoDuration: validatedDuration,
       videoTier: videoTier || null,
       status: "active", // Admin-created ads are active immediately
       paymentStatus: "paid", // Mark as paid (admin bypass)
@@ -892,7 +897,9 @@ exports.adminCreateAd = async (req, res, next) => {
         transactionId: `ADMIN_${Date.now()}`,
         paidAt: new Date(),
       },
-      adminNotes: `Admin created: ${message || "No notes"}`,
+      adminNotes: validationWarning
+        ? `${validationWarning} | ${message || "No notes"}`
+        : `Admin created: ${message || "No notes"}`,
       createdBy: req.user._id,
     });
 
@@ -910,6 +917,212 @@ exports.adminCreateAd = async (req, res, next) => {
       },
     });
   } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Validate video duration (public endpoint for frontend to check before submission)
+ */
+/**
+ * Handle video upload for advertising with duration detection
+ * POST /api/advertising/upload-video
+ */
+exports.uploadAdvertisingVideo = async (req, res, next) => {
+  try {
+    console.log("🎬 Upload video request received");
+
+    if (!req.file) {
+      console.error("❌ No file in request");
+      throw new BadRequestError("No video file uploaded");
+    }
+
+    const { detectVideoDuration, validateVideoFile } = require("../utils/videoProcessing");
+    const { compressVideo, shouldCompressVideo } = require("../utils/videoCompression");
+    const gcs = require("../utils/gcs");
+    const fs = require("fs");
+    const path = require("path");
+
+    const videoFile = req.file;
+    console.log("📹 Processing advertising video upload:", videoFile.originalname);
+
+    // Validate video file
+    const validation = validateVideoFile(videoFile);
+    if (!validation.valid) {
+      // Clean up uploaded file
+      if (fs.existsSync(videoFile.path)) {
+        fs.unlinkSync(videoFile.path);
+      }
+      throw new BadRequestError(validation.error);
+    }
+
+    // Detect video duration and immediately compress if > 15 seconds
+    let duration = 0;
+    let finalVideoPath = videoFile.path;
+    let compressedPath = null;
+    let originalSize = videoFile.size;
+    let finalSize = videoFile.size;
+    let compressed = false;
+
+    // Try to detect duration (optional - will skip if ffmpeg not available)
+    try {
+      duration = await detectVideoDuration(videoFile.path);
+      console.log(`✅ Video duration detected: ${duration} seconds`);
+
+      // Immediately compress if > 15 seconds
+      if (shouldCompressVideo(duration)) {
+        console.log(`🎬 Video exceeds 15 seconds (${duration}s), attempting compression...`);
+        try {
+          const compressionResult = await compressVideo(videoFile.path, {
+            maxWidth: 1280,
+            videoBitrate: "1500k",
+            audioBitrate: "128k",
+            fps: 30,
+            crf: 23,
+          });
+
+          compressedPath = compressionResult.outputPath;
+          finalVideoPath = compressedPath;
+          finalSize = compressionResult.compressedSize;
+          compressed = true;
+
+          console.log(
+            `✅ Video compressed: ${(originalSize / 1024 / 1024).toFixed(2)}MB → ${(finalSize / 1024 / 1024).toFixed(2)}MB (${compressionResult.compressionRatio}% reduction)`
+          );
+        } catch (compressionError) {
+          console.warn("⚠️ Compression failed:", compressionError.message);
+          console.warn("⚠️ Continuing with original video (FFmpeg may not be installed)");
+          finalVideoPath = videoFile.path;
+          finalSize = originalSize;
+        }
+      } else {
+        console.log(`✅ Video ≤15 seconds (${duration}s), no compression needed`);
+      }
+    } catch (durationError) {
+      console.warn("⚠️ Duration detection failed:", durationError.message);
+      console.warn("⚠️ Continuing without duration (FFmpeg may not be installed)");
+      // Continue without duration - set to 0 and use original video
+      duration = 0;
+      finalVideoPath = videoFile.path;
+      finalSize = originalSize;
+    }
+
+    // Upload to storage (GCS for production, local for development)
+    let videoUrl;
+    let objectName;
+    const isProduction = process.env.NODE_ENV === "production";
+
+    console.log(`📦 Storage mode: ${isProduction ? "production (GCS)" : "development (local)"}`);
+    console.log(`📂 Final video path: ${finalVideoPath}`);
+    console.log(`📂 Path exists: ${fs.existsSync(finalVideoPath)}`);
+
+    if (!fs.existsSync(finalVideoPath)) {
+      throw new Error(`Video file not found at path: ${finalVideoPath}`);
+    }
+
+    if (isProduction) {
+      // Production: Upload to Google Cloud Storage
+      try {
+        const bucketName = gcs.getGcsBucketName();
+        if (!bucketName) {
+          throw new Error("GCS_BUCKET not configured");
+        }
+
+        // Build GCS object name
+        objectName = gcs.buildObjectName({
+          resourceType: "video",
+          purpose: "commercial",
+          filename: videoFile.originalname,
+        });
+
+        // Upload video to GCS
+        videoUrl = await gcs.uploadFromPath({
+          bucketName,
+          objectName,
+          localPath: finalVideoPath,
+          contentType: videoFile.mimetype,
+        });
+
+        console.log("✅ Video uploaded to Google Cloud Storage:", objectName);
+      } catch (uploadError) {
+        console.error("❌ GCS upload failed:", uploadError);
+        // Clean up all temp files
+        if (fs.existsSync(videoFile.path)) fs.unlinkSync(videoFile.path);
+        if (compressedPath && fs.existsSync(compressedPath)) fs.unlinkSync(compressedPath);
+        throw new Error("Failed to upload video to cloud storage");
+      }
+
+      // Clean up all local temp files after successful upload
+      try {
+        if (fs.existsSync(videoFile.path)) fs.unlinkSync(videoFile.path);
+        if (compressedPath && fs.existsSync(compressedPath)) fs.unlinkSync(compressedPath);
+      } catch (cleanupError) {
+        console.warn("⚠️ Failed to clean up temp files:", cleanupError);
+      }
+    } else {
+      // Development: Use local storage
+      console.log("📦 Using local storage (development mode)");
+      const uploadDirDev = path.join(__dirname, "..", "uploads", "videos", "advertising");
+
+      try {
+        if (!fs.existsSync(uploadDirDev)) {
+          console.log("📁 Creating directory:", uploadDirDev);
+          fs.mkdirSync(uploadDirDev, { recursive: true });
+        }
+
+        const finalFilename = `advert-${Date.now()}-${path.basename(finalVideoPath)}`;
+        const finalPath = path.join(uploadDirDev, finalFilename);
+
+        console.log("📤 Moving video from", finalVideoPath, "to", finalPath);
+
+        // Copy instead of rename to avoid cross-device link errors
+        if (finalVideoPath !== finalPath) {
+          fs.copyFileSync(finalVideoPath, finalPath);
+
+          // Clean up temp files after successful copy
+          if (fs.existsSync(videoFile.path)) {
+            fs.unlinkSync(videoFile.path);
+          }
+          if (compressed && compressedPath && fs.existsSync(compressedPath)) {
+            fs.unlinkSync(compressedPath);
+          }
+        }
+
+        // Generate local URL
+        videoUrl = `/uploads/videos/advertising/${finalFilename}`;
+        objectName = finalFilename;
+
+        console.log("✅ Video stored locally (development):", finalPath);
+      } catch (storageError) {
+        console.error("❌ Local storage failed:", storageError.message);
+        console.error("Stack:", storageError.stack);
+        throw new Error(`Failed to store video locally: ${storageError.message}`);
+      }
+    }
+
+    // Return video info with detected duration
+    res.json({
+      success: true,
+      videoUrl,
+      gcsObjectName: objectName,
+      duration,
+      filename: videoFile.originalname,
+      size: finalSize,
+      originalSize: originalSize,
+      compressed,
+      mimetype: videoFile.mimetype,
+    });
+  } catch (error) {
+    console.error("❌ Video upload error:", error.message);
+    console.error("Error stack:", error.stack);
+    // Try to clean up if files exist
+    if (req.file && fs.existsSync(req.file.path)) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (cleanupErr) {
+        console.warn("Failed to cleanup original:", cleanupErr);
+      }
+    }
     next(error);
   }
 };

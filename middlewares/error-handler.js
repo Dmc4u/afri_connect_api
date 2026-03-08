@@ -49,9 +49,14 @@ module.exports = (err, req, res, next) => {
     message = `${field} already exists`;
   }
 
+  // In development, always return the actual error message
+  const isDevelopment = process.env.NODE_ENV !== "production";
+  const finalMessage = statusCode === 500 && !isDevelopment ? "Internal Server Error" : message;
+
   return res.status(statusCode).json({
     success: false,
-    message: statusCode === 500 ? "Internal Server Error" : message,
+    message: finalMessage,
     ...(details && { details }),
+    ...(isDevelopment && statusCode === 500 && { error: err.message, stack: err.stack }),
   });
 };
