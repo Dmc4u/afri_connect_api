@@ -42,7 +42,7 @@ const advertisementSchema = new mongoose.Schema(
     videoDuration: { type: Number }, // Video length in seconds for pricing
     videoTier: {
       type: String,
-      enum: ["none", "30s", "60s", "120s", "180s", "300s"], // 30s, 1min, 2min, 3min, 5min
+      enum: ["none", "0-15s", "15-30s", "30-60s"], // Video duration tiers for addon pricing
       default: "none",
     },
 
