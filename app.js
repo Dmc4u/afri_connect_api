@@ -67,7 +67,11 @@ const corsAllowList = String(process.env.CORS_ORIGINS || process.env.ALLOWED_APP
   .map((v) => v.trim())
   .filter(Boolean);
 
-const allowedOrigins = corsAllowList.length > 0 ? corsAllowList : DEFAULT_CORS_ORIGINS;
+// Always include default origins even if env is set
+const allowedOrigins =
+  corsAllowList.length > 0
+    ? [...new Set([...DEFAULT_CORS_ORIGINS, ...corsAllowList])]
+    : DEFAULT_CORS_ORIGINS;
 
 const corsOriginFn = (origin, callback) => {
   // Allow non-browser tools (no Origin header)
