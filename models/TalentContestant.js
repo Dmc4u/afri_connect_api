@@ -52,6 +52,10 @@ const talentContestantSchema = new mongoose.Schema(
       type: Number, // Duration in seconds (extracted from actual video)
       default: 0,
     },
+    videoCompressed: {
+      type: Boolean, // Whether video was compressed in background
+      default: false,
+    },
     thumbnailUrl: {
       type: String,
     },

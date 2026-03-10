@@ -1361,7 +1361,7 @@ exports.getContestants = async (req, res) => {
   }
 };
 
-// Upload talent video with automatic compression
+// Upload talent video with FAST upload and BACKGROUND compression
 exports.uploadTalentVideo = async (req, res) => {
   try {
     if (!req.file) {
@@ -1373,83 +1373,25 @@ exports.uploadTalentVideo = async (req, res) => {
 
     const videoFile = req.file;
     const originalSize = videoFile.size;
-    let duration = 0;
-    let compressed = false;
-    let finalVideoPath = videoFile.path;
-    let finalSize = originalSize;
-    let compressedPath = null;
+    const originalPath = videoFile.path;
 
     console.log(
-      `📹 Processing talent video: ${videoFile.originalname} (${(originalSize / 1024 / 1024).toFixed(2)}MB)`
+      `📹 Fast upload: ${videoFile.originalname} (${(originalSize / 1024 / 1024).toFixed(2)}MB)`
     );
 
-    // Step 1: Detect video duration (optional - gracefully handle FFmpeg absence)
-    try {
-      const videoProcessing = require("../utils/videoProcessing");
-      duration = await videoProcessing.detectVideoDuration(videoFile.path);
-      console.log(
-        `✅ Duration detected: ${duration} seconds (${(duration / 60).toFixed(2)} minutes)`
-      );
-
-      // Step 2: Compress if duration > 15 seconds (optional - gracefully handle FFmpeg absence)
-      if (duration > 15) {
-        try {
-          const videoCompression = require("../utils/videoCompression");
-
-          if (videoCompression.shouldCompressVideo(duration)) {
-            console.log(`🗜️ Video is ${duration}s, attempting compression...`);
-
-            compressedPath = await videoCompression.compressVideo(
-              videoFile.path,
-              videoFile.originalname
-            );
-
-            if (compressedPath && fsSync.existsSync(compressedPath)) {
-              const compressedSize = fsSync.statSync(compressedPath).size;
-              const savedMB = ((originalSize - compressedSize) / 1024 / 1024).toFixed(2);
-
-              console.log(
-                `✅ Compression successful: ${(compressedSize / 1024 / 1024).toFixed(2)}MB (saved ${savedMB}MB)`
-              );
-
-              finalVideoPath = compressedPath;
-              finalSize = compressedSize;
-              compressed = true;
-            }
-          } else {
-            console.log(`ℹ️ Video duration ${duration}s - no compression needed`);
-          }
-        } catch (compressionError) {
-          console.warn("⚠️ Compression failed:", compressionError.message);
-          console.warn("⚠️ Continuing with original video (FFmpeg may not be installed)");
-          // Continue with original video
-        }
-      } else {
-        console.log(`ℹ️ Video is ${duration}s (≤15s) - skipping compression`);
-      }
-    } catch (durationError) {
-      console.warn("⚠️ Duration detection failed:", durationError.message);
-      console.warn("⚠️ Continuing without duration (FFmpeg may not be installed)");
-      // Continue without duration - set to 0 and use original video
-      duration = 0;
-      finalVideoPath = videoFile.path;
-      finalSize = originalSize;
-    }
-
-    // Step 3: Upload to storage (GCS for production, local for development)
+    // Step 1: Upload ORIGINAL video to storage immediately (FAST!)
     let videoUrl;
     let objectName;
     const isProduction = process.env.NODE_ENV === "production";
 
     console.log(`📦 Storage mode: ${isProduction ? "production (GCS)" : "development (local)"}`);
-    console.log(`📂 Final video path: ${finalVideoPath}`);
 
-    if (!fsSync.existsSync(finalVideoPath)) {
-      throw new Error(`Video file not found at path: ${finalVideoPath}`);
+    if (!fsSync.existsSync(originalPath)) {
+      throw new Error(`Video file not found at path: ${originalPath}`);
     }
 
     if (isProduction) {
-      // Production: Upload to Google Cloud Storage
+      // Production: Upload to Google Cloud Storage IMMEDIATELY
       try {
         const bucketName = gcs.getGcsBucketName();
         if (!bucketName) {
@@ -1463,29 +1405,30 @@ exports.uploadTalentVideo = async (req, res) => {
           filename: videoFile.originalname,
         });
 
-        // Upload video to GCS
+        // Upload ORIGINAL video to GCS (FAST!)
         videoUrl = await gcs.uploadFromPath({
           bucketName,
           objectName,
-          localPath: finalVideoPath,
+          localPath: originalPath,
           contentType: videoFile.mimetype,
         });
 
-        console.log("✅ Talent video uploaded to Google Cloud Storage:", objectName);
+        console.log("✅ Original video uploaded to GCS (FAST!):", objectName);
+
+        // Step 2: Queue BACKGROUND compression job (non-blocking!)
+        console.log("🔄 Queueing background compression job...");
+        processVideoInBackground(
+          originalPath,
+          videoUrl,
+          objectName,
+          bucketName,
+          videoFile.mimetype
+        ).catch((err) => console.error("❌ Background compression failed:", err.message));
       } catch (uploadError) {
         console.error("❌ GCS upload failed:", uploadError);
-        // Clean up all temp files
-        if (fsSync.existsSync(videoFile.path)) fsSync.unlinkSync(videoFile.path);
-        if (compressedPath && fsSync.existsSync(compressedPath)) fsSync.unlinkSync(compressedPath);
+        // Clean up temp file
+        if (fsSync.existsSync(originalPath)) fsSync.unlinkSync(originalPath);
         throw new Error("Failed to upload video to cloud storage");
-      }
-
-      // Clean up all local temp files after successful upload
-      try {
-        if (fsSync.existsSync(videoFile.path)) fsSync.unlinkSync(videoFile.path);
-        if (compressedPath && fsSync.existsSync(compressedPath)) fsSync.unlinkSync(compressedPath);
-      } catch (cleanupError) {
-        console.warn("⚠️ Failed to clean up temp files:", cleanupError);
       }
     } else {
       // Development: Use local storage
@@ -1498,47 +1441,48 @@ exports.uploadTalentVideo = async (req, res) => {
           fsSync.mkdirSync(uploadDirDev, { recursive: true });
         }
 
-        const finalFilename = `talent-${Date.now()}-${path.basename(finalVideoPath)}`;
+        const finalFilename = `talent-${Date.now()}-${path.basename(originalPath)}`;
         const finalPath = path.join(uploadDirDev, finalFilename);
 
-        console.log("📤 Moving video from", finalVideoPath, "to", finalPath);
+        console.log("📤 Moving video from", originalPath, "to", finalPath);
 
-        // Copy instead of rename to avoid cross-device link errors
-        if (finalVideoPath !== finalPath) {
-          fsSync.copyFileSync(finalVideoPath, finalPath);
-
-          // Clean up temp files after successful copy
-          if (fsSync.existsSync(videoFile.path)) {
-            fsSync.unlinkSync(videoFile.path);
-          }
-          if (compressed && compressedPath && fsSync.existsSync(compressedPath)) {
-            fsSync.unlinkSync(compressedPath);
-          }
-        }
+        // Copy to final location
+        fsSync.copyFileSync(originalPath, finalPath);
+        fsSync.unlinkSync(originalPath);
 
         // Generate local URL
         videoUrl = `/uploads/talent-videos/${finalFilename}`;
         objectName = finalFilename;
 
         console.log("✅ Video stored locally (development):", finalPath);
+
+        // Queue background compression for development too
+        console.log("🔄 Queueing background compression job...");
+        processVideoInBackgroundLocal(finalPath, videoUrl).catch((err) =>
+          console.error("❌ Background compression failed:", err.message)
+        );
       } catch (storageError) {
         console.error("❌ Local storage failed:", storageError.message);
         throw new Error(`Failed to store video locally: ${storageError.message}`);
       }
     }
 
-    // Return video info with detected duration and compression status
+    // Return SUCCESS IMMEDIATELY with original video URL
+    // Compression happens in background - user doesn't wait!
     res.json({
       success: true,
       videoUrl,
       gcsObjectName: objectName,
-      duration,
+      duration: 0, // Will be updated after background processing
       filename: videoFile.originalname,
-      size: finalSize,
+      size: originalSize,
       originalSize: originalSize,
-      compressed,
+      compressed: false, // Will be updated after background processing
+      processing: true, // Flag that background processing is happening
       mimetype: videoFile.mimetype,
     });
+
+    console.log("✅ Fast upload complete! User can continue. Compression running in background...");
   } catch (error) {
     console.error("❌ Talent video upload error:", error.message);
     console.error("Error stack:", error.stack);
@@ -1559,6 +1503,140 @@ exports.uploadTalentVideo = async (req, res) => {
     });
   }
 };
+
+// BACKGROUND processing function (non-blocking!)
+async function processVideoInBackground(
+  localPath,
+  originalVideoUrl,
+  objectName,
+  bucketName,
+  mimeType
+) {
+  let duration = 0;
+  let compressedPath = null;
+
+  try {
+    console.log("🔄 [Background] Starting video processing...");
+
+    // Step 1: Detect duration
+    try {
+      const videoProcessing = require("../utils/videoProcessing");
+      duration = await videoProcessing.detectVideoDuration(localPath);
+      console.log(`✅ [Background] Duration detected: ${duration}s`);
+    } catch (err) {
+      console.warn("⚠️ [Background] Duration detection failed:", err.message);
+    }
+
+    // Step 2: Compress if needed
+    if (duration > 15) {
+      try {
+        const videoCompression = require("../utils/videoCompression");
+
+        if (videoCompression.shouldCompressVideo(duration)) {
+          console.log(`🗜️ [Background] Compressing ${duration}s video...`);
+
+          compressedPath = await videoCompression.compressVideo(
+            localPath,
+            path.basename(localPath)
+          );
+
+          if (compressedPath && fsSync.existsSync(compressedPath)) {
+            const compressedSize = fsSync.statSync(compressedPath).size;
+            const originalSize = fsSync.statSync(localPath).size;
+            const savedMB = ((originalSize - compressedSize) / 1024 / 1024).toFixed(2);
+
+            console.log(`✅ [Background] Compressed! Saved ${savedMB}MB`);
+
+            // Step 3: Upload compressed version to GCS
+            const compressedObjectName = objectName.replace(/(\.[^.]+)$/, "-compressed$1");
+
+            const compressedUrl = await gcs.uploadFromPath({
+              bucketName,
+              objectName: compressedObjectName,
+              localPath: compressedPath,
+              contentType: mimeType,
+            });
+
+            console.log("✅ [Background] Compressed video uploaded to GCS:", compressedObjectName);
+
+            // Step 4: Update all contestants using this video URL
+            const TalentContestant = require("../models/TalentContestant");
+            const updateResult = await TalentContestant.updateMany(
+              { videoUrl: originalVideoUrl },
+              {
+                $set: {
+                  videoUrl: compressedUrl,
+                  videoDuration: duration,
+                  videoCompressed: true,
+                },
+              }
+            );
+
+            console.log(
+              `✅ [Background] Updated ${updateResult.modifiedCount} contestant(s) with compressed video`
+            );
+
+            // Clean up compressed temp file
+            if (fsSync.existsSync(compressedPath)) {
+              fsSync.unlinkSync(compressedPath);
+            }
+          }
+        }
+      } catch (compressionError) {
+        console.warn("⚠️ [Background] Compression failed:", compressionError.message);
+      }
+    } else {
+      console.log(`ℹ️ [Background] Video is ${duration}s (≤15s) - no compression needed`);
+
+      // Still update duration even if no compression
+      const TalentContestant = require("../models/TalentContestant");
+      await TalentContestant.updateMany(
+        { videoUrl: originalVideoUrl },
+        { $set: { videoDuration: duration } }
+      );
+    }
+  } catch (error) {
+    console.error("❌ [Background] Processing error:", error.message);
+  } finally {
+    // Clean up original temp file
+    if (fsSync.existsSync(localPath)) {
+      try {
+        fsSync.unlinkSync(localPath);
+        console.log("✅ [Background] Cleaned up temp file");
+      } catch (cleanupErr) {
+        console.warn("⚠️ [Background] Cleanup failed:", cleanupErr.message);
+      }
+    }
+    if (compressedPath && fsSync.existsSync(compressedPath)) {
+      try {
+        fsSync.unlinkSync(compressedPath);
+      } catch (cleanupErr) {
+        console.warn("⚠️ [Background] Cleanup failed:", cleanupErr.message);
+      }
+    }
+  }
+}
+
+// Background processing for local development
+async function processVideoInBackgroundLocal(localPath, originalVideoUrl) {
+  try {
+    console.log("🔄 [Background Local] Processing video...");
+
+    // Detect duration and update database
+    const videoProcessing = require("../utils/videoProcessing");
+    const duration = await videoProcessing.detectVideoDuration(localPath);
+
+    const TalentContestant = require("../models/TalentContestant");
+    await TalentContestant.updateMany(
+      { videoUrl: originalVideoUrl },
+      { $set: { videoDuration: duration } }
+    );
+
+    console.log(`✅ [Background Local] Updated duration: ${duration}s`);
+  } catch (error) {
+    console.warn("⚠️ [Background Local] Processing failed:", error.message);
+  }
+}
 
 // Update contestant registration (User can edit their own pending registration)
 exports.updateContestantRegistration = async (req, res) => {
