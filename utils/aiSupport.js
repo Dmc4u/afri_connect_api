@@ -312,65 +312,29 @@ function getFallbackResponse(userMessage) {
   const message = userMessage.toLowerCase();
   const compact = message.replace(/[^a-z0-9]+/g, "");
 
-  const getGrowthModeBlurb = () => {
-    try {
-      const { flags } = getClientFeatureFlags();
-
-      const membershipUiEnabled = Boolean(flags?.MEMBERSHIP_UI_ENABLED);
-      const membershipRouteEnabled = Boolean(flags?.MEMBERSHIP_ROUTE_ENABLED);
-      const forceProForAll = Boolean(flags?.FORCE_PRO_MEMBERSHIP_FOR_ALL);
-      const talentShowcaseEntryFeesEnabled = Boolean(flags?.TALENT_SHOWCASE_ENTRY_FEES_ENABLED);
-
-      const growthMode = !membershipUiEnabled && !membershipRouteEnabled;
-      const freeEntryMode = !talentShowcaseEntryFeesEnabled;
-
-      const parts = [];
-      if (growthMode) {
-        parts.push(
-          "membership plans and upgrade prompts may be temporarily hidden",
-          forceProForAll ? "Pro-like features may be temporarily unlocked for everyone" : null,
-          "business listings are free for now"
-        );
-      } else {
-        parts.push("membership may be enabled depending on your account/region");
-      }
-
-      if (freeEntryMode) parts.push("Talent Showcase entry fees are currently waived");
-
-      return `AfriOnet status: ${parts.filter(Boolean).join(", ")}.`;
-    } catch (e) {
-      return "AfriOnet is currently running in a growth mode: membership plans and upgrade prompts may be temporarily hidden, Pro-like features may be temporarily unlocked for everyone, business listings are free for now, and Talent Showcase entry fees are currently waived.";
-    }
+  const getMembershipInfo = () => {
+    return "AfriOnet offers 4 membership tiers: Free ($0/forever), Starter ($3/month), Premium ($7/month), and Pro ($20/month). Each tier has different features and limits for business listings, media uploads, and platform access.";
   };
 
-  const growthModeBlurb = getGrowthModeBlurb();
+  const membershipInfo = getMembershipInfo();
 
-  // Growth mode / membership (current status)
-  if (
-    message.includes("growth mode") ||
-    (message.includes("membership") && message.includes("right now")) ||
-    (message.includes("membership") && message.includes("required")) ||
-    message === "membership (growth mode)"
-  ) {
-    return `${growthModeBlurb}\n\nIf you need plan details, they’ll show in-app when membership is re-enabled.`;
+  // Membership tiers & pricing
+  if (message.includes("membership") || message.includes("tier") || message.includes("pricing")) {
+    return `AfriOnet offers 4 membership tiers:\n\n• Free ($0/forever): 1 business listing with 4 images, 1 talent listing with 2 photos/videos\n• Starter ($3/month): Up to 5 business listings, 5 images per listing\n• Premium ($7/month): Unlimited listings, up to 25 media files each, featured badge, API access\n• Pro ($20/month): Everything in Premium + verified badge, dedicated account manager, priority 24/7 support\n\nVisit the Membership page to see full details and choose your plan!`;
   }
 
-  // Listings free for now
-  if (
-    message.includes("business listings") &&
-    (message.includes("free") || message.includes("free for now"))
-  ) {
-    return `Yes — business listings are free for now (growth mode).\n\n${growthModeBlurb}`;
+  // Business listings & features
+  if (message.includes("business listing") || message.includes("business features")) {
+    return `Business listings on AfriOnet:\n\n• Free tier: 1 business listing with up to 4 images\n• Starter tier: Up to 5 business listings, 5 images each\n• Premium/Pro: Unlimited business listings with up to 25 media files each\n\nTo create a listing, sign up, go to your profile, and click "Add Business Listing". ${membershipInfo}`;
   }
 
-  // Showcase entry fees waived
+  // Showcase entry fees
   if (
     message.includes("entry fee") ||
     message.includes("entry fees") ||
-    message.includes("free entry") ||
-    message === "talent showcases (free entry for now)"
+    message.includes("showcase fee")
   ) {
-    return `Talent Showcase entry fees are currently waived (free entry mode). If fees are re-enabled later, the event card/registration flow will show the fee and payment steps.`;
+    return `Entry fees for Talent Showcases vary by event. Some showcases are free to enter, while others may have a small registration fee to support prize pools and event costs. The entry fee (if any) is clearly displayed on each event card and in the registration modal before you sign up.`;
   }
 
   // About AfriOnet
@@ -395,7 +359,7 @@ function getFallbackResponse(userMessage) {
     message.includes("plan") ||
     message.includes("free trial")
   ) {
-    return `${growthModeBlurb}\n\nWhen membership is re-enabled, plan details will be shown in-app on the Membership page.`;
+    return `${membershipInfo}\n\nAll new users start with the Free tier at no cost. You can explore the platform and upgrade anytime. While we don't currently offer free trials for paid plans, promotional offers may be available from time to time. Check the Membership page for current deals!`;
   }
 
   // Plan changes
@@ -405,7 +369,18 @@ function getFallbackResponse(userMessage) {
     message.includes("downgrade") ||
     message.includes("cancel")
   ) {
-    return `${growthModeBlurb}\n\nWhen memberships are enabled, you can typically upgrade/downgrade from your account settings.`;
+    return `You can upgrade or downgrade your membership plan anytime from your account settings!\n\n• Upgrades take effect immediately\n• Downgrades apply at the start of your next billing cycle\n• You can cancel your paid subscription anytime - your premium features will continue until the end of your current billing period, then your account reverts to the Free tier`;
+  }
+
+  // Forum questions (check before "create" to avoid matching "create a forum post")
+  if (
+    message.includes("forum") ||
+    message.includes("discussion") ||
+    message.includes("create post") ||
+    message.includes("forum post") ||
+    (message.includes("create") && message.includes("post"))
+  ) {
+    return `The AfriOnet Forum is a community space where members connect, discuss topics, ask questions, and share insights!\n\nTo create a forum post:\n1. Navigate to the Forum section from the main menu\n2. Click the "Create Post" button (top right)\n3. Choose a relevant category\n4. Write your title and post content\n5. Click "Post" to share with the community\n\nRemember to:\n• Be respectful and constructive\n• Avoid spam and offensive language\n• Stay on topic\n• Engage with other members' posts\n\nJoin the conversation and build connections!`;
   }
 
   // How to create listing
@@ -414,7 +389,7 @@ function getFallbackResponse(userMessage) {
     message.includes("add listing") ||
     message.includes("post business")
   ) {
-    return `To create a business listing:\n\n1. Sign up and login to AfriOnet\n2. Go to your profile and click "Add Business Listing"\n3. Fill in business details, category, and location\n4. Upload photos/videos/audio\n5. Submit for approval\n\n${growthModeBlurb}`;
+    return `To create a business listing:\n\n1. Sign up and login to AfriOnet\n2. Go to your profile and click "Add Business Listing"\n3. Fill in business details, category, and location\n4. Upload media (limits depend on your membership tier)\n5. Submit for approval\n\nFree tier includes 1 business listing with up to 4 images. Upgrade for more listings and media!`;
   }
 
   // Media/photos/uploads
@@ -424,12 +399,12 @@ function getFallbackResponse(userMessage) {
     message.includes("video") ||
     message.includes("media")
   ) {
-    return `Yes. You can upload images, videos, or audio files to support your listing. Upload limits can vary when membership is enabled, but in growth mode premium-style features may be temporarily available to everyone.`;
+    return `Yes! Media upload limits depend on your membership tier:\n\n• Free: Up to 4 images per business listing, 2 photos/videos for talent listings\n• Starter: Up to 5 images per listing\n• Premium/Pro: Up to 25 photos and videos per listing\n\nUpgrade your membership to showcase your business or talent with more media!`;
   }
 
   // Verification
   if (message.includes("verif") || message.includes("authentic") || message.includes("trust")) {
-    return `AfriOnet may use verification steps and trusted providers to confirm the authenticity of businesses and professionals. Verified accounts may receive a badge to help build trust.`;
+    return `AfriOnet reviews all new listings to ensure quality and authenticity. Pro tier members receive a verified business badge after passing enhanced verification checks. This badge increases trust and visibility for your business on the platform!`;
   }
 
   // Talent category
@@ -447,7 +422,7 @@ function getFallbackResponse(userMessage) {
     message.includes("competition") ||
     message.includes("compete")
   ) {
-    return `Talent Showcases are competitive events where talented individuals from across Africa compete for prizes and recognition!\n\nTo register:\n1. Visit the Talent Showcases page\n2. Find an upcoming event\n3. Click "Register to Compete"\n4. Provide details and upload your submission\n5. Entry fees are currently waived in free mode (if fees are re-enabled later, the event will show payment instructions)\n6. Register before the deadline`;
+    return `Talent Showcases are competitive events where talented individuals from across Africa compete for cash prizes and recognition!\n\nTo register:\n1. Visit the Talent Showcases page\n2. Browse upcoming events\n3. Click "Register to Compete"\n4. Fill in your performance details\n5. Upload your submission (video, audio, or portfolio)\n6. Complete registration (entry fees vary by event - some are free!)\n7. You'll receive confirmation via email`;
   }
 
   // Raffle system
@@ -490,7 +465,7 @@ function getFallbackResponse(userMessage) {
     (message.includes("showcase") && !message.includes("talent")) ||
     message.includes("visibility")
   ) {
-    return `Get more visibility:\n\n• Featured placement can help your listing appear more prominently\n• Talent listings may appear in the Talented Showcase section\n• Some advanced features (like analytics/API access) may depend on membership when enabled\n\n${growthModeBlurb}`;
+    return `Get more visibility on AfriOnet:\n\n• Featured placement: Premium and Pro members can request featured placement in the Talented Showcase\n• Talent listings appear in the special Talented Showcase section on the homepage\n• Premium features: API access, advanced analytics, priority search placement\n• Pro features: Verified badge, dedicated account manager, cross-platform promotion\n\n${membershipInfo}`;
   }
 
   // Payment questions
@@ -500,7 +475,7 @@ function getFallbackResponse(userMessage) {
     message.includes("paypal") ||
     message.includes("credit card")
   ) {
-    return `${growthModeBlurb}\n\nWhen payments are enabled, common methods (such as cards and PayPal for some products) may be available depending on region. Transactions are processed securely.`;
+    return `We accept major credit and debit cards (Visa, Mastercard, American Express) and PayPal for membership subscriptions. Additional payment methods may vary by country and will be displayed during checkout. All transactions are processed securely through trusted payment gateways.`;
   }
 
   // Refund questions
@@ -569,7 +544,7 @@ function getFallbackResponse(userMessage) {
   }
 
   // Default response
-  return `I'm here to help with AfriOnet questions!\n\n💡 Popular topics:\n• Growth mode (membership hidden / listings free)\n• Creating listings & uploading media\n• Talent Showcases (free entry right now)\n• Verification & trust\n• Payments (when enabled) & refunds\n• Contacting support\n\n❓ Check our FAQ: https://afrionet.com/faq\n👇 Still need help? Click "Contact us" below or email support@afrionet.com`;
+  return `I'm here to help with AfriOnet questions!\n\n💡 Popular topics:\n• Membership tiers & pricing (Free, Starter, Premium, Pro)\n• Creating business listings & uploading media\n• Talent Showcases & entry fees\n• Verification & trust badges\n• Payment methods & subscriptions\n• Contacting support\n\n❓ Check our FAQ: https://afrionet.com/faq\n👇 Still need help? Click "Contact us" below or email support@afrionet.com`;
 }
 
 /**
@@ -577,10 +552,11 @@ function getFallbackResponse(userMessage) {
  */
 function getQuickSuggestions() {
   return [
-    { text: "Membership (growth mode)", type: "membership" },
-    { text: "Business listings (free for now)", type: "listings" },
-    { text: "Talent Showcases (free entry for now)", type: "showcases" },
+    { text: "Membership tiers & pricing", type: "membership" },
+    { text: "Business listings & features", type: "listings" },
+    { text: "Talent Showcases & entry fees", type: "showcases" },
     { text: "How to create a business listing", type: "listing" },
+    { text: "How to create a forum post", type: "forum" },
     { text: "Contact support", type: "support" },
   ];
 }
