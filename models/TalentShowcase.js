@@ -205,11 +205,11 @@ const talentShowcaseSchema = new mongoose.Schema(
     ],
     votingDisplayDuration: {
       type: Number,
-      default: 10, // minutes
+      default: 1, // minutes
     },
     winnerDisplayDuration: {
       type: Number,
-      default: 5, // minutes
+      default: 1, // minutes
     },
     thankYouMessage: {
       type: String,
@@ -217,7 +217,7 @@ const talentShowcaseSchema = new mongoose.Schema(
     },
     thankYouDuration: {
       type: Number,
-      default: 2, // minutes
+      default: 1, // minutes
     },
     nextEventCountdown: {
       type: Boolean,
@@ -452,7 +452,7 @@ talentShowcaseSchema.methods.calculateVotingEndTime = function () {
   if (this.votingEndTime) return this.votingEndTime;
 
   const votingStart = this.calculateVotingStartTime();
-  const votingDuration = this.votingDisplayDuration ?? 10;
+  const votingDuration = this.votingDisplayDuration ?? 1;
   return new Date(votingStart.getTime() + votingDuration * 60 * 1000);
 };
 

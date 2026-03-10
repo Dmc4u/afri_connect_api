@@ -363,9 +363,9 @@ router.get("/", async (req, res) => {
           const performances = performanceDurationMinutes;
           const commercial = commercialDurationMinutes;
 
-          const voting = showcase.votingDisplayDuration || 10;
-          const winner = showcase.winnerDisplayDuration || 5;
-          const thankYou = showcase.thankYouDuration || 2;
+          const voting = showcase.votingDisplayDuration || 1;
+          const winner = showcase.winnerDisplayDuration || 1;
+          const thankYou = showcase.thankYouDuration || 1;
           // Countdown is instant completion - not included in total duration
           const total = welcome + performances + commercial + voting + winner + thankYou;
           return parseFloat(total.toFixed(2)); // Exact decimal value
@@ -386,10 +386,10 @@ router.get("/", async (req, res) => {
         })(),
         commercialDurationSeconds: commercialTotalSeconds,
         votingDisplayDuration:
-          showcase.votingDisplayDuration !== undefined ? showcase.votingDisplayDuration : 10,
+          showcase.votingDisplayDuration !== undefined ? showcase.votingDisplayDuration : 1,
         winnerDisplayDuration:
-          showcase.winnerDisplayDuration !== undefined ? showcase.winnerDisplayDuration : 5,
-        thankYouDuration: showcase.thankYouDuration !== undefined ? showcase.thankYouDuration : 2,
+          showcase.winnerDisplayDuration !== undefined ? showcase.winnerDisplayDuration : 1,
+        thankYouDuration: showcase.thankYouDuration !== undefined ? showcase.thankYouDuration : 1,
         countdownDuration:
           showcase.countdownDuration !== undefined ? showcase.countdownDuration : 1,
         nextEventDate: nextEventDate, // Include next event date in event object if ended

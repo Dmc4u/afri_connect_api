@@ -428,9 +428,9 @@ exports.createShowcase = async (req, res) => {
 
       const performanceSlotDuration = showcase.performanceDuration ?? 5;
       const commercialDuration = showcase.commercialDuration ?? 2;
-      const votingDuration = showcase.votingDisplayDuration ?? 10;
-      const winnerDeclarationDuration = showcase.winnerDisplayDuration ?? 3;
-      const thankYouDuration = showcase.thankYouDuration ?? 2;
+      const votingDuration = showcase.votingDisplayDuration ?? 1;
+      const winnerDeclarationDuration = showcase.winnerDisplayDuration ?? 1;
+      const thankYouDuration = showcase.thankYouDuration ?? 1;
       const countdownDuration = 0; // Instant completion - event ends after thank you
 
       console.log(`📋 [CREATE TIMELINE] Calculated welcome duration:`, {
@@ -3528,9 +3528,9 @@ exports.getStructuredTimeline = async (req, res) => {
                 welcomeDuration: welcomeDurationMinutes,
                 performanceSlotDuration: showcase.performanceDuration ?? 5,
                 commercialDuration: showcase.commercialDuration ?? 2,
-                votingDuration: showcase.votingDisplayDuration ?? 10,
-                winnerDeclarationDuration: showcase.winnerDisplayDuration ?? 5,
-                thankYouDuration: showcase.thankYouDuration ?? 2,
+                votingDuration: showcase.votingDisplayDuration ?? 1,
+                winnerDeclarationDuration: showcase.winnerDisplayDuration ?? 1,
+                thankYouDuration: showcase.thankYouDuration ?? 1,
                 countdownDuration: 0,
               },
               welcomeMessage: {

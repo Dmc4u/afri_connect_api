@@ -25,9 +25,9 @@ router.get("/config/template", auth, async (req, res) => {
       performanceSlotDuration: 5, // minutes per contestant (actual video durations used when available)
       maxVideoLength: 3600, // seconds = 1 hour max per video
       commercialDuration: 2, // minutes (calculated from actual commercial video durations)
-      votingDuration: 10, // minutes
-      winnerDeclarationDuration: 3, // minutes
-      thankYouDuration: 2, // minutes
+      votingDuration: 1, // minutes
+      winnerDeclarationDuration: 1, // minutes
+      thankYouDuration: 1, // minutes
       countdownDuration: 0, // instant completion (event ends immediately when thank you phase completes)
     };
 
@@ -99,9 +99,9 @@ router.put("/:showcaseId/config", auth, async (req, res) => {
           performanceSlotDuration: showcase.performanceDuration || 5,
           maxVideoLength: 3600, // 1 hour max per video
           commercialDuration: showcase.commercialDuration || 2,
-          votingDuration: showcase.votingDisplayDuration || 10,
-          winnerDeclarationDuration: showcase.winnerDisplayDuration || 5,
-          thankYouDuration: showcase.thankYouDuration || 2,
+          votingDuration: showcase.votingDisplayDuration || 1,
+          winnerDeclarationDuration: showcase.winnerDisplayDuration || 1,
+          thankYouDuration: showcase.thankYouDuration || 1,
           countdownDuration: 0, // Instant completion (event ends after thank you)
           ...config, // Allow override from request body if provided
         },
@@ -134,9 +134,9 @@ router.put("/:showcaseId/config", auth, async (req, res) => {
       (timeline.config.welcomeDuration || showcase.welcomeDuration || 5) +
       performanceDuration +
       (timeline.config.commercialDuration || showcase.commercialDuration || 2) +
-      (timeline.config.votingDuration || showcase.votingDisplayDuration || 10) +
-      (timeline.config.winnerDeclarationDuration || showcase.winnerDisplayDuration || 5) +
-      (timeline.config.thankYouDuration || showcase.thankYouDuration || 2);
+      (timeline.config.votingDuration || showcase.votingDisplayDuration || 1) +
+      (timeline.config.winnerDeclarationDuration || showcase.winnerDisplayDuration || 1) +
+      (timeline.config.thankYouDuration || showcase.thankYouDuration || 1);
     // Countdown is NOT included - it instantly completes the event
 
     await timeline.save();
@@ -195,9 +195,9 @@ router.get("/:showcaseId/config", auth, async (req, res) => {
           performanceSlotDuration: showcase.performanceDuration || 5,
           maxVideoLength: 3600, // 1 hour max
           commercialDuration: showcase.commercialDuration || 2,
-          votingDuration: showcase.votingDisplayDuration || 10,
-          winnerDeclarationDuration: showcase.winnerDisplayDuration || 5,
-          thankYouDuration: showcase.thankYouDuration || 2,
+          votingDuration: showcase.votingDisplayDuration || 1,
+          winnerDeclarationDuration: showcase.winnerDisplayDuration || 1,
+          thankYouDuration: showcase.thankYouDuration || 1,
           countdownDuration: 0, // Instant completion
           musicUrl: showcase.musicUrl || null,
         },
@@ -280,9 +280,9 @@ router.put("/:showcaseId/config/phase/:phaseName", auth, async (req, res) => {
           performanceSlotDuration: 5,
           maxVideoLength: 3600,
           commercialDuration: 5,
-          votingDuration: 20,
-          winnerDeclarationDuration: 3,
-          thankYouDuration: 2,
+          votingDuration: 1,
+          winnerDeclarationDuration: 1,
+          thankYouDuration: 1,
         },
         eventStatus: "scheduled",
         isLive: false,

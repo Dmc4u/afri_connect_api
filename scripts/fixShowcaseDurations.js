@@ -36,17 +36,17 @@ async function fixShowcaseDurations() {
       }
 
       if (showcase.votingDisplayDuration === undefined || showcase.votingDisplayDuration === null) {
-        updates.votingDisplayDuration = 10; // Default from model
+        updates.votingDisplayDuration = 1; // Default from model
         needsUpdate = true;
       }
 
       if (showcase.winnerDisplayDuration === undefined || showcase.winnerDisplayDuration === null) {
-        updates.winnerDisplayDuration = 5; // Default from model
+        updates.winnerDisplayDuration = 1; // Default from model
         needsUpdate = true;
       }
 
       if (showcase.thankYouDuration === undefined || showcase.thankYouDuration === null) {
-        updates.thankYouDuration = 2; // Default from model
+        updates.thankYouDuration = 1; // Default from model
         needsUpdate = true;
       }
 

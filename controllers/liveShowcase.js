@@ -112,9 +112,9 @@ exports.initializeEventTimeline = async (req, res) => {
         welcomeDuration: welcomeDurationMinutes,
         performanceSlotDuration: showcase.performanceDuration ?? 5,
         commercialDuration: showcase.commercialDuration ?? 2,
-        votingDuration: showcase.votingDisplayDuration ?? 10,
-        winnerDeclarationDuration: showcase.winnerDisplayDuration ?? 5,
-        thankYouDuration: showcase.thankYouDuration ?? 2,
+        votingDuration: showcase.votingDisplayDuration ?? 1,
+        winnerDeclarationDuration: showcase.winnerDisplayDuration ?? 1,
+        thankYouDuration: showcase.thankYouDuration ?? 1,
       },
       welcomeMessage: {
         title: showcase.welcomeMessage || `Welcome to ${showcase.title}!`,

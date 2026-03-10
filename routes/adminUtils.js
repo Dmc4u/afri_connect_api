@@ -34,17 +34,17 @@ router.post("/fix-durations", auth, async (req, res) => {
       }
 
       if (showcase.votingDisplayDuration === undefined || showcase.votingDisplayDuration === null) {
-        showcaseUpdates.votingDisplayDuration = 10;
+        showcaseUpdates.votingDisplayDuration = 1;
         needsUpdate = true;
       }
 
       if (showcase.winnerDisplayDuration === undefined || showcase.winnerDisplayDuration === null) {
-        showcaseUpdates.winnerDisplayDuration = 5;
+        showcaseUpdates.winnerDisplayDuration = 1;
         needsUpdate = true;
       }
 
       if (showcase.thankYouDuration === undefined || showcase.thankYouDuration === null) {
-        showcaseUpdates.thankYouDuration = 2;
+        showcaseUpdates.thankYouDuration = 1;
         needsUpdate = true;
       }
 

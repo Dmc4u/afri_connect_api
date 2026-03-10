@@ -146,9 +146,9 @@ async function ensureLiveTalentEventTimeline() {
         welcomeDuration: welcomeDurationMinutes,
         performanceSlotDuration: showcase.performanceDuration ?? 5,
         commercialDuration: showcase.commercialDuration ?? 2,
-        votingDuration: showcase.votingDisplayDuration ?? 10,
-        winnerDeclarationDuration: showcase.winnerDisplayDuration ?? 3,
-        thankYouDuration: showcase.thankYouDuration ?? 2,
+        votingDuration: showcase.votingDisplayDuration ?? 1,
+        winnerDeclarationDuration: showcase.winnerDisplayDuration ?? 1,
+        thankYouDuration: showcase.thankYouDuration ?? 1,
         countdownDuration: 0, // Instant completion - event ends after thank you
       },
       eventStatus: "scheduled",
