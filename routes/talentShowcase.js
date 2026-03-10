@@ -68,6 +68,16 @@ router.get("/:showcaseId/leaderboard", showcaseController.getLeaderboard);
 // Cast vote (requires auth or IP-based voting if allowed)
 router.post("/:showcaseId/vote", optionalAuth, validateVote, showcaseController.castVote);
 
+// Handle OPTIONS preflight for video upload (CORS)
+router.options("/upload-video", (req, res) => {
+  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
+  res.header("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.header("Access-Control-Allow-Credentials", "true");
+  res.header("Access-Control-Max-Age", "86400"); // 24 hours
+  res.sendStatus(204);
+});
+
 // Upload talent video
 router.post(
   "/upload-video",
