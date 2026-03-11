@@ -36,6 +36,17 @@ router.post("/ads/track/click/:id", trackClick); // Track click
 router.get("/ads/my", auth, getMyAds); // Get my advertisements
 router.get("/ads/:id", auth, getAdById); // Get single advertisement
 router.post("/ads/:id/payment", auth, completeAdPayment); // Complete payment for approved ad
+
+// Handle OPTIONS preflight for video upload (CORS)
+router.options("/upload-video", (req, res) => {
+  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
+  res.header("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.header("Access-Control-Allow-Credentials", "true");
+  res.header("Access-Control-Max-Age", "86400"); // 24 hours
+  res.sendStatus(204);
+});
+
 router.post("/upload-video", auth, uploadVideo.single("video"), uploadAdvertisingVideo); // Upload video with duration detection
 
 // Admin routes
