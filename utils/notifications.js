@@ -121,83 +121,40 @@ const emailTemplates = {
   }),
 
   loginNotification: (user, loginDetails) => ({
-    subject: `New Login to Your ${APP_NAME} Account`,
-    html: `<!DOCTYPE html><html><body style="margin:0;padding:0;">
-      <div style="background:#f3f4f6; padding:24px 12px;">
-        <div style="font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; max-width: 640px; margin: 0 auto; background:#ffffff; border-radius: 14px; overflow:hidden; border:1px solid #e5e7eb;">
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%; border-collapse:collapse; background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%);">
-            <tr>
-              <td style="padding:20px 22px;">
-                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%; border-collapse:collapse;">
-                  <tr>
-                    <td valign="middle" style="vertical-align:middle; text-align:center;">
-                      <div style="color:#ffffff; font-size:24px; font-weight:700; letter-spacing:0.5px; line-height:1.1;">${APP_NAME}</div>
-                      <div style="color:rgba(255,255,255,0.9); font-size:13px; margin-top:6px;">New sign-in detected</div>
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-          </table>
+    subject: `New Login to ${APP_NAME} Account`,
+    html: `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f5f5;">
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
+        <div style="background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%); padding: 30px 20px; text-align: center;">
+          <h1 style="color: #ffffff; margin:0; font-size: 32px; font-weight: 700; letter-spacing: 1px;">${APP_NAME}</h1>
+          <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">New sign-in detected</p>
+        </div>
+        <div style="padding: 20px;">
+          <h2>New Login Notification</h2>
+          <p>Hey ${user.name || "there"},</p>
+          <p>We noticed a login to <strong>${user.email}</strong>.</p>
 
-          <div style="padding:22px; color:#111827;">
-            <h2 style="margin:0 0 10px; font-size:18px;">New Login Notification</h2>
-            <p style="margin:0 0 12px; color:#374151;">Hey ${user.name || "there"},</p>
-            <p style="margin:0 0 16px; color:#374151;">We noticed a login to <strong>${user.email}</strong>.</p>
+          <p><strong>Date:</strong> ${loginDetails.date}</p>
+          <p><strong>Time:</strong> ${loginDetails.time}</p>
+          <p><strong>IP:</strong> ${loginDetails.ip}</p>
+          <p><strong>Location:</strong> ${loginDetails.location}</p>
+          <p><strong>Device:</strong> ${loginDetails.device}</p>
+          ${loginDetails.network ? `<p><strong>Network:</strong> ${loginDetails.network}</p>` : ""}
 
-            <div style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:12px; padding:14px 14px;">
-              <table role="presentation" cellspacing="0" cellpadding="0" style="width:100%; border-collapse:collapse; font-size:14px; color:#111827;">
-                <tr>
-                  <td style="padding:6px 0; color:#6b7280; width:42%;">Date</td>
-                  <td style="padding:6px 0; font-weight:600;">${loginDetails.date}</td>
-                </tr>
-                <tr>
-                  <td style="padding:6px 0; color:#6b7280;">Time</td>
-                  <td style="padding:6px 0; font-weight:600;">${loginDetails.time}</td>
-                </tr>
-                <tr>
-                  <td style="padding:6px 0; color:#6b7280;">IP</td>
-                  <td style="padding:6px 0; font-weight:600;">${loginDetails.ip}</td>
-                </tr>
-                <tr>
-                  <td style="padding:6px 0; color:#6b7280;">Approx. location</td>
-                  <td style="padding:6px 0; font-weight:600;">${loginDetails.location}</td>
-                </tr>
-                <tr>
-                  <td style="padding:6px 0; color:#6b7280;">Device</td>
-                  <td style="padding:6px 0; font-weight:600;">${loginDetails.device}</td>
-                </tr>
-                ${
-                  loginDetails.network
-                    ? `
-                <tr>
-                  <td style="padding:6px 0; color:#6b7280;">Network</td>
-                  <td style="padding:6px 0; font-weight:600;">${loginDetails.network}</td>
-                </tr>
-                `
-                    : ""
-                }
-              </table>
-            </div>
-
-            <div style="margin-top:16px; padding:12px 14px; border-radius:12px; background:#ecfeff; border:1px solid #a5f3fc; color:#155e75;">
-              <div style="font-weight:700; margin-bottom:4px;">Wasn’t you?</div>
-              <div style="font-size:14px;">Secure your account immediately.
-                <a href="${FRONTEND_URL}/contact" style="color:#0e7490; font-weight:700; text-decoration:underline;">Contact support</a>
-              </div>
-            </div>
-
-            <p style="margin:16px 0 0; color:#6b7280; font-size:12px;">If this was you, you can safely ignore this email.</p>
+          <div style="background: #ecfeff; border-left: 4px solid #06b6d4; padding: 15px; margin: 20px 0;">
+            <p style="margin:0 0 8px 0; font-weight:700;">Wasn't you?</p>
+            <p style="margin:0;">Secure your account immediately. <a href="${FRONTEND_URL}/contact" style="color:#0e7490;">Contact support</a></p>
           </div>
 
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#f9fafb">
-            <tr>
-              <td style="padding:14px 22px; border-top:1px solid #e5e7eb; color:#6b7280; font-size:12px;">
-                Best regards,<br/>The ${APP_NAME} Team
-              </td>
-            </tr>
-          </table>
+          <p style="color:#666; font-size:12px;">If this was you, you can safely ignore this email.</p>
+          <p>Best regards,<br/>The ${APP_NAME} Team</p>
         </div>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#f8f9fa">
+          <tr>
+            <td style="padding: 10px; text-align: center; font-size: 12px; color: #666;">
+              &copy; ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.
+            </td>
+          </tr>
+        </table>
       </div>
     </body></html>`,
   }),
