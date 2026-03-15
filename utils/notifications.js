@@ -55,9 +55,9 @@ const emailTemplates = {
     subject: `Welcome to ${APP_NAME}!`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background-color: #f8f9fa; padding: 20px; text-align: center;">
-          ${BRAND_LOGO_URL ? `<img src="${BRAND_LOGO_URL}" alt="${APP_NAME}" width="48" height="48" style="display:block; margin:0 auto 12px; border-radius:8px;" />` : ""}
-          <h1 style="color: #333; margin:0;">${APP_NAME}</h1>
+        <div style="background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%); padding: 30px 20px; text-align: center;">
+          <h1 style="color: #ffffff; margin:0; font-size: 32px; font-weight: 700; letter-spacing: 1px;">${APP_NAME}</h1>
+          <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">Connect, Collaborate, Grow</p>
         </div>
         <div style="padding: 20px;">
           <h2>Welcome aboard, ${user.name}!</h2>
@@ -89,9 +89,9 @@ const emailTemplates = {
     subject: `Password Reset Request - ${APP_NAME}`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background-color: #f8f9fa; padding: 20px; text-align: center;">
-          ${BRAND_LOGO_URL ? `<img src="${BRAND_LOGO_URL}" alt="${APP_NAME}" width="48" height="48" style="display:block; margin:0 auto 12px; border-radius:8px;" />` : ""}
-          <h1 style="color: #333; margin:0;">${APP_NAME}</h1>
+        <div style="background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%); padding: 30px 20px; text-align: center;">
+          <h1 style="color: #ffffff; margin:0; font-size: 32px; font-weight: 700; letter-spacing: 1px;">${APP_NAME}</h1>
+          <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">Connect, Collaborate, Grow</p>
         </div>
         <div style="padding: 20px;">
           <h2>Password Reset Request</h2>
@@ -117,17 +117,14 @@ const emailTemplates = {
     html: `
       <div style="background:#f3f4f6; padding:24px 12px;">
         <div style="font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; max-width: 640px; margin: 0 auto; background:#ffffff; border-radius: 14px; overflow:hidden; border:1px solid #e5e7eb;">
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%; border-collapse:collapse;" bgcolor="#0b1220">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%; border-collapse:collapse; background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%);">
             <tr>
-              <td style="padding:20px 22px;" bgcolor="#0b1220">
+              <td style="padding:20px 22px;">
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%; border-collapse:collapse;">
                   <tr>
-                    <td valign="middle" style="vertical-align:middle;">
-                      <div style="display:flex; align-items:center; gap:10px;">
-                        ${BRAND_LOGO_URL ? `<img src="${BRAND_LOGO_URL}" width="28" height="28" alt="${APP_NAME}" style="display:block; width:28px; height:28px; border:0; outline:none; text-decoration:none; border-radius:4px;" />` : ""}
-                        <div style="color:#ffffff; font-size:18px; font-weight:700; letter-spacing:0.2px; line-height:1.1;">${APP_NAME}</div>
-                      </div>
-                      <div style="color:rgba(255,255,255,0.78); font-size:13px; margin-top:6px;">New sign-in detected</div>
+                    <td valign="middle" style="vertical-align:middle; text-align:center;">
+                      <div style="color:#ffffff; font-size:24px; font-weight:700; letter-spacing:0.5px; line-height:1.1;">${APP_NAME}</div>
+                      <div style="color:rgba(255,255,255,0.9); font-size:13px; margin-top:6px;">New sign-in detected</div>
                     </td>
                   </tr>
                 </table>
@@ -197,9 +194,9 @@ const emailTemplates = {
     subject: `Payment Confirmation - ${APP_NAME}`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background-color: #f8f9fa; padding: 20px; text-align: center;">
-          ${BRAND_LOGO_URL ? `<img src="${BRAND_LOGO_URL}" alt="${APP_NAME}" width="48" height="48" style="display:block; margin:0 auto 12px; border-radius:8px;" />` : ""}
-          <h1 style="color: #333; margin:0;">${APP_NAME}</h1>
+        <div style="background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%); padding: 30px 20px; text-align: center;">
+          <h1 style="color: #ffffff; margin:0; font-size: 32px; font-weight: 700; letter-spacing: 1px;">${APP_NAME}</h1>
+          <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">Connect, Collaborate, Grow</p>
         </div>
         <div style="padding: 20px;">
           <h2>Payment Confirmed!</h2>
@@ -255,9 +252,9 @@ const emailTemplates = {
     subject: `Subscription Expiring Soon - ${APP_NAME}`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background-color: #f8f9fa; padding: 20px; text-align: center;">
-          ${BRAND_LOGO_URL ? `<img src="${BRAND_LOGO_URL}" alt="${APP_NAME}" width="48" height="48" style="display:block; margin:0 auto 12px; border-radius:8px;" />` : ""}
-          <h1 style="color: #333; margin:0;">${APP_NAME}</h1>
+        <div style="background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%); padding: 30px 20px; text-align: center;">
+          <h1 style="color: #ffffff; margin:0; font-size: 32px; font-weight: 700; letter-spacing: 1px;">${APP_NAME}</h1>
+          <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">Connect, Collaborate, Grow</p>
         </div>
         <div style="padding: 20px;">
           <h2>Subscription Expiring Soon</h2>
@@ -282,9 +279,9 @@ const emailTemplates = {
     subject: `Listing Approved - ${APP_NAME}`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background-color: #f8f9fa; padding: 20px; text-align: center;">
-          ${BRAND_LOGO_URL ? `<img src="${BRAND_LOGO_URL}" alt="${APP_NAME}" width="48" height="48" style="display:block; margin:0 auto 12px; border-radius:8px;" />` : ""}
-          <h1 style="color: #333; margin:0;">${APP_NAME}</h1>
+        <div style="background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%); padding: 30px 20px; text-align: center;">
+          <h1 style="color: #ffffff; margin:0; font-size: 32px; font-weight: 700; letter-spacing: 1px;">${APP_NAME}</h1>
+          <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">Connect, Collaborate, Grow</p>
         </div>
         <div style="padding: 20px;">
           <h2>Your Listing Has Been Approved!</h2>
@@ -314,9 +311,9 @@ const emailTemplates = {
     subject: `Listing Requires Changes - ${APP_NAME}`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background-color: #f8f9fa; padding: 20px; text-align: center;">
-          ${BRAND_LOGO_URL ? `<img src="${BRAND_LOGO_URL}" alt="${APP_NAME}" width="48" height="48" style="display:block; margin:0 auto 12px; border-radius:8px;" />` : ""}
-          <h1 style="color: #333; margin:0;">${APP_NAME}</h1>
+        <div style="background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%); padding: 30px 20px; text-align: center;">
+          <h1 style="color: #ffffff; margin:0; font-size: 32px; font-weight: 700; letter-spacing: 1px;">${APP_NAME}</h1>
+          <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">Connect, Collaborate, Grow</p>
         </div>
         <div style="padding: 20px;">
           <h2>Your Listing Needs Revision</h2>
@@ -352,9 +349,9 @@ const emailTemplates = {
     subject: `New Results for "${savedSearch.name}" - ${APP_NAME}`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background-color: #f8f9fa; padding: 20px; text-align: center;">
-          ${BRAND_LOGO_URL ? `<img src="${BRAND_LOGO_URL}" alt="${APP_NAME}" width="48" height="48" style="display:block; margin:0 auto 12px; border-radius:8px;" />` : ""}
-          <h1 style="color: #333; margin:0;">${APP_NAME}</h1>
+        <div style="background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%); padding: 30px 20px; text-align: center;">
+          <h1 style="color: #ffffff; margin:0; font-size: 32px; font-weight: 700; letter-spacing: 1px;">${APP_NAME}</h1>
+          <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">Connect, Collaborate, Grow</p>
         </div>
         <div style="padding: 20px;">
           <h2>New Search Results Available!</h2>
@@ -396,9 +393,9 @@ const emailTemplates = {
     subject: `Advertisement Request Received - ${APP_NAME}`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background-color: #f8f9fa; padding: 20px; text-align: center;">
-          ${BRAND_LOGO_URL ? `<img src="${BRAND_LOGO_URL}" alt="${APP_NAME}" width="48" height="48" style="display:block; margin:0 auto 12px; border-radius:8px;" />` : ""}
-          <h1 style="color: #333; margin:0;">${APP_NAME}</h1>
+        <div style="background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%); padding: 30px 20px; text-align: center;">
+          <h1 style="color: #ffffff; margin:0; font-size: 32px; font-weight: 700; letter-spacing: 1px;">${APP_NAME}</h1>
+          <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">Connect, Collaborate, Grow</p>
         </div>
         <div style="padding: 20px;">
           <h2>Thank You for Your Advertising Request!</h2>
@@ -434,9 +431,9 @@ const emailTemplates = {
     subject: `Advertisement Approved - ${APP_NAME}`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background-color: #f8f9fa; padding: 20px; text-align: center;">
-          ${BRAND_LOGO_URL ? `<img src="${BRAND_LOGO_URL}" alt="${APP_NAME}" width="48" height="48" style="display:block; margin:0 auto 12px; border-radius:8px;" />` : ""}
-          <h1 style="color: #333; margin:0;">${APP_NAME}</h1>
+        <div style="background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%); padding: 30px 20px; text-align: center;">
+          <h1 style="color: #ffffff; margin:0; font-size: 32px; font-weight: 700; letter-spacing: 1px;">${APP_NAME}</h1>
+          <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">Connect, Collaborate, Grow</p>
         </div>
         <div style="padding: 20px;">
           <h2>🎉 Your Advertisement Has Been Approved!</h2>
@@ -467,9 +464,9 @@ const emailTemplates = {
     subject: `Advertisement Requires Revision - ${APP_NAME}`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background-color: #f8f9fa; padding: 20px; text-align: center;">
-          ${BRAND_LOGO_URL ? `<img src="${BRAND_LOGO_URL}" alt="${APP_NAME}" width="48" height="48" style="display:block; margin:0 auto 12px; border-radius:8px;" />` : ""}
-          <h1 style="color: #333; margin:0;">${APP_NAME}</h1>
+        <div style="background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%); padding: 30px 20px; text-align: center;">
+          <h1 style="color: #ffffff; margin:0; font-size: 32px; font-weight: 700; letter-spacing: 1px;">${APP_NAME}</h1>
+          <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">Connect, Collaborate, Grow</p>
         </div>
         <div style="padding: 20px;">
           <h2>Advertisement Needs Revision</h2>
@@ -495,9 +492,9 @@ const emailTemplates = {
     subject: `Your Ad is Now Live! - ${APP_NAME}`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background-color: #f8f9fa; padding: 20px; text-align: center;">
-          ${BRAND_LOGO_URL ? `<img src="${BRAND_LOGO_URL}" alt="${APP_NAME}" width="48" height="48" style="display:block; margin:0 auto 12px; border-radius:8px;" />` : ""}
-          <h1 style="color: #333; margin:0;">${APP_NAME}</h1>
+        <div style="background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%); padding: 30px 20px; text-align: center;">
+          <h1 style="color: #ffffff; margin:0; font-size: 32px; font-weight: 700; letter-spacing: 1px;">${APP_NAME}</h1>
+          <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">Connect, Collaborate, Grow</p>
         </div>
         <div style="padding: 20px;">
           <h2>🚀 Your Advertisement is Live!</h2>
@@ -528,9 +525,9 @@ const emailTemplates = {
     subject: `Your review was approved - ${APP_NAME}`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background-color: #f8f9fa; padding: 20px; text-align: center;">
-          ${BRAND_LOGO_URL ? `<img src="${BRAND_LOGO_URL}" alt="${APP_NAME}" width="48" height="48" style="display:block; margin:0 auto 12px; border-radius:8px;" />` : ""}
-          <h1 style="color: #333; margin:0;">${APP_NAME}</h1>
+        <div style="background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%); padding: 30px 20px; text-align: center;">
+          <h1 style="color: #ffffff; margin:0; font-size: 32px; font-weight: 700; letter-spacing: 1px;">${APP_NAME}</h1>
+          <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">Connect, Collaborate, Grow</p>
         </div>
         <div style="padding: 20px;">
           <h2>Your Review is Live!</h2>
@@ -556,9 +553,9 @@ const emailTemplates = {
     subject: `New review on your listing - ${APP_NAME}`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background-color: #f8f9fa; padding: 20px; text-align: center;">
-          ${BRAND_LOGO_URL ? `<img src="${BRAND_LOGO_URL}" alt="${APP_NAME}" width="48" height="48" style="display:block; margin:0 auto 12px; border-radius:8px;" />` : ""}
-          <h1 style="color: #333; margin:0;">${APP_NAME}</h1>
+        <div style="background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%); padding: 30px 20px; text-align: center;">
+          <h1 style="color: #ffffff; margin:0; font-size: 32px; font-weight: 700; letter-spacing: 1px;">${APP_NAME}</h1>
+          <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">Connect, Collaborate, Grow</p>
         </div>
         <div style="padding: 20px;">
           <h2>Your Listing Got a Review</h2>
