@@ -53,13 +53,13 @@ const isEmailOptedOut = (userLike) => {
 const emailTemplates = {
   welcome: (user) => ({
     subject: `Welcome to ${APP_NAME}!`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+    html: `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f5f5;">
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
         <div style="background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%); padding: 30px 20px; text-align: center;">
           <h1 style="color: #ffffff; margin:0; font-size: 32px; font-weight: 700; letter-spacing: 1px;">${APP_NAME}</h1>
           <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">Connect, Collaborate, Grow</p>
         </div>
-        <div style="padding: 20px;">
+        <div style="padding: 20px; background: #ffffff;">
           <h2>Welcome aboard, ${user.name}!</h2>
           <p>Thank you for joining ${APP_NAME}. We're excited to have you as part of our community.</p>
           <p>Your account has been successfully created with the email: <strong>${user.email}</strong></p>
@@ -78,17 +78,21 @@ const emailTemplates = {
           <p>If you have any questions, feel free to reach out to our support team.</p>
           <p>Best regards,<br>The ${APP_NAME} Team</p>
         </div>
-        <div style="background-color: #f8f9fa; padding: 10px; text-align: center; font-size: 12px; color: #666;">
-          <p>&copy; ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.</p>
-        </div>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#f8f9fa">
+          <tr>
+            <td style="padding: 10px; text-align: center; font-size: 12px; color: #666;">
+              &copy; ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.
+            </td>
+          </tr>
+        </table>
       </div>
-    `,
+    </body></html>`,
   }),
 
   passwordReset: (user, resetToken) => ({
     subject: `Password Reset Request - ${APP_NAME}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+    html: `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f5f5;">
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
         <div style="background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%); padding: 30px 20px; text-align: center;">
           <h1 style="color: #ffffff; margin:0; font-size: 32px; font-weight: 700; letter-spacing: 1px;">${APP_NAME}</h1>
           <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">Connect, Collaborate, Grow</p>
@@ -105,16 +109,20 @@ const emailTemplates = {
           <p>If you didn't request this password reset, please ignore this email or contact our support team if you have concerns.</p>
           <p>Best regards,<br>The ${APP_NAME} Team</p>
         </div>
-        <div style="background-color: #f8f9fa; padding: 10px; text-align: center; font-size: 12px; color: #666;">
-          <p>&copy; ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.</p>
-        </div>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#f8f9fa">
+          <tr>
+            <td style="padding: 10px; text-align: center; font-size: 12px; color: #666;">
+              &copy; ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.
+            </td>
+          </tr>
+        </table>
       </div>
-    `,
+    </body></html>`,
   }),
 
   loginNotification: (user, loginDetails) => ({
     subject: `New Login to Your ${APP_NAME} Account`,
-    html: `
+    html: `<!DOCTYPE html><html><body style="margin:0;padding:0;">
       <div style="background:#f3f4f6; padding:24px 12px;">
         <div style="font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; max-width: 640px; margin: 0 auto; background:#ffffff; border-radius: 14px; overflow:hidden; border:1px solid #e5e7eb;">
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%; border-collapse:collapse; background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%);">
@@ -182,18 +190,22 @@ const emailTemplates = {
             <p style="margin:16px 0 0; color:#6b7280; font-size:12px;">If this was you, you can safely ignore this email.</p>
           </div>
 
-          <div style="padding:14px 22px; background:#f9fafb; border-top:1px solid #e5e7eb; color:#6b7280; font-size:12px;">
-            <div>Best regards,<br/>The ${APP_NAME} Team</div>
-          </div>
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#f9fafb">
+            <tr>
+              <td style="padding:14px 22px; border-top:1px solid #e5e7eb; color:#6b7280; font-size:12px;">
+                Best regards,<br/>The ${APP_NAME} Team
+              </td>
+            </tr>
+          </table>
         </div>
       </div>
-    `,
+    </body></html>`,
   }),
 
   paymentConfirmation: (user, payment) => ({
     subject: `Payment Confirmation - ${APP_NAME}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+    html: `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f5f5;">
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
         <div style="background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%); padding: 30px 20px; text-align: center;">
           <h1 style="color: #ffffff; margin:0; font-size: 32px; font-weight: 700; letter-spacing: 1px;">${APP_NAME}</h1>
           <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">Connect, Collaborate, Grow</p>
@@ -241,17 +253,21 @@ const emailTemplates = {
           <p>If you have any questions about your subscription, please don't hesitate to contact our support team.</p>
           <p>Best regards,<br>The ${APP_NAME} Team</p>
         </div>
-        <div style="background-color: #f8f9fa; padding: 10px; text-align: center; font-size: 12px; color: #666;">
-          <p>&copy; ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.</p>
-        </div>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#f8f9fa">
+          <tr>
+            <td style="padding: 10px; text-align: center; font-size: 12px; color: #666;">
+              &copy; ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.
+            </td>
+          </tr>
+        </table>
       </div>
-    `,
+    </body></html>`,
   }),
 
   subscriptionExpiring: (user, payment) => ({
     subject: `Subscription Expiring Soon - ${APP_NAME}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+    html: `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f5f5;">
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
         <div style="background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%); padding: 30px 20px; text-align: center;">
           <h1 style="color: #ffffff; margin:0; font-size: 32px; font-weight: 700; letter-spacing: 1px;">${APP_NAME}</h1>
           <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">Connect, Collaborate, Grow</p>
@@ -268,17 +284,21 @@ const emailTemplates = {
           <p>Need help or have questions? Our support team is here to assist you.</p>
           <p>Best regards,<br>The ${APP_NAME} Team</p>
         </div>
-        <div style="background-color: #f8f9fa; padding: 10px; text-align: center; font-size: 12px; color: #666;">
-          <p>&copy; ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.</p>
-        </div>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#f8f9fa">
+          <tr>
+            <td style="padding: 10px; text-align: center; font-size: 12px; color: #666;">
+              &copy; ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.
+            </td>
+          </tr>
+        </table>
       </div>
-    `,
+    </body></html>`,
   }),
 
   listingApproved: (user, listing) => ({
     subject: `Listing Approved - ${APP_NAME}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+    html: `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f5f5;">
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
         <div style="background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%); padding: 30px 20px; text-align: center;">
           <h1 style="color: #ffffff; margin:0; font-size: 32px; font-weight: 700; letter-spacing: 1px;">${APP_NAME}</h1>
           <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">Connect, Collaborate, Grow</p>
@@ -300,17 +320,21 @@ const emailTemplates = {
           <p>Your listing is now visible to potential customers. Start connecting with your audience!</p>
           <p>Best regards,<br>The ${APP_NAME} Team</p>
         </div>
-        <div style="background-color: #f8f9fa; padding: 10px; text-align: center; font-size: 12px; color: #666;">
-          <p>&copy; ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.</p>
-        </div>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#f8f9fa">
+          <tr>
+            <td style="padding: 10px; text-align: center; font-size: 12px; color: #666;">
+              &copy; ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.
+            </td>
+          </tr>
+        </table>
       </div>
-    `,
+    </body></html>`,
   }),
 
   listingRejected: (user, listing, reason) => ({
     subject: `Listing Requires Changes - ${APP_NAME}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+    html: `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f5f5;">
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
         <div style="background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%); padding: 30px 20px; text-align: center;">
           <h1 style="color: #ffffff; margin:0; font-size: 32px; font-weight: 700; letter-spacing: 1px;">${APP_NAME}</h1>
           <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">Connect, Collaborate, Grow</p>
@@ -338,17 +362,21 @@ const emailTemplates = {
           <p>If you have any questions, please don't hesitate to contact our support team.</p>
           <p>Best regards,<br>The ${APP_NAME} Team</p>
         </div>
-        <div style="background-color: #f8f9fa; padding: 10px; text-align: center; font-size: 12px; color: #666;">
-          <p>&copy; ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.</p>
-        </div>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#f8f9fa">
+          <tr>
+            <td style="padding: 10px; text-align: center; font-size: 12px; color: #666;">
+              &copy; ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.
+            </td>
+          </tr>
+        </table>
       </div>
-    `,
+    </body></html>`,
   }),
 
   newSavedSearchResults: (user, savedSearch, newListings) => ({
     subject: `New Results for "${savedSearch.name}" - ${APP_NAME}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+    html: `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f5f5;">
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
         <div style="background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%); padding: 30px 20px; text-align: center;">
           <h1 style="color: #ffffff; margin:0; font-size: 32px; font-weight: 700; letter-spacing: 1px;">${APP_NAME}</h1>
           <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">Connect, Collaborate, Grow</p>
@@ -381,18 +409,22 @@ const emailTemplates = {
           <p style="font-size: 12px; color: #666;">You're receiving this because you have alerts enabled for this saved search. You can manage your search alerts in your profile.</p>
           <p>Best regards,<br>The ${APP_NAME} Team</p>
         </div>
-        <div style="background-color: #f8f9fa; padding: 10px; text-align: center; font-size: 12px; color: #666;">
-          <p>&copy; ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.</p>
-        </div>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#f8f9fa">
+          <tr>
+            <td style="padding: 10px; text-align: center; font-size: 12px; color: #666;">
+              &copy; ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.
+            </td>
+          </tr>
+        </table>
       </div>
-    `,
+    </body></html>`,
   }),
 
   // Advertisement Notifications
   adRequestReceived: (advertiser, ad) => ({
     subject: `Advertisement Request Received - ${APP_NAME}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+    html: `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f5f5;">
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
         <div style="background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%); padding: 30px 20px; text-align: center;">
           <h1 style="color: #ffffff; margin:0; font-size: 32px; font-weight: 700; letter-spacing: 1px;">${APP_NAME}</h1>
           <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">Connect, Collaborate, Grow</p>
@@ -420,17 +452,21 @@ const emailTemplates = {
           <p>If you have any questions, please reply to this email or contact our advertising team.</p>
           <p>Best regards,<br>The ${APP_NAME} Advertising Team</p>
         </div>
-        <div style="background-color: #f8f9fa; padding: 10px; text-align: center; font-size: 12px; color: #666;">
-          <p>&copy; ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.</p>
-        </div>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#f8f9fa">
+          <tr>
+            <td style="padding: 10px; text-align: center; font-size: 12px; color: #666;">
+              &copy; ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.
+            </td>
+          </tr>
+        </table>
       </div>
-    `,
+    </body></html>`,
   }),
 
   adApproved: (advertiser, ad) => ({
     subject: `Advertisement Approved - ${APP_NAME}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+    html: `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f5f5;">
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
         <div style="background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%); padding: 30px 20px; text-align: center;">
           <h1 style="color: #ffffff; margin:0; font-size: 32px; font-weight: 700; letter-spacing: 1px;">${APP_NAME}</h1>
           <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">Connect, Collaborate, Grow</p>
@@ -453,17 +489,21 @@ const emailTemplates = {
           <p>Once payment is confirmed, your ad will begin displaying according to your selected schedule.</p>
           <p>Best regards,<br>The ${APP_NAME} Advertising Team</p>
         </div>
-        <div style="background-color: #f8f9fa; padding: 10px; text-align: center; font-size: 12px; color: #666;">
-          <p>&copy; ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.</p>
-        </div>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#f8f9fa">
+          <tr>
+            <td style="padding: 10px; text-align: center; font-size: 12px; color: #666;">
+              &copy; ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.
+            </td>
+          </tr>
+        </table>
       </div>
-    `,
+    </body></html>`,
   }),
 
   adRejected: (advertiser, ad, reason) => ({
     subject: `Advertisement Requires Revision - ${APP_NAME}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+    html: `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f5f5;">
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
         <div style="background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%); padding: 30px 20px; text-align: center;">
           <h1 style="color: #ffffff; margin:0; font-size: 32px; font-weight: 700; letter-spacing: 1px;">${APP_NAME}</h1>
           <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">Connect, Collaborate, Grow</p>
@@ -481,17 +521,21 @@ const emailTemplates = {
           </div>
           <p>Best regards,<br>The ${APP_NAME} Advertising Team</p>
         </div>
-        <div style="background-color: #f8f9fa; padding: 10px; text-align: center; font-size: 12px; color: #666;">
-          <p>&copy; ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.</p>
-        </div>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#f8f9fa">
+          <tr>
+            <td style="padding: 10px; text-align: center; font-size: 12px; color: #666;">
+              &copy; ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.
+            </td>
+          </tr>
+        </table>
       </div>
-    `,
+    </body></html>`,
   }),
 
   adActivated: (advertiser, ad) => ({
     subject: `Your Ad is Now Live! - ${APP_NAME}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+    html: `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f5f5;">
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
         <div style="background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%); padding: 30px 20px; text-align: center;">
           <h1 style="color: #ffffff; margin:0; font-size: 32px; font-weight: 700; letter-spacing: 1px;">${APP_NAME}</h1>
           <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">Connect, Collaborate, Grow</p>
@@ -514,17 +558,21 @@ const emailTemplates = {
           <p>Thank you for choosing ${APP_NAME} to grow your brand!</p>
           <p>Best regards,<br>The ${APP_NAME} Advertising Team</p>
         </div>
-        <div style="background-color: #f8f9fa; padding: 10px; text-align: center; font-size: 12px; color: #666;">
-          <p>&copy; ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.</p>
-        </div>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#f8f9fa">
+          <tr>
+            <td style="padding: 10px; text-align: center; font-size: 12px; color: #666;">
+              &copy; ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.
+            </td>
+          </tr>
+        </table>
       </div>
-    `,
+    </body></html>`,
   }),
 
   reviewApproved: (user, listing, review) => ({
     subject: `Your review was approved - ${APP_NAME}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+    html: `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f5f5;">
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
         <div style="background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%); padding: 30px 20px; text-align: center;">
           <h1 style="color: #ffffff; margin:0; font-size: 32px; font-weight: 700; letter-spacing: 1px;">${APP_NAME}</h1>
           <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">Connect, Collaborate, Grow</p>
@@ -543,16 +591,20 @@ const emailTemplates = {
           <p>Thanks for contributing to our community.</p>
           <p>Best regards,<br/>The ${APP_NAME} Team</p>
         </div>
-        <div style="background-color: #f8f9fa; padding: 10px; text-align: center; font-size: 12px; color: #666;">
-          <p>&copy; ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.</p>
-        </div>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#f8f9fa">
+          <tr>
+            <td style="padding: 10px; text-align: center; font-size: 12px; color: #666;">
+              &copy; ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.
+            </td>
+          </tr>
+        </table>
       </div>
-    `,
+    </body></html>`,
   }),
   newReviewOnListing: (owner, listing, review, reviewer) => ({
     subject: `New review on your listing - ${APP_NAME}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+    html: `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f5f5;">
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
         <div style="background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%); padding: 30px 20px; text-align: center;">
           <h1 style="color: #ffffff; margin:0; font-size: 32px; font-weight: 700; letter-spacing: 1px;">${APP_NAME}</h1>
           <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">Connect, Collaborate, Grow</p>
@@ -571,11 +623,15 @@ const emailTemplates = {
           <p>Moderate pending reviews in your dashboard if needed.</p>
           <p>Best regards,<br/>The ${APP_NAME} Team</p>
         </div>
-        <div style="background-color: #f8f9fa; padding: 10px; text-align: center; font-size: 12px; color: #666;">
-          <p>&copy; ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.</p>
-        </div>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#f8f9fa">
+          <tr>
+            <td style="padding: 10px; text-align: center; font-size: 12px; color: #666;">
+              &copy; ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.
+            </td>
+          </tr>
+        </table>
       </div>
-    `,
+    </body></html>`,
   }),
 };
 
