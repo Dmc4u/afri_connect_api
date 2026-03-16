@@ -752,6 +752,36 @@ exports.getAllTestimonies = async (req, res, next) => {
 };
 
 /**
+ * ADMIN: GET PENDING COUNT
+ * GET /admin/testimonies/pending/count
+ * Returns the count of testimonies awaiting approval
+ * Used for badge notifications in the admin interface
+ * Admin only
+ */
+exports.getPendingCount = async (req, res, next) => {
+  try {
+    console.log("[GetPendingCount] Admin fetching pending testimonies count");
+
+    // Count testimonies that are not approved and not deleted
+    const count = await Testimony.countDocuments({
+      isApproved: false,
+      isDeleted: false,
+    });
+
+    console.log("[GetPendingCount] ✅ Found", count, "pending testimonies");
+
+    // Return simple count response
+    res.status(200).json({
+      success: true,
+      count,
+    });
+  } catch (error) {
+    console.error("[GetPendingCount] Error:", error.message);
+    next(error);
+  }
+};
+
+/**
  * SUMMARY:
  * This controller handles all testimony-related operations:
  *
@@ -766,6 +796,7 @@ exports.getAllTestimonies = async (req, res, next) => {
  *
  * ADMIN ENDPOINTS:
  * - getPendingTestimonies: View testimonies awaiting approval
+ * - getPendingCount: Get count of pending testimonies (for badges)
  * - approveTestimony: Approve a testimony
  * - rejectTestimony: Reject a testimony
  * - toggleFeatured: Feature/unfeature a testimony
@@ -778,5 +809,6 @@ exports.getAllTestimonies = async (req, res, next) => {
  * - Email notifications (to admins and users)
  * - Featured testimonies (for homepage highlighting)
  * - Manual ordering (displayOrder field)
+ * - Badge notifications (count display in admin interface)
  * - Comprehensive logging
  */

@@ -35,6 +35,7 @@ const {
   updateTestimony,
   deleteTestimony,
   getPendingTestimonies,
+  getPendingCount,
   approveTestimony,
   rejectTestimony,
   toggleFeatured,
@@ -162,6 +163,18 @@ router.get(
   validateTestimonyQuery, // Validate query parameters
   logTestimonyAction("ADMIN_GET_ALL"),
   getAllTestimonies
+);
+
+// GET /testimonies/admin/pending/count - Get count of pending testimonies
+// Returns just the count of pending testimonies for badge notifications
+// Used by frontend to show badge on Admin menu and Testimony menu
+// MUST come before /admin/pending to avoid being caught by that route
+router.get(
+  "/admin/pending/count",
+  auth,
+  adminAuth,
+  logTestimonyAction("ADMIN_GET_PENDING_COUNT"),
+  getPendingCount
 );
 
 // GET /testimonies/admin/pending - Get testimonies awaiting approval
