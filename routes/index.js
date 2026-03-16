@@ -27,6 +27,7 @@ const appStatusRouter = require("./appStatus");
 const faqRouter = require("./faq");
 const businessLeadersRouter = require("./businessLeaders");
 const adminBusinessLeadersRouter = require("./adminBusinessLeaders");
+const testimonyRouter = require("./testimony");
 const { NotFoundError } = require("../utils/errors");
 
 const router = express.Router();
@@ -65,6 +66,7 @@ router.use("/talent-showcase", talentShowcaseRouter);
 router.use("/", pricingRouter);
 router.use("/featured", featuredRouter);
 router.use("/reviews", reviewsRouter);
+router.use("/testimonies", testimonyRouter);
 router.use("/proxy", proxyRouter);
 
 // Handle non-existent routes
