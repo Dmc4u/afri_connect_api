@@ -422,8 +422,35 @@ app.use("/api/media", mediaRouter);
 app.get("/users/countries", async (req, res) => {
   try {
     const User = require("./models/User");
-    // Get distinct countries from users, excluding null/undefined
-    const countries = await User.distinct("country", { country: { $exists: true, $ne: null } });
+
+    // Get all users with either country or location field
+    const users = await User.find(
+      {
+        $or: [
+          { country: { $exists: true, $ne: null, $ne: "" } },
+          { location: { $exists: true, $ne: null, $ne: "" } },
+        ],
+      },
+      "country location"
+    );
+
+    // Extract unique countries
+    const countriesSet = new Set();
+
+    users.forEach((user) => {
+      if (user.country && user.country.trim()) {
+        countriesSet.add(user.country.trim());
+      } else if (user.location && user.location.includes(",")) {
+        // Parse "City, Country" format - take last part
+        const parts = user.location.split(",");
+        const country = parts[parts.length - 1].trim();
+        if (country) {
+          countriesSet.add(country);
+        }
+      }
+    });
+
+    const countries = Array.from(countriesSet);
     res.json({ success: true, countries });
   } catch (error) {
     console.error("Error fetching user countries:", error);
