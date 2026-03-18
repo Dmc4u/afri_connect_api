@@ -1,9 +1,9 @@
-const nodemailer = require('nodemailer');
-const BadRequestError = require('../utils/errors/BadRequestError');
+const nodemailer = require("nodemailer");
+const BadRequestError = require("../utils/errors/BadRequestError");
 
 /**
  * Contact Support Form Handler
- * Sends email to support@dmclimited.net
+ * Sends email to support@afrionet.com
  */
 
 const sendSupportMessage = async (req, res, next) => {
@@ -12,47 +12,47 @@ const sendSupportMessage = async (req, res, next) => {
 
     // Validate required fields
     if (!name || !email || !subject || !message) {
-      throw new BadRequestError('All fields are required');
+      throw new BadRequestError("All fields are required");
     }
 
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      throw new BadRequestError('Invalid email address');
+      throw new BadRequestError("Invalid email address");
     }
 
     // Validate message length
     if (message.length < 10) {
-      throw new BadRequestError('Message must be at least 10 characters');
+      throw new BadRequestError("Message must be at least 10 characters");
     }
 
     if (message.length > 4000) {
-      throw new BadRequestError('Message is too long (max 4000 characters)');
+      throw new BadRequestError("Message is too long (max 4000 characters)");
     }
 
     // Helper function to escape HTML
     const esc = (str) => {
-      if (!str) return '';
+      if (!str) return "";
       return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
     };
 
     // Create email transporter with PrivateEmail SMTP
     const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST || 'mail.privateemail.com',
+      host: process.env.SMTP_HOST || "mail.privateemail.com",
       port: parseInt(process.env.SMTP_PORT) || 465,
-      secure: process.env.SMTP_SECURE === 'true',
+      secure: process.env.SMTP_SECURE === "true",
       auth: {
         user: process.env.ADMIN_EMAIL,
         pass: process.env.ADMIN_EMAIL_PASSWORD,
       },
     });
 
-    console.log('📧 SMTP Configuration:', {
+    console.log("📧 SMTP Configuration:", {
       host: process.env.SMTP_HOST,
       port: process.env.SMTP_PORT,
       secure: process.env.SMTP_SECURE,
@@ -71,7 +71,7 @@ const sendSupportMessage = async (req, res, next) => {
       </div>
     `;
 
-    console.log('📤 Attempting to send email to:', process.env.ADMIN_EMAIL);
+    console.log("📤 Attempting to send email to:", process.env.ADMIN_EMAIL);
 
     // Send email to support
     try {
@@ -82,9 +82,9 @@ const sendSupportMessage = async (req, res, next) => {
         subject: `[AfriOnet Contact] ${subject}`,
         html: adminHtml,
       });
-      console.log('✅ Admin email sent successfully');
+      console.log("✅ Admin email sent successfully");
     } catch (emailError) {
-      console.error('❌ Failed to send admin email:', emailError);
+      console.error("❌ Failed to send admin email:", emailError);
       throw emailError;
     }
 
@@ -109,21 +109,21 @@ const sendSupportMessage = async (req, res, next) => {
       await transporter.sendMail({
         from: `"AfriOnet Support" <${process.env.ADMIN_EMAIL}>`,
         to: email,
-        subject: 'Thanks for contacting AfriOnet',
+        subject: "Thanks for contacting AfriOnet",
         text: ackText,
         html: ackHtml,
       });
     } catch (confirmError) {
-      console.warn('⚠️ Failed to send confirmation email:', confirmError.message);
+      console.warn("⚠️ Failed to send confirmation email:", confirmError.message);
       // Don't fail the request if confirmation email fails
     }
 
     res.status(200).json({
       success: true,
-      message: 'Your message has been sent successfully. We will respond within 24-48 hours.',
+      message: "Your message has been sent successfully. We will respond within 24-48 hours.",
     });
   } catch (error) {
-    console.error('❌ Contact form error:', error);
+    console.error("❌ Contact form error:", error);
     next(error);
   }
 };
