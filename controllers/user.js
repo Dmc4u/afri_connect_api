@@ -227,8 +227,7 @@ const login = (req, res, next) => {
               <h2 style="margin:0 0 12px;">Verify your login</h2>
               <p>Use this 6-digit code to complete your sign-in:</p>
               <div style="font-size:28px; letter-spacing:6px; font-weight:700; padding:12px 16px; background:#f3f4f6; border-radius:8px; display:inline-block;">${otp}</div>
-              <p style="margin-top:16px; color:#666; font-size:12px;">This code expires in 10 minutes. If you didn’t try to sign in, you can ignore this email.</p>
-            </div>
+              <p style="margin-top:16px; color:#666; font-size:12px;">This code expires in 10 minutes. If you didn’t try to sign in, you can ignore this email.</p>              <p style="margin-top:24px; color:#999; font-size:11px;">@afrionet.com #${otp}</p>            </div>
           `;
 
           const result = await sendEmail(user.email, subject, html);
