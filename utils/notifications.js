@@ -66,8 +66,8 @@ const emailTemplates = {
           <p>Here's what you can do next:</p>
           <ul style="line-height: 1.8;">
             <li><a href="${FRONTEND_URL}/profile" style="color: #007bff; text-decoration: none;">Complete your profile</a> to showcase your expertise</li>
-            <li><a href="${FRONTEND_URL}/profile#listings/create-listing" style="color: #007bff; text-decoration: none;">Create your first business listing</a> to reach potential customers</li>
-            <li><a href="${FRONTEND_URL}/profile#listings/create-talent" style="color: #007bff; text-decoration: none;">Create your first talent listing</a> to showcase your skills</li>
+            <li><a href="${FRONTEND_URL}/profile#businesses/create-business" style="color: #007bff; text-decoration: none;">Create your first business listing</a> to reach potential customers</li>
+            <li><a href="${FRONTEND_URL}/profile#businesses/create-talent" style="color: #007bff; text-decoration: none;">Create your first talent listing</a> to showcase your skills</li>
             <li><a href="${FRONTEND_URL}/search" style="color: #007bff; text-decoration: none;">Explore other businesses</a> in your area</li>
             <li><a href="${FRONTEND_URL}/forum" style="color: #007bff; text-decoration: none;">Connect with other entrepreneurs</a> in our community forum</li>
             <li><a href="${FRONTEND_URL}/advertise" style="color: #007bff; text-decoration: none;">Promote your business</a> with targeted advertising</li>
@@ -272,7 +272,7 @@ const emailTemplates = {
             <p><strong>Status:</strong> Active</p>
           </div>
           <div style="text-align: center; margin: 30px 0;">
-            <a href="${FRONTEND_URL}/listings/${listing._id}" style="background-color: #28a745; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px;">View Your Listing</a>
+            <a href="${FRONTEND_URL}/businesses/${listing._id}" style="background-color: #28a745; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px;">View Your Listing</a>
           </div>
           <p>Your listing is now visible to potential customers. Start connecting with your audience!</p>
           <p>Best regards,<br>The ${APP_NAME} Team</p>
@@ -351,7 +351,7 @@ const emailTemplates = {
               <h3 style="margin: 0 0 10px 0;">${listing.title}</h3>
               <p style="margin: 5px 0; color: #666;">${listing.category} • ${listing.location}</p>
               <p style="margin: 10px 0;">${listing.description.substring(0, 150)}...</p>
-              <a href="${FRONTEND_URL}/listings/${listing._id}" style="color: #007bff; text-decoration: none;">View Details →</a>
+              <a href="${FRONTEND_URL}/businesses/${listing._id}" style="color: #007bff; text-decoration: none;">View Details →</a>
             </div>
           `
             )
@@ -543,7 +543,7 @@ const emailTemplates = {
             <p style="margin:8px 0 0 0; font-size:12px; color:#888;">Rating: ${review.rating} / 5</p>
           </blockquote>
           <div style="text-align: center; margin: 30px 0;">
-            <a href="${FRONTEND_URL}/listings/${listing._id}" style="background-color: #4caf50; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px;">View Listing</a>
+            <a href="${FRONTEND_URL}/businesses/${listing._id}" style="background-color: #4caf50; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px;">View Listing</a>
           </div>
           <p>Thanks for contributing to our community.</p>
           <p>Best regards,<br/>The ${APP_NAME} Team</p>
@@ -575,7 +575,7 @@ const emailTemplates = {
           </blockquote>
           <p>Status: <strong>${review.status}</strong></p>
           <div style="text-align: center; margin: 30px 0;">
-            <a href="${FRONTEND_URL}/listings/${listing._id}" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px;">View Listing</a>
+            <a href="${FRONTEND_URL}/businesses/${listing._id}" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px;">View Listing</a>
           </div>
           <p>Moderate pending reviews in your dashboard if needed.</p>
           <p>Best regards,<br/>The ${APP_NAME} Team</p>
