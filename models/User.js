@@ -21,10 +21,16 @@ const userSchema = new mongoose.Schema(
     },
     phone: {
       type: String,
-      required: true,
+      required: false,
+      default: null,
       unique: true,
+      sparse: true, // Allow multiple null values
       validate: {
-        validator: (value) => validator.isMobilePhone(value, "any"),
+        validator: function (value) {
+          // Skip validation if value is null or empty
+          if (!value) return true;
+          return validator.isMobilePhone(value, "any");
+        },
         message: "Invalid phone number",
       },
     },
@@ -44,6 +50,19 @@ const userSchema = new mongoose.Schema(
     location: {
       type: String,
       default: null, // e.g., "Lagos, Nigeria" or "Nairobi, Kenya"
+    },
+    city: {
+      type: String,
+      default: null,
+    },
+    profileComplete: {
+      type: Boolean,
+      default: false, // Track if user completed full profile after quick signup
+    },
+    accountType: {
+      type: String,
+      enum: ["business", "talent", null],
+      default: null, // User's chosen account type (set during onboarding)
     },
     tier: {
       type: String,

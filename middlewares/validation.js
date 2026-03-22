@@ -188,17 +188,20 @@ module.exports.validateUpdateUser = celebrate({
       "string.min": 'The minimum length of the "name" field is 2',
       "string.max": 'The maximum length of the "name" field is 30',
     }),
-    avatar: Joi.string().custom(validateURL).messages({
+    avatar: Joi.string().custom(validateURL).allow(null, "").messages({
       "string.uri": 'The "avatar" field must be a valid URL',
     }),
-    phone: Joi.string().messages({
+    phone: Joi.string().allow(null, "").messages({
       "string.base": 'The "phone" field must be a string',
     }),
-    bio: Joi.string().max(500).messages({
+    bio: Joi.string().max(500).allow(null, "").messages({
       "string.max": 'The maximum length of the "bio" field is 500',
     }),
-    country: Joi.string().messages({
+    country: Joi.string().allow(null, "").messages({
       "string.base": 'The "country" field must be a string',
+    }),
+    location: Joi.string().allow(null, "").messages({
+      "string.base": 'The "location" field must be a string',
     }),
     tier: Joi.string().valid("basic", "premium", "admin").messages({
       "any.only": 'The "tier" field must be one of: basic, premium, admin',

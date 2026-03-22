@@ -68,7 +68,6 @@ const emailTemplates = {
             <li><a href="${FRONTEND_URL}/profile" style="color: #007bff; text-decoration: none;">Complete your profile</a> to showcase your expertise</li>
             <li><a href="${FRONTEND_URL}/profile#businesses/create-business" style="color: #007bff; text-decoration: none;">Create your first business listing</a> to reach potential customers</li>
             <li><a href="${FRONTEND_URL}/profile#businesses/create-talent" style="color: #007bff; text-decoration: none;">Create your first talent listing</a> to showcase your skills</li>
-            <li><a href="${FRONTEND_URL}/search" style="color: #007bff; text-decoration: none;">Explore other businesses</a> in your area</li>
             <li><a href="${FRONTEND_URL}/forum" style="color: #007bff; text-decoration: none;">Connect with other entrepreneurs</a> in our community forum</li>
             <li><a href="${FRONTEND_URL}/advertise" style="color: #007bff; text-decoration: none;">Promote your business</a> with targeted advertising</li>
           </ul>

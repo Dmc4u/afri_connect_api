@@ -35,6 +35,8 @@ const getAllListings = async (req, res, next) => {
   try {
     const { category, location, search, page = 1, limit = 20, excludeWinners } = req.query;
 
+    // Only return admin-approved listings (status: "active") for public browse
+    // Pending listings are only visible to their owners via getMyListings
     const query = { status: "active" };
 
     if (category && category !== "all") {
@@ -158,6 +160,8 @@ const getMyListings = async (req, res, next) => {
 
     const query = { owner: req.user._id };
 
+    // Return all user's listings (pending, active, suspended) except deleted
+    // This allows business users to see their pending listings in "My Listings"
     // Always exclude deleted listings
     query.status = { $ne: "deleted" };
 
@@ -302,7 +306,8 @@ const createListing = async (req, res, next) => {
     };
 
     // Enforce per-tier media limits and types
-    // Free: images only, max 1
+    // Business (Free): 4 images, no videos
+    // Talent (Free): 2 videos (or images)
     // Starter: images only, up to 5
     // Premium/Pro: images and videos, unlimited
     if (req.files && req.files.length > 0) {
@@ -310,33 +315,58 @@ const createListing = async (req, res, next) => {
       const isStarter = user.tier === "Starter";
       const isFree = !user.tier || user.tier === "Free";
 
+      // Determine if this is a talent or business listing
+      const talentCategories =
+        /talent|music|comedy|instrumentalist|artist|dancer|singer|rapper|dj|producer|actor|actress|voice over artist|other talent/i;
+      const isTalent = talentCategories.test(category);
+
       // Validate types per tier
       for (const f of req.files) {
         const isImage = f.mimetype && f.mimetype.startsWith("image/");
         const isVideo = f.mimetype && f.mimetype.startsWith("video/");
 
         if (!isAdmin) {
-          if ((isFree || isStarter) && !isImage) {
-            throw new BadRequestError(`Your ${user.tier || "Free"} tier allows images only.`);
+          // Business (Free/Starter): images only
+          if ((isFree || isStarter) && !isTalent && !isImage) {
+            throw new BadRequestError(
+              `Your ${user.tier || "Free"} tier allows images only for business listings.`
+            );
           }
-          if (!isPremiumOrPro && isVideo) {
+          // Starter (Talent): images only
+          if (isStarter && isTalent && !isImage) {
+            throw new BadRequestError(
+              `Your ${user.tier} tier allows images only for talent listings.`
+            );
+          }
+          // Premium/Pro required for videos (except talent on Free tier)
+          if (!isPremiumOrPro && isVideo && !(isFree && isTalent)) {
             throw new BadRequestError("Video uploads are available on Premium and Pro tiers.");
           }
         }
       }
 
-      // Count incoming images to enforce caps for Free/Starter
+      // Count incoming media to enforce caps
       if (!isAdmin) {
         const incomingImages = req.files.filter(
           (f) => f.mimetype && f.mimetype.startsWith("image/")
         ).length;
-        const imageCap = isFree ? 1 : isStarter ? 5 : Infinity;
-        if (incomingImages > imageCap) {
-          throw new BadRequestError(
-            `Your ${user.tier || "Free"} tier allows up to ${
-              Number.isFinite(imageCap) ? imageCap : "unlimited"
-            } image(s) per listing.`
-          );
+        const incomingVideos = req.files.filter(
+          (f) => f.mimetype && f.mimetype.startsWith("video/")
+        ).length;
+
+        // Business listings (Free tier): 4 images max
+        if (isFree && !isTalent && incomingImages > 4) {
+          throw new BadRequestError(`Your Free tier allows up to 4 image(s) per business listing.`);
+        }
+
+        // Talent listings (Free tier): 2 videos max
+        if (isFree && isTalent && incomingVideos > 2) {
+          throw new BadRequestError(`Your Free tier allows up to 2 video(s) per talent listing.`);
+        }
+
+        // Starter tier: 5 images max
+        if (isStarter && incomingImages > 5) {
+          throw new BadRequestError(`Your Starter tier allows up to 5 image(s) per listing.`);
         }
       }
 
@@ -558,23 +588,52 @@ const uploadMedia = async (req, res, next) => {
     const isImageUpload = req.file.mimetype && req.file.mimetype.startsWith("image/");
     const isVideoUpload = req.file.mimetype && req.file.mimetype.startsWith("video/");
 
+    // Determine if this is a talent or business listing
+    const talentCategories =
+      /talent|music|comedy|instrumentalist|artist|dancer|singer|rapper|dj|producer|actor|actress|voice over artist|other talent/i;
+    const isTalent = talentCategories.test(listing.category);
+
     if (!isAdminUser) {
       // Type restrictions
-      if ((isFree || isStarter) && !isImageUpload) {
-        throw new BadRequestError(`Your ${owner.tier || "Free"} tier allows images only.`);
+      // Business (Free/Starter): images only
+      if ((isFree || isStarter) && !isTalent && !isImageUpload) {
+        throw new BadRequestError(
+          `Your ${owner.tier || "Free"} tier allows images only for business listings.`
+        );
       }
-      if (!isPremiumOrPro && isVideoUpload) {
+      // Talent (Starter): images only
+      if (isStarter && isTalent && !isImageUpload) {
+        throw new BadRequestError(
+          `Your ${owner.tier} tier allows images only for talent listings.`
+        );
+      }
+      // Premium/Pro required for videos (except talent on Free tier)
+      if (!isPremiumOrPro && isVideoUpload && !(isFree && isTalent)) {
         throw new BadRequestError("Video uploads are available on Premium and Pro tiers.");
       }
 
-      // Quantity restrictions for images
+      // Quantity restrictions
       const existingImageCount = listing.mediaFiles.filter((m) => m.type === "image").length;
-      const imageCap = isFree ? 1 : isStarter ? 5 : Infinity;
-      if (isImageUpload && existingImageCount >= imageCap) {
+      const existingVideoCount = listing.mediaFiles.filter((m) => m.type === "video").length;
+
+      // Business listings (Free tier): 4 images max
+      if (isFree && !isTalent && isImageUpload && existingImageCount >= 4) {
         throw new BadRequestError(
-          `Image limit reached for your ${owner.tier || "Free"} tier. Max ${
-            Number.isFinite(imageCap) ? imageCap : "unlimited"
-          } image(s) per listing.`
+          `Image limit reached for your Free tier. Max 4 image(s) per business listing.`
+        );
+      }
+
+      // Talent listings (Free tier): 2 videos max
+      if (isFree && isTalent && isVideoUpload && existingVideoCount >= 2) {
+        throw new BadRequestError(
+          `Video limit reached for your Free tier. Max 2 video(s) per talent listing.`
+        );
+      }
+
+      // Starter tier: 5 images max
+      if (isStarter && isImageUpload && existingImageCount >= 5) {
+        throw new BadRequestError(
+          `Image limit reached for your Starter tier. Max 5 image(s) per listing.`
         );
       }
     }

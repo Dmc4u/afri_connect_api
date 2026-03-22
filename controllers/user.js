@@ -164,6 +164,167 @@ const createUser = (req, res, next) => {
     });
 };
 
+// POST /auth/quick-signup - Quick signup with just email and password
+const quickSignup = (req, res, next) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return next(new BadRequestError("Email and password are required"));
+  }
+
+  // Validate password strength
+  if (password.length < 6) {
+    return next(new BadRequestError("Password must be at least 6 characters long"));
+  }
+
+  // Check if user already exists with this email
+  return User.findOne({ email })
+    .then((existingUser) => {
+      if (existingUser) {
+        throw new ConflictError("An account with this email already exists");
+      }
+      return bcrypt.hash(password, 10);
+    })
+    .then((hash) => {
+      const isProvisionedAdmin = isAdminEmail(email);
+
+      // Create a better default name instead of email prefix
+      const emailPrefix = email.split("@")[0];
+      const defaultName = isProvisionedAdmin
+        ? `Admin ${emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1)}`
+        : `User ${emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1)}`;
+
+      // Create user with minimal info - profile incomplete
+      return User.create({
+        name: defaultName, // Better default name
+        email,
+        password: hash,
+        role: isProvisionedAdmin ? "admin" : "user",
+        tier: isProvisionedAdmin ? "Pro" : "Free",
+        adminProvisioned: isProvisionedAdmin,
+        profileComplete: false, // Mark profile as incomplete
+        settings: {
+          emailNotifications: true,
+          profileVisibility: true,
+          phoneVisibility: false,
+          twoFactorAuth: isProvisionedAdmin,
+        },
+      });
+    })
+    .then((user) => {
+      const userObj = user.toObject();
+      delete userObj.password;
+
+      // Log quick registration activity
+      logActivity({
+        type: "user_registered",
+        description: `Quick signup: ${email}`,
+        userId: user._id,
+        userName: email,
+        userEmail: email,
+        action: "create",
+        targetType: "user",
+        targetId: user._id,
+        details: { email, quickSignup: true },
+      });
+
+      // Generate token for immediate login
+      const token = jwt.sign({ _id: user._id }, JWT_SECRET, { expiresIn: "7d" });
+
+      return res.status(201).send({
+        user: userObj,
+        token: token,
+      });
+    })
+    .catch((err) => {
+      if (err.code === 11000) {
+        return next(new ConflictError("An account with this email already exists"));
+      }
+      if (err.name === "ValidationError") {
+        return next(new BadRequestError("Validation failed"));
+      }
+      return next(err);
+    });
+};
+
+// PUT /auth/complete-profile - Complete user profile after quick signup
+const completeProfile = (req, res, next) => {
+  const { name, phone, city, country, accountType } = req.body;
+
+  if (!name || !phone || !city || !country) {
+    return next(new BadRequestError("Name, phone, city, and country are required"));
+  }
+
+  // Check if phone is already used by another user
+  return User.findOne({ phone, _id: { $ne: req.user._id } })
+    .then((existingUser) => {
+      if (existingUser) {
+        throw new ConflictError("This phone number is already registered");
+      }
+
+      // Create location string from city and country
+      const location = `${city}, ${country}`;
+
+      // Update user profile
+      return User.findByIdAndUpdate(
+        req.user._id,
+        {
+          name,
+          phone,
+          city,
+          country,
+          location,
+          profileComplete: true,
+          accountType, // Store user preference (business/talent)
+        },
+        { new: true, runValidators: true }
+      );
+    })
+    .then((user) => {
+      if (!user) {
+        throw new NotFoundError("User not found");
+      }
+
+      const userObj = user.toObject();
+      delete userObj.password;
+
+      // Log profile completion
+      logActivity({
+        type: "profile_completed",
+        description: `Profile completed: ${name}`,
+        userId: user._id,
+        userName: name,
+        userEmail: user.email,
+        action: "update",
+        targetType: "user",
+        targetId: user._id,
+        details: { name, phone, city, country, accountType },
+      });
+
+      // Send welcome email now that profile is complete
+      sendWelcomeEmail(user).catch((err) => {
+        console.error(`Failed to send welcome email to ${user.email}:`, err.message);
+      });
+
+      return res.send({
+        message: "Profile completed successfully",
+        user: userObj,
+      });
+    })
+    .catch((err) => {
+      if (err.code === 11000) {
+        const field = Object.keys(err.keyPattern || {})[0];
+        if (field === "phone") {
+          return next(new ConflictError("This phone number is already registered"));
+        }
+      }
+      if (err.name === "ValidationError") {
+        return next(new BadRequestError("Validation failed"));
+      }
+      return next(err);
+    });
+};
+
 // POST /signin - Login
 const login = (req, res, next) => {
   const { email, password } = req.body;
@@ -574,6 +735,8 @@ const enableLeadGeneration = (req, res, next) => {
 module.exports = {
   getCurrentUser,
   createUser,
+  quickSignup,
+  completeProfile,
   login,
   verifyLoginOtp,
   updateUser,

@@ -39,7 +39,13 @@ const {
   PAYPAL_CLIENT_SECRET,
   PAYPAL_MODE,
 } = require("./utils/config");
-const { createUser, login, verifyLoginOtp } = require("./controllers/user");
+const {
+  createUser,
+  login,
+  verifyLoginOtp,
+  quickSignup,
+  completeProfile,
+} = require("./controllers/user");
 const { initializeSocket } = require("./utils/socket");
 const PricingSettings = require("./models/PricingSettings");
 const { bulkCorrectLegacyAutoProUsers } = require("./utils/adminProvisioning");
@@ -373,6 +379,10 @@ app.use(requestLogger);
 app.post("/signup", strictLimiter, validateSignup, createUser);
 // Signin without reCAPTCHA
 app.post("/signin", strictLimiter, validateSignin, login);
+
+// Quick signup (email + password only) and profile completion
+app.post("/auth/quick-signup", strictLimiter, quickSignup);
+app.put("/auth/complete-profile", auth, completeProfile);
 
 // Email OTP 2FA verification
 app.post("/auth/verify-otp", strictLimiter, validateVerifyOtp, verifyLoginOtp);
