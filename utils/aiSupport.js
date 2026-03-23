@@ -313,19 +313,19 @@ function getFallbackResponse(userMessage) {
   const compact = message.replace(/[^a-z0-9]+/g, "");
 
   const getMembershipInfo = () => {
-    return "AfriOnet offers 4 membership tiers: Free ($0/forever), Starter ($3/month), Premium ($7/month), and Pro ($20/month). Each tier has different features and limits for business listings, media uploads, and platform access.";
+    return "AfriOnet offers 4 membership tiers: Free ($0/forever), Starter ($5/month), Premium ($12/month), and Pro ($25/month). Each tier has different features and limits for business listings, media uploads, analytics, and platform access.";
   };
 
   const membershipInfo = getMembershipInfo();
 
   // Membership tiers & pricing
   if (message.includes("membership") || message.includes("tier") || message.includes("pricing")) {
-    return `AfriOnet offers 4 membership tiers:\n\n• Free ($0/forever): 1 business listing with 4 images, 1 talent listing with 2 photos/videos\n• Starter ($3/month): Up to 5 business listings, 5 images per listing\n• Premium ($7/month): Unlimited listings, up to 25 media files each, featured badge, API access\n• Pro ($20/month): Everything in Premium + verified badge, dedicated account manager, priority 24/7 support\n\nVisit the Membership page to see full details and choose your plan!`;
+    return `AfriOnet offers 4 membership tiers:\n\n• Free ($0/forever): 1 business listing with 15 images, 1 talent listing with 10 videos\n• Starter ($5/month): Up to 5 business listings with 20 images each, 5 talent listings with 15 videos each, basic analytics, priority placement\n• Premium ($12/month): Unlimited listings with unlimited media, advanced analytics, featured badge, $20/month ad credits, API access\n• Pro ($25/month): Everything in Premium + verified badge, $50/month ad credits, dedicated account manager, 24/7 priority support, homepage featured rotation\n\nVisit the Membership page to see full details and choose your plan!`;
   }
 
   // Business listings & features
   if (message.includes("business listing") || message.includes("business features")) {
-    return `Business listings on AfriOnet:\n\n• Free tier: 1 business listing with up to 4 images\n• Starter tier: Up to 5 business listings, 5 images each\n• Premium/Pro: Unlimited business listings with up to 25 media files each\n\nTo create a listing, sign up, go to your profile, and click "Add Business Listing". ${membershipInfo}`;
+    return `Business listings on AfriOnet:\n\n• Free tier: 1 business listing with up to 15 images\n• Starter tier: Up to 5 business listings, 20 images each, plus basic analytics and priority placement\n• Premium/Pro: Unlimited business listings with unlimited media files\n\nTo create a listing, sign up, go to your profile, and click "Add Business Listing". ${membershipInfo}`;
   }
 
   // Showcase entry fees
@@ -389,7 +389,7 @@ function getFallbackResponse(userMessage) {
     message.includes("add listing") ||
     message.includes("post business")
   ) {
-    return `To create a business listing:\n\n1. Sign up and login to AfriOnet\n2. Go to your profile and click "Add Business Listing"\n3. Fill in business details, category, and location\n4. Upload media (limits depend on your membership tier)\n5. Submit for approval\n\nFree tier includes 1 business listing with up to 4 images. Upgrade for more listings and media!`;
+    return `To create a business listing:\n\n1. Sign up and login to AfriOnet\n2. Go to your profile and click "Add Business Listing"\n3. Fill in business details, category, and location\n4. Upload media (limits depend on your membership tier)\n5. Submit for approval\n\nFree tier includes 1 business listing with up to 15 images. Upgrade for more listings and media!`;
   }
 
   // Media/photos/uploads
@@ -399,7 +399,7 @@ function getFallbackResponse(userMessage) {
     message.includes("video") ||
     message.includes("media")
   ) {
-    return `Yes! Media upload limits depend on your membership tier:\n\n• Free: Up to 4 images per business listing, 2 photos/videos for talent listings\n• Starter: Up to 5 images per listing\n• Premium/Pro: Up to 25 photos and videos per listing\n\nUpgrade your membership to showcase your business or talent with more media!`;
+    return `Yes! Media upload limits depend on your membership tier:\n\n• Free: Up to 15 images per business listing, 10 videos for talent listings\n• Starter: Up to 20 images per business listing, 15 videos for talent listings\n• Premium/Pro: Unlimited photos and videos per listing\n\nUpgrade your membership to showcase your business or talent with more media!`;
   }
 
   // Verification

@@ -3,7 +3,7 @@ const Payment = require("../models/Payment");
 const PaypalTransaction = require("../models/PaypalTransaction");
 const { BadRequestError, NotFoundError, ForbiddenError } = require("../utils/errors");
 const { createOrder, captureOrder, getOrder } = require("../utils/paypal");
-const PaymentModel = require('../models/Payment');
+const PaymentModel = require("../models/Payment");
 const { NODE_ENV } = require("../utils/config");
 const { logActivity } = require("../utils/activityLogger");
 
@@ -243,7 +243,7 @@ const upgradeMembership = async (req, res, next) => {
     await Payment.deleteMany({
       user: req.user._id,
       status: "pending",
-      createdAt: { $lt: tenMinutesAgo }
+      createdAt: { $lt: tenMinutesAgo },
     });
 
     // Anti‑tampering: ensure user cannot call upgrade repeatedly within a short window to spam orders
@@ -251,19 +251,25 @@ const upgradeMembership = async (req, res, next) => {
       user: req.user._id,
       status: "pending",
       "tierUpgrade.to": tier,
-      createdAt: { $gt: new Date(Date.now() - 5 * 60 * 1000) } // last 5 minutes
+      createdAt: { $gt: new Date(Date.now() - 5 * 60 * 1000) }, // last 5 minutes
     }).countDocuments();
 
     console.log(`[Membership] Recent pending payments for ${tier}: ${recentPending}`);
 
-    if (recentPending > 5) { // Increased from 2 to 5 to be less restrictive
+    if (recentPending > 5) {
+      // Increased from 2 to 5 to be less restrictive
       throw new BadRequestError("Too many pending upgrade attempts. Please wait a few minutes.");
     }
 
     // Create PayPal order for membership upgrade
     console.log(`Creating PayPal order for ${tier} tier - Amount: $${pricing.price}`);
-  // Create PayPal order using authoritative server price only
-  const order = await createOrder(pricing.price, `membership-${tier}`, pricing.currency, req.user._id);
+    // Create PayPal order using authoritative server price only
+    const order = await createOrder(
+      pricing.price,
+      `membership-${tier}`,
+      pricing.currency,
+      req.user._id
+    );
 
     if (!order?.id) {
       throw new BadRequestError("Failed to create PayPal order");
@@ -277,7 +283,7 @@ const upgradeMembership = async (req, res, next) => {
       tierTo: tier,
       priceValue: pricing.price,
       currency: pricing.currency,
-      duration: 'monthly'
+      duration: "monthly",
     });
 
     const payment = await Payment.create({
@@ -298,10 +304,10 @@ const upgradeMembership = async (req, res, next) => {
       status: "pending",
       metadata: {
         ipAddress: req.ip,
-        userAgent: req.headers['user-agent'] || '',
-        referrer: req.get('referer') || null,
-        discount: 0
-      }
+        userAgent: req.headers["user-agent"] || "",
+        referrer: req.get("referer") || null,
+        discount: 0,
+      },
     });
 
     // Log PayPal transaction
@@ -344,17 +350,26 @@ const captureMembershipPayment = async (req, res, next) => {
     // Find payment record
     // Idempotency guard: acquire capturing lock
     let payment = await Payment.findOneAndUpdate(
-      { user: req.user._id, orderId, status: { $in: ['pending','failed'] }, capturing: { $ne: true } },
+      {
+        user: req.user._id,
+        orderId,
+        status: { $in: ["pending", "failed"] },
+        capturing: { $ne: true },
+      },
       { $set: { capturing: true } },
       { new: true }
     );
     if (!payment) {
       // If already completed, return early; else block duplicates
       const existing = await Payment.findOne({ user: req.user._id, orderId });
-      if (existing?.status === 'completed') {
-        return res.json({ success: true, message: 'Payment already completed', membership: { tier: (await User.findById(req.user._id)).tier } });
+      if (existing?.status === "completed") {
+        return res.json({
+          success: true,
+          message: "Payment already completed",
+          membership: { tier: (await User.findById(req.user._id)).tier },
+        });
       }
-      throw new BadRequestError('Payment is being processed or not found');
+      throw new BadRequestError("Payment is being processed or not found");
     }
 
     if (!payment) {
@@ -371,12 +386,12 @@ const captureMembershipPayment = async (req, res, next) => {
       tierTo: payment.tierUpgrade.to,
       priceValue: payment.amount.value,
       currency: payment.amount.currency,
-      duration: payment.tierUpgrade.duration
+      duration: payment.tierUpgrade.duration,
     });
     if (payment.integrityHash && payment.integrityHash !== expectedHash) {
       payment.capturing = false;
       await payment.save();
-      throw new BadRequestError('Integrity verification failed');
+      throw new BadRequestError("Integrity verification failed");
     }
 
     // Optional pre-check: ensure order is APPROVED and matches expected amount before capture
@@ -384,13 +399,13 @@ const captureMembershipPayment = async (req, res, next) => {
       const order = await getOrder(orderId);
       const unit = order?.purchase_units?.[0];
       const expected = payment.amount.value;
-      const orderAmount = parseFloat(unit?.amount?.value || '0');
+      const orderAmount = parseFloat(unit?.amount?.value || "0");
       if (orderAmount && Math.abs(orderAmount - expected) > 0.01) {
-        console.warn('[Membership] Order amount mismatch pre-capture', orderAmount, expected);
-        throw new BadRequestError('Invalid order amount.');
+        console.warn("[Membership] Order amount mismatch pre-capture", orderAmount, expected);
+        throw new BadRequestError("Invalid order amount.");
       }
-      if (order?.status && !['APPROVED','COMPLETED'].includes(order.status)) {
-        throw new BadRequestError('Order not approved.');
+      if (order?.status && !["APPROVED", "COMPLETED"].includes(order.status)) {
+        throw new BadRequestError("Order not approved.");
       }
     } catch (preErr) {
       payment.capturing = false;
@@ -403,13 +418,19 @@ const captureMembershipPayment = async (req, res, next) => {
 
     // Basic integrity check: ensure returned purchase unit amount matches expected
     const purchaseUnit = capture?.purchase_units?.[0];
-    const returnedValue = parseFloat(purchaseUnit?.amount?.value || purchaseUnit?.payments?.captures?.[0]?.amount?.value || '0');
+    const returnedValue = parseFloat(
+      purchaseUnit?.amount?.value || purchaseUnit?.payments?.captures?.[0]?.amount?.value || "0"
+    );
     if (returnedValue && Math.abs(returnedValue - payment.amount.value) > 0.01) {
-      console.warn('[Membership] Mismatch between expected amount and PayPal capture', returnedValue, payment.amount.value);
-      payment.status = 'failed';
+      console.warn(
+        "[Membership] Mismatch between expected amount and PayPal capture",
+        returnedValue,
+        payment.amount.value
+      );
+      payment.status = "failed";
       payment.capturing = false;
       await payment.save();
-      throw new BadRequestError('Payment amount mismatch. Please contact support.');
+      throw new BadRequestError("Payment amount mismatch. Please contact support.");
     }
 
     // Update payment status
@@ -417,13 +438,15 @@ const captureMembershipPayment = async (req, res, next) => {
     payment.paymentDetails = {
       transactionId: capture.id,
     };
-  payment.capturing = false;
-  await payment.save();
+    payment.capturing = false;
+    await payment.save();
 
     // Update user tier
     const user = await User.findById(req.user._id);
     user.tier = payment.tierUpgrade.to;
     // Set tier expiration (30 days) only if higher than existing expiry or user was Free
+    // NOTE: tierExpiresAt is for billing/renewal tracking only, NOT for access control
+    // Users retain their tier benefits until explicitly downgraded (no automatic tier downgrade)
     const newExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
     if (!user.tierExpiresAt || user.tierExpiresAt < newExpiry) {
       user.tierExpiresAt = newExpiry;
@@ -431,7 +454,7 @@ const captureMembershipPayment = async (req, res, next) => {
     await user.save();
 
     // Update PayPal transaction
-  const payer = capture?.payer || {};
+    const payer = capture?.payer || {};
     await PaypalTransaction.findOneAndUpdate(
       { orderId },
       {
@@ -508,65 +531,111 @@ const getMembershipBenefits = async (req, res, next) => {
     const benefits = {
       Free: {
         listings: {
-          count: 0,
-          mediaPerListing: 0,
+          businessCount: 1,
+          talentCount: 1,
+          businessMediaPerListing: 15,
+          talentMediaPerListing: 10,
           featured: false,
         },
         profile: {
-          images: 1,
           customization: "basic",
+          logo: true,
+          banner: true,
         },
-        support: "standard",
-        forum: false,
+        support: "email (48h)",
+        forum: true,
         api: false,
         analytics: false,
+        adCredits: 0,
       },
       Starter: {
         listings: {
-          count: 5,
-          mediaPerListing: 5,
+          businessCount: 5,
+          talentCount: 5,
+          businessMediaPerListing: 20,
+          talentMediaPerListing: 15,
           featured: false,
         },
         profile: {
-          images: 3,
-          customization: "enhanced",
+          customization: "custom branding",
+          logo: true,
+          banner: true,
+          colors: true,
+          fonts: true,
         },
-        support: "email",
-        forum: false,
+        support: "email (24h)",
+        forum: true,
         api: false,
         analytics: "basic",
+        inquiryTracking: true,
+        exportLeads: true,
+        priorityPlacement: true,
+        adCredits: 0,
       },
       Premium: {
         listings: {
-          count: 5,
-          mediaPerListing: 10,
+          businessCount: -1, // Unlimited
+          talentCount: -1, // Unlimited
+          businessMediaPerListing: -1, // Unlimited
+          talentMediaPerListing: -1, // Unlimited
           featured: true,
         },
         profile: {
-          images: 5,
-          customization: "enhanced",
+          customization: "full",
+          logo: true,
+          banner: true,
+          colors: true,
+          fonts: true,
+          removeBranding: true,
         },
-        support: "priority",
-        forum: true,
-        api: true,
-        analytics: "basic",
-      },
-      Pro: {
-        listings: {
-          count: -1, // Unlimited
-          mediaPerListing: 25,
-          featured: true,
-          priority: true,
-        },
-        profile: {
-          images: 10,
-          customization: "premium",
-          branding: true,
-        },
-        support: "dedicated",
+        support: "priority (12h)",
         forum: true,
         api: true,
         analytics: "advanced",
+        inquiryTracking: true,
+        exportLeads: true,
+        priorityPlacement: true,
+        leadGeneration: true,
+        portfolioTemplates: true,
+        adCredits: 20,
+      },
+      Pro: {
+        listings: {
+          businessCount: -1, // Unlimited
+          talentCount: -1, // Unlimited
+          businessMediaPerListing: -1, // Unlimited
+          talentMediaPerListing: -1, // Unlimited
+          featured: true,
+          priority: true,
+          homepageRotation: true,
+        },
+        profile: {
+          customization: "enterprise",
+          logo: true,
+          banner: true,
+          colors: true,
+          fonts: true,
+          removeBranding: true,
+          whiteLabel: true,
+          customLandingPages: true,
+        },
+        support: "24/7 priority + dedicated manager",
+        forum: true,
+        api: true,
+        analytics: "advanced + custom reports",
+        inquiryTracking: true,
+        exportLeads: true,
+        priorityPlacement: true,
+        leadGeneration: true,
+        portfolioTemplates: true,
+        verifiedBadge: true,
+        dedicatedAccountManager: true,
+        quarterlyStrategyCalls: true,
+        newsletterFeatures: true,
+        crossPlatformPromotion: true,
+        advancedFraudProtection: true,
+        earlyAccess: true,
+        adCredits: 50,
       },
     };
 

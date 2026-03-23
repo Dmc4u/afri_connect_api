@@ -106,14 +106,40 @@ const toFiniteNumber = (value) => {
   return Number.isFinite(n) ? n : null;
 };
 
-const computeAdvertisingPricing = ({ placement, durationDays, videoDurationSec }) => {
+const computeAdvertisingPricing = ({
+  placement,
+  package: packageType,
+  durationDays,
+  videoDurationSec,
+}) => {
+  // Package-based pricing
+  const packageDailyRates = {
+    basic: 3.33, // $100/month - Homepage Banner only
+    standard: 5.0, // $150/month - Homepage + Footer banners
+    premium: 10.0, // $300/month - Homepage + All native placements
+  };
+
+  // Legacy single placement pricing (for backwards compatibility)
   const placementDailyRates = {
     "homepage-banner": 3.33,
     "footer-banner": 3.33,
+    "listing-feed": 2.0,
+    "talent-feed": 2.0,
+    "business-leaders": 4.0,
   };
 
-  const days = Math.max(1, Math.min(90, parseInt(durationDays, 10) || 30));
-  const dailyRate = placementDailyRates[placement] || placementDailyRates["homepage-banner"];
+  const days = Math.max(1, Math.min(365, parseInt(durationDays, 10) || 30));
+
+  // Use package rate if provided, otherwise fall back to placement rate
+  let dailyRate;
+  if (packageType && packageDailyRates[packageType]) {
+    dailyRate = packageDailyRates[packageType];
+  } else if (placement && placementDailyRates[placement]) {
+    dailyRate = placementDailyRates[placement];
+  } else {
+    dailyRate = packageDailyRates["basic"]; // Default to basic package
+  }
+
   const basePlanAmount = Math.round(dailyRate * days);
 
   let videoDurationAddon = 0;
@@ -632,16 +658,37 @@ async function applyPaymentEffects(payment, user, metadata) {
         // Compute authoritative dates and duration (do not trust client-sent endDate)
         const requestedStart = adSource.startDate ? new Date(adSource.startDate) : new Date();
         const durationDays = adSource.duration || adSource.numberOfDays || adSource.durationDays;
+        const packageType = adSource.package || adSource.placement; // Support both package and legacy placement
         const pricing = computeAdvertisingPricing({
           placement: adSource.placement,
+          package: packageType,
           durationDays,
           videoDurationSec: adSource.videoDuration || 0,
         });
         const startDate = isNaN(requestedStart.getTime()) ? new Date() : requestedStart;
         const endDate = new Date(startDate.getTime() + pricing.days * 24 * 60 * 60 * 1000);
 
+        // Determine placements array based on package type
+        let placements = [];
+        let adPackage = "basic";
+
+        if (packageType === "basic" || packageType === "homepage-banner") {
+          placements = ["homepage-banner"];
+          adPackage = "basic";
+        } else if (packageType === "standard") {
+          placements = ["homepage-banner", "footer-banner"];
+          adPackage = "standard";
+        } else if (packageType === "premium") {
+          placements = ["homepage-banner", "listing-feed", "talent-feed", "business-leaders"];
+          adPackage = "premium";
+        } else {
+          // Legacy single placement handling
+          placements = [adSource.placement || "homepage-banner"];
+          adPackage = "basic";
+        }
+
         // Determine plan based on paid amount (simple mapping)
-        let plan = "starter";
+        let plan = adPackage; // Use package as plan
         const paid = payment.amount.value;
         if (paid >= 500) plan = "enterprise";
         else if (paid >= 300) plan = "professional";
@@ -650,7 +697,9 @@ async function applyPaymentEffects(payment, user, metadata) {
           title: adSource.title,
           description: adSource.description,
           targetUrl: adSource.targetUrl,
-          placement: adSource.placement,
+          package: adPackage,
+          placements: placements,
+          placement: adSource.placement || placements[0], // Legacy field for backwards compatibility
           advertiser: {
             userId: payment.user,
             name: adSource.name || user?.fullName || "Anonymous",
@@ -685,7 +734,8 @@ async function applyPaymentEffects(payment, user, metadata) {
         console.log("✅ Advertisement record created for payment:", payment.orderId);
         console.log("📢 Ad details:", {
           title: adData.title,
-          placement: adData.placement,
+          package: adData.package,
+          placements: adData.placements,
           imageUrl: adData.imageUrl,
         });
       } else {

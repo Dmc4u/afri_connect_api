@@ -203,8 +203,8 @@ module.exports.validateUpdateUser = celebrate({
     location: Joi.string().allow(null, "").messages({
       "string.base": 'The "location" field must be a string',
     }),
-    tier: Joi.string().valid("basic", "premium", "admin").messages({
-      "any.only": 'The "tier" field must be one of: basic, premium, admin',
+    tier: Joi.string().valid("Free", "Starter", "Premium", "Pro").messages({
+      "any.only": 'The "tier" field must be one of: Free, Starter, Premium, Pro',
     }),
   }),
 });
@@ -367,8 +367,8 @@ module.exports.validatePayment = celebrate({
       "any.only": 'The "currency" field must be one of: USD, EUR, GBP',
       "any.required": 'The "currency" field is required',
     }),
-    tier: Joi.string().required().valid("basic", "premium").messages({
-      "any.only": 'The "tier" field must be one of: basic, premium',
+    tier: Joi.string().required().valid("Starter", "Premium", "Pro").messages({
+      "any.only": 'The "tier" field must be one of: Starter, Premium, Pro',
       "any.required": 'The "tier" field is required',
     }),
   }),

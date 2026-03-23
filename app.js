@@ -127,9 +127,9 @@ async function initializeDefaultPricing() {
   try {
     const defaultPrices = [
       { tier: "Free", basePrice: 0, billingPeriod: "forever", currency: "$" },
-      { tier: "Starter", basePrice: 3, billingPeriod: "month", currency: "$" },
-      { tier: "Premium", basePrice: 7, billingPeriod: "month", currency: "$" },
-      { tier: "Pro", basePrice: 20, billingPeriod: "month", currency: "$" },
+      { tier: "Starter", basePrice: 5, billingPeriod: "month", currency: "$" },
+      { tier: "Premium", basePrice: 12, billingPeriod: "month", currency: "$" },
+      { tier: "Pro", basePrice: 25, billingPeriod: "month", currency: "$" },
     ];
 
     for (const price of defaultPrices) {

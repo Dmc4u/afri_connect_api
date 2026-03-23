@@ -306,10 +306,9 @@ const createListing = async (req, res, next) => {
     };
 
     // Enforce per-tier media limits and types
-    // Business (Free): 4 images, no videos
-    // Talent (Free): 2 videos (or images)
-    // Starter: images only, up to 5
-    // Premium/Pro: images and videos, unlimited
+    // Business (Free): 15 images, Talent (Free): 10 videos
+    // Business (Starter): 20 images, Talent (Starter): 15 videos
+    // Premium/Pro: unlimited images and videos
     if (req.files && req.files.length > 0) {
       const isPremiumOrPro = ["Premium", "Pro"].includes(user.tier);
       const isStarter = user.tier === "Starter";
@@ -320,31 +319,6 @@ const createListing = async (req, res, next) => {
         /talent|music|comedy|instrumentalist|artist|dancer|singer|rapper|dj|producer|actor|actress|voice over artist|other talent/i;
       const isTalent = talentCategories.test(category);
 
-      // Validate types per tier
-      for (const f of req.files) {
-        const isImage = f.mimetype && f.mimetype.startsWith("image/");
-        const isVideo = f.mimetype && f.mimetype.startsWith("video/");
-
-        if (!isAdmin) {
-          // Business (Free/Starter): images only
-          if ((isFree || isStarter) && !isTalent && !isImage) {
-            throw new BadRequestError(
-              `Your ${user.tier || "Free"} tier allows images only for business listings.`
-            );
-          }
-          // Starter (Talent): images only
-          if (isStarter && isTalent && !isImage) {
-            throw new BadRequestError(
-              `Your ${user.tier} tier allows images only for talent listings.`
-            );
-          }
-          // Premium/Pro required for videos (except talent on Free tier)
-          if (!isPremiumOrPro && isVideo && !(isFree && isTalent)) {
-            throw new BadRequestError("Video uploads are available on Premium and Pro tiers.");
-          }
-        }
-      }
-
       // Count incoming media to enforce caps
       if (!isAdmin) {
         const incomingImages = req.files.filter(
@@ -354,19 +328,30 @@ const createListing = async (req, res, next) => {
           (f) => f.mimetype && f.mimetype.startsWith("video/")
         ).length;
 
-        // Business listings (Free tier): 4 images max
-        if (isFree && !isTalent && incomingImages > 4) {
-          throw new BadRequestError(`Your Free tier allows up to 4 image(s) per business listing.`);
+        // Business listings (Free tier): 15 images max
+        if (isFree && !isTalent && incomingImages > 15) {
+          throw new BadRequestError(
+            `Your Free tier allows up to 15 image(s) per business listing.`
+          );
         }
 
-        // Talent listings (Free tier): 2 videos max
-        if (isFree && isTalent && incomingVideos > 2) {
-          throw new BadRequestError(`Your Free tier allows up to 2 video(s) per talent listing.`);
+        // Talent listings (Free tier): 10 videos max
+        if (isFree && isTalent && incomingVideos > 10) {
+          throw new BadRequestError(`Your Free tier allows up to 10 video(s) per talent listing.`);
         }
 
-        // Starter tier: 5 images max
-        if (isStarter && incomingImages > 5) {
-          throw new BadRequestError(`Your Starter tier allows up to 5 image(s) per listing.`);
+        // Business listings (Starter tier): 20 images max
+        if (isStarter && !isTalent && incomingImages > 20) {
+          throw new BadRequestError(
+            `Your Starter tier allows up to 20 image(s) per business listing.`
+          );
+        }
+
+        // Talent listings (Starter tier): 15 videos max
+        if (isStarter && isTalent && incomingVideos > 15) {
+          throw new BadRequestError(
+            `Your Starter tier allows up to 15 video(s) per talent listing.`
+          );
         }
       }
 
@@ -594,46 +579,35 @@ const uploadMedia = async (req, res, next) => {
     const isTalent = talentCategories.test(listing.category);
 
     if (!isAdminUser) {
-      // Type restrictions
-      // Business (Free/Starter): images only
-      if ((isFree || isStarter) && !isTalent && !isImageUpload) {
-        throw new BadRequestError(
-          `Your ${owner.tier || "Free"} tier allows images only for business listings.`
-        );
-      }
-      // Talent (Starter): images only
-      if (isStarter && isTalent && !isImageUpload) {
-        throw new BadRequestError(
-          `Your ${owner.tier} tier allows images only for talent listings.`
-        );
-      }
-      // Premium/Pro required for videos (except talent on Free tier)
-      if (!isPremiumOrPro && isVideoUpload && !(isFree && isTalent)) {
-        throw new BadRequestError("Video uploads are available on Premium and Pro tiers.");
-      }
-
       // Quantity restrictions
       const existingImageCount = listing.mediaFiles.filter((m) => m.type === "image").length;
       const existingVideoCount = listing.mediaFiles.filter((m) => m.type === "video").length;
 
-      // Business listings (Free tier): 4 images max
-      if (isFree && !isTalent && isImageUpload && existingImageCount >= 4) {
+      // Business listings (Free tier): 15 images max
+      if (isFree && !isTalent && isImageUpload && existingImageCount >= 15) {
         throw new BadRequestError(
-          `Image limit reached for your Free tier. Max 4 image(s) per business listing.`
+          `Image limit reached for your Free tier. Max 15 image(s) per business listing.`
         );
       }
 
-      // Talent listings (Free tier): 2 videos max
-      if (isFree && isTalent && isVideoUpload && existingVideoCount >= 2) {
+      // Talent listings (Free tier): 10 videos max
+      if (isFree && isTalent && isVideoUpload && existingVideoCount >= 10) {
         throw new BadRequestError(
-          `Video limit reached for your Free tier. Max 2 video(s) per talent listing.`
+          `Video limit reached for your Free tier. Max 10 video(s) per talent listing.`
         );
       }
 
-      // Starter tier: 5 images max
-      if (isStarter && isImageUpload && existingImageCount >= 5) {
+      // Business listings (Starter tier): 20 images max
+      if (isStarter && !isTalent && isImageUpload && existingImageCount >= 20) {
         throw new BadRequestError(
-          `Image limit reached for your Starter tier. Max 5 image(s) per listing.`
+          `Image limit reached for your Starter tier. Max 20 image(s) per business listing.`
+        );
+      }
+
+      // Talent listings (Starter tier): 15 videos max
+      if (isStarter && isTalent && isVideoUpload && existingVideoCount >= 15) {
+        throw new BadRequestError(
+          `Video limit reached for your Starter tier. Max 15 video(s) per talent listing.`
         );
       }
     }

@@ -58,6 +58,7 @@ const normalizeMediaFiles = (mediaFiles = []) => {
 /**
  * Get active advertisements for a specific placement
  * Public route - used to display ads on frontend
+ * Supports both single placement and package-based multiple placements
  */
 exports.getActiveAds = async (req, res, next) => {
   try {
@@ -71,11 +72,18 @@ exports.getActiveAds = async (req, res, next) => {
     };
 
     if (placement) {
-      query.placement = placement;
+      // Support both new placements array and legacy single placement field
+      query.$or = [
+        { placements: placement }, // New: ad has this placement in its array
+        { placement: placement }, // Legacy: ad uses single placement field
+      ];
     }
 
     if (category) {
-      query.$or = [{ category: category }, { category: { $exists: false } }];
+      query.$and = query.$and || [];
+      query.$and.push({
+        $or: [{ category: category }, { category: { $exists: false } }],
+      });
     }
 
     console.log("📢 [Ads] Fetching ads with query:", JSON.stringify(query));
@@ -807,6 +815,7 @@ exports.adminCreateAd = async (req, res, next) => {
       description,
       targetUrl,
       placement,
+      package: packageType, // Support package-based ads
       category,
       startDate,
       endDate,
@@ -820,8 +829,17 @@ exports.adminCreateAd = async (req, res, next) => {
       message,
     } = req.body;
 
-    // Validation
-    if (!name || !email || !title || !targetUrl || !placement || !startDate || !endDate || !plan) {
+    // Validation - support both placement and package
+    if (
+      !name ||
+      !email ||
+      !title ||
+      !targetUrl ||
+      (!placement && !packageType) ||
+      !startDate ||
+      !endDate ||
+      !plan
+    ) {
       throw new BadRequestError("Missing required fields");
     }
 
@@ -861,6 +879,28 @@ exports.adminCreateAd = async (req, res, next) => {
 
     // Duration is now validated during /upload-video endpoint, so no additional validation needed
 
+    // Determine placements array based on package type
+    let placements = [];
+    let adPackage = "basic";
+
+    if (packageType) {
+      // New package-based system
+      if (packageType === "basic") {
+        placements = ["homepage-banner"];
+        adPackage = "basic";
+      } else if (packageType === "standard") {
+        placements = ["homepage-banner", "footer-banner"];
+        adPackage = "standard";
+      } else if (packageType === "premium") {
+        placements = ["homepage-banner", "listing-feed", "talent-feed", "business-leaders"];
+        adPackage = "premium";
+      }
+    } else {
+      // Legacy single placement system
+      placements = [placement];
+      adPackage = "basic";
+    }
+
     const advertisement = new Advertisement({
       advertiser: {
         userId: req.user?._id,
@@ -872,7 +912,9 @@ exports.adminCreateAd = async (req, res, next) => {
       title,
       description,
       targetUrl,
-      placement,
+      package: adPackage,
+      placements: placements,
+      placement, // Legacy field for backwards compatibility
       category,
       startDate: start,
       endDate: end,

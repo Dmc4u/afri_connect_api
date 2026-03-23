@@ -1,9 +1,29 @@
 /**
  * Middleware to check user tier and enforce feature access
  * Ensures users only access features they paid for
+ *
+ * IMPORTANT: Tier Benefits Policy
+ * ================================
+ * Users retain their tier benefits (stored in user.tier) until explicitly downgraded.
+ * The tierExpiresAt field is used only for billing/renewal tracking, NOT for access control.
+ * This means:
+ * - If a user's subscription expires, they keep their tier benefits until they choose to downgrade
+ * - Automatic downgrades should be handled by a background job if needed
+ * - All tier checks use user.tier directly without checking tierExpiresAt
+ * - This provides a better user experience (no sudden loss of access)
  */
 
 const { ForbiddenError } = require("../utils/errors");
+
+/**
+ * Get effective tier for a user
+ * @param {Object} user - User object with tier field
+ * @returns {string} - User's tier (defaults to "Free" if not set)
+ */
+const getEffectiveTier = (user) => {
+  if (!user) return "Free";
+  return user.tier || "Free";
+};
 
 /**
  * Check if user has required tier
@@ -16,7 +36,7 @@ const checkTier = (requiredTier) => {
     }
 
     const tiers = Array.isArray(requiredTier) ? requiredTier : [requiredTier];
-    const userTier = req.user.tier || "Free";
+    const userTier = getEffectiveTier(req.user);
 
     // Admin bypass
     if (req.user.role === "admin") {
@@ -41,65 +61,100 @@ const checkTier = (requiredTier) => {
  */
 const TIER_FEATURES = {
   Free: {
-    maxListings: 0,
-    canCreateListings: false,
+    maxListings: 1, // 1 business + 1 talent listing
+    maxBusinessListings: 1,
+    maxTalentListings: 1,
+    maxImagesPerBusinessListing: 15,
+    maxVideosPerTalentListing: 10,
+    canCreateListings: true,
     canFeatureListing: false,
     canAccessAnalytics: false,
-    maxPhotoGallery: 0,
-    canSetLogo: false,
-    canCustomizeProfile: false,
+    canSetLogo: true,
+    canCustomizeProfile: true, // Basic customization
+    canInquiryTracking: false,
+    canExportLeads: false,
     supportResponseTime: "48hr",
     canAccessAPI: false,
     canRemoveBranding: false,
     canUseAdvancedSearch: false,
+    adCreditsPerMonth: 0,
   },
   Starter: {
-    maxListings: 5,
+    maxListings: 5, // 5 business + 5 talent listings
+    maxBusinessListings: 5,
+    maxTalentListings: 5,
+    maxImagesPerBusinessListing: 20,
+    maxVideosPerTalentListing: 15,
     canCreateListings: true,
     canFeatureListing: false,
     canAccessAnalytics: true, // Basic analytics
-    maxPhotoGallery: 5,
     canSetLogo: true,
     canCustomizeProfile: true,
+    canCustomBranding: true, // Custom colors, fonts
+    canInquiryTracking: true,
+    canExportLeads: true,
+    canPriorityPlacement: true,
     supportResponseTime: "24hr",
     canAccessAPI: false,
     canRemoveBranding: false,
     canUseAdvancedSearch: true,
+    adCreditsPerMonth: 0,
   },
   Premium: {
     maxListings: Infinity,
+    maxBusinessListings: Infinity,
+    maxTalentListings: Infinity,
+    maxImagesPerBusinessListing: Infinity,
+    maxVideosPerTalentListing: Infinity,
     canCreateListings: true,
-    canFeatureListing: true, // Can mark listings as featured
+    canFeatureListing: true, // Featured badge
     canAccessAnalytics: true, // Advanced analytics
-    maxPhotoGallery: Infinity,
     canSetLogo: true,
     canCustomizeProfile: true,
+    canCustomBranding: true,
+    canInquiryTracking: true,
+    canExportLeads: true,
+    canPriorityPlacement: true,
+    canLeadGeneration: true, // CRM integration, contact forms
+    canPortfolioTemplates: true,
     supportResponseTime: "12hr",
     canAccessAPI: true,
-    canRemoveBranding: false, // Cannot remove branding
+    canRemoveBranding: true,
     canUseAdvancedSearch: true,
+    adCreditsPerMonth: 20,
   },
   Pro: {
     maxListings: Infinity,
+    maxBusinessListings: Infinity,
+    maxTalentListings: Infinity,
+    maxImagesPerBusinessListing: Infinity,
+    maxVideosPerTalentListing: Infinity,
     canCreateListings: true,
     canFeatureListing: true,
     canAccessAnalytics: true, // Advanced analytics + custom reports
-    maxPhotoGallery: Infinity,
     canSetLogo: true,
     canCustomizeProfile: true,
-    canCustomizePageDesign: true, // Pro only: custom page design
-    canAccessLeadGeneration: true, // Pro only: lead gen tools
-    canAccessAdvancedAds: true, // Pro only: advanced advertising
+    canCustomBranding: true,
+    canInquiryTracking: true,
+    canExportLeads: true,
+    canPriorityPlacement: true,
+    canLeadGeneration: true,
+    canPortfolioTemplates: true,
+    canCustomPageDesign: true, // Pro only: custom page design
     canGetVerifiedBadge: true, // Pro only: verified badge
-    canAccessTopTierPlacement: true, // Pro only: top-tier featured
+    canAccessTopTierPlacement: true, // Pro only: homepage featured rotation
     canAccessDedicatedManager: true, // Pro only: account manager
     canAccessQuarterlyStrategy: true, // Pro only: strategy calls
     canGetFeaturedInNewsletters: true, // Pro only: newsletter feature
     canAccessCrossPlatformPromo: true, // Pro only: cross-platform
+    canWhiteLabel: true, // Pro only: white-label options
+    canAdvancedFraudProtection: true, // Pro only: verified contact methods
+    canEarlyAccess: true, // Pro only: early access to new features
     supportResponseTime: "24/7",
     canAccessAPI: true,
-    canRemoveBranding: true, // Can remove AfriOnet branding
+    canRemoveBranding: true,
     canUseAdvancedSearch: true,
+    adCreditsPerMonth: 50,
   },
 };
 
@@ -354,6 +409,7 @@ const requireTopTierPlacement = (req, res, next) => {
 
 module.exports = {
   checkTier,
+  getEffectiveTier,
   TIER_FEATURES,
   getUserTierFeatures,
   canUserPerformAction,

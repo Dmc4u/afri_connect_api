@@ -137,11 +137,13 @@
     "company": "Globacom",
     "industry": "Telecommunications",
     "country": "Nigeria",
-    "image": "https://i0.wp.com/www.ovationinternational.com/wp-content/uploads/2023/07/aax-scaled.jpg?fit=2262%2C2560&ssl=1",
+    "image": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQRSaHj74mxvs_aT44roc_oM8J-P5hp7BSSJA&s",
     "description": "Founder of Globacom, Nigeria's second-largest telecom operator with oil investments.",
     "website": "https://www.gloworld.com",
     "isActive": true,
-    "sortOrder": 12
+    "sortOrder": 12,
+    "createdAt": "2026-03-23T18:13:46.056Z",
+    "updatedAt": "2026-03-23T18:13:46.056Z"
   },
   {
     "id": "13",

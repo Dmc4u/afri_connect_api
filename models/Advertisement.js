@@ -47,6 +47,34 @@ const advertisementSchema = new mongoose.Schema(
     },
 
     // Placement Configuration
+    // Package system - ads display in multiple placements based on selected package
+    package: {
+      type: String,
+      enum: ["basic", "standard", "premium"],
+      required: true,
+    },
+    // Array of placements where this ad will appear (based on package)
+    placements: {
+      type: [String],
+      enum: [
+        "homepage-banner",
+        "homepage-sidebar",
+        "talent-showcase-sponsor",
+        "listing-detail-sidebar",
+        "footer-banner",
+        "listing-feed", // Native ads in business listing feed
+        "talent-feed", // Native ads in talent discovery feed
+        "business-leaders", // Native ads in Business Leaders showcase
+      ],
+      required: true,
+      validate: {
+        validator: function (arr) {
+          return arr && arr.length > 0;
+        },
+        message: "At least one placement is required",
+      },
+    },
+    // Legacy single placement field (kept for backwards compatibility)
     placement: {
       type: String,
       enum: [
@@ -55,8 +83,10 @@ const advertisementSchema = new mongoose.Schema(
         "talent-showcase-sponsor",
         "listing-detail-sidebar",
         "footer-banner",
+        "listing-feed",
+        "talent-feed",
+        "business-leaders",
       ],
-      required: true,
     },
     category: { type: String }, // For category-specific ads (e.g., 'Tech', 'Arts')
 
@@ -68,7 +98,7 @@ const advertisementSchema = new mongoose.Schema(
     pricing: {
       plan: {
         type: String,
-        enum: ["starter", "professional", "enterprise", "custom"],
+        enum: ["starter", "professional", "enterprise", "custom", "basic", "standard", "premium"],
         required: true,
       },
       amount: { type: Number, required: true }, // Total amount in USD
