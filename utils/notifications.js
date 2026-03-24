@@ -88,6 +88,70 @@ const emailTemplates = {
     </body></html>`,
   }),
 
+  reminderToCreateListing: (user) => ({
+    subject: `Complete Your ${APP_NAME} Profile - Get Started Today!`,
+    html: `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f5f5;">
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
+        <div style="background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%); padding: 30px 20px; text-align: center;">
+          <h1 style="color: #ffffff; margin:0; font-size: 32px; font-weight: 700; letter-spacing: 1px;">${APP_NAME}</h1>
+          <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">Connect, Collaborate, Grow</p>
+        </div>
+        <div style="padding: 20px; background: #ffffff;">
+          <h2>Hi ${user.name}, Ready to Shine? ✨</h2>
+          <p>We noticed you haven't created your first listing yet! You're missing out on connecting with potential customers and showcasing what makes you unique.</p>
+
+          <div style="background: #f0f7ff; border-left: 4px solid #2D9CDB; padding: 15px; margin: 20px 0; border-radius: 4px;">
+            <h3 style="margin: 0 0 10px 0; color: #1a5490; font-size: 18px;"> Why Create a Listing?</h3>
+            <ul style="margin: 10px 0; padding-left: 20px; line-height: 1.8; color: #2c5282;">
+              <li>Reach thousands of potential customers</li>
+              <li>Showcase your products, services, or talent</li>
+              <li>Build your brand presence in the African market</li>
+              <li>Get discovered by people looking for what you offer</li>
+            </ul>
+          </div>
+
+          <div style="background: #f8f9fa; padding: 20px; margin: 20px 0; border-radius: 8px;">
+            <h3 style="margin: 0 0 15px 0; color: #333; font-size: 16px;">Choose Your Path:</h3>
+
+            <div style="margin-bottom: 15px;">
+              <h4 style="margin: 0 0 5px 0; color: #27AE60;">💼 Create a Business Listing</h4>
+              <p style="margin: 0 0 10px 0; font-size: 14px; color: #666;">Perfect for showcasing your products, services, or company</p>
+              <a href="${FRONTEND_URL}/profile#businesses/create-business" style="background-color: #27AE60; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block; font-size: 14px;">Create Business Listing →</a>
+            </div>
+
+            <div style="border-top: 1px solid #e0e0e0; padding-top: 15px;">
+              <h4 style="margin: 0 0 5px 0; color: #2D9CDB;">🎯 Create a Talent Listing</h4>
+              <p style="margin: 0 0 10px 0; font-size: 14px; color: #666;">Ideal for freelancers, professionals, and skilled individuals</p>
+              <a href="${FRONTEND_URL}/profile#businesses/create-talent" style="background-color: #2D9CDB; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block; font-size: 14px;">Create Talent Listing →</a>
+            </div>
+          </div>
+
+          <div style="background: #fffbeb; border: 1px solid #fcd34d; padding: 15px; margin: 20px 0; border-radius: 4px;">
+            <p style="margin: 0; font-size: 14px; color: #92400e;">
+              <strong>💡 Pro Tip:</strong> Listings with complete profiles and images get 3x more engagement!
+            </p>
+          </div>
+
+          <p style="margin: 25px 0 15px 0; font-size: 15px;">Need inspiration or help getting started? Check out what other entrepreneurs are doing:</p>
+
+          <div style="text-align: center; margin: 25px 0;">
+            <a href="${FRONTEND_URL}/businesses" style="color: #007bff; text-decoration: none; border: 2px solid #007bff; padding: 10px 20px; border-radius: 5px; display: inline-block;">Browse Featured Listings</a>
+          </div>
+
+          <p>If you have any questions or need support, our team is here to help you every step of the way.</p>
+          <p>Best regards,<br>The ${APP_NAME} Team</p>
+        </div>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#f8f9fa">
+          <tr>
+            <td style="padding: 10px; text-align: center; font-size: 12px; color: #666;">
+              &copy; ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.
+            </td>
+          </tr>
+        </table>
+      </div>
+    </body></html>`,
+  }),
+
   passwordReset: (user, resetToken) => ({
     subject: `Password Reset Request - ${APP_NAME}`,
     html: `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f5f5;">
@@ -720,6 +784,13 @@ const notifications = {
       return { success: true, skipped: true, reason: "emailNotifications disabled" };
     return await sendEmail(advertiser.email, "adActivated", { advertiser, ad });
   },
+
+  // Send reminder to users who haven't created a business or talent listing
+  sendReminderToCreateListing: async (user) => {
+    if (isEmailOptedOut(user))
+      return { success: true, skipped: true, reason: "emailNotifications disabled" };
+    return await sendEmail(user.email, "reminderToCreateListing", user);
+  },
 };
 
 // In-app notification system (for future use with WebSocket/real-time updates)
@@ -862,4 +933,5 @@ module.exports = {
   sendAdApproved: notifications.sendAdApproved,
   sendAdRejected: notifications.sendAdRejected,
   sendAdActivated: notifications.sendAdActivated,
+  sendReminderToCreateListing: notifications.sendReminderToCreateListing,
 };

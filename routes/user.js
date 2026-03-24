@@ -13,9 +13,11 @@ const {
   addRecentView,
   clearRecentViews,
   pinRecentView,
+  adminSendListingReminders,
 } = require("../controllers/user");
 const { validateUpdateUser } = require("../middlewares/validation");
 const auth = require("../middlewares/auth");
+const adminAuth = require("../middlewares/adminAuth");
 const uploadProfile = require("../middlewares/uploadProfile");
 const Announcement = require("../models/Announcement");
 const {
@@ -33,16 +35,8 @@ router.use(auth);
 router.get("/me", getCurrentUser);
 router.patch("/me", validateUpdateUser, updateUser);
 router.patch("/me/settings", updateUserSettings);
-router.patch(
-  "/me/photo",
-  uploadProfile.single("photo"),
-  updateUserPhoto
-);
-router.post(
-  "/me/photo",
-  uploadProfile.single("photo"),
-  updateUserPhoto
-);
+router.patch("/me/photo", uploadProfile.single("photo"), updateUserPhoto);
+router.post("/me/photo", uploadProfile.single("photo"), updateUserPhoto);
 router.delete("/me/photo", deleteUserPhoto);
 
 // Pro-tier specific routes
@@ -60,7 +54,12 @@ router.post(
 router.delete("/me/recent-views", clearRecentViews);
 router.patch(
   "/me/recent-views/pin",
-  celebrate({ body: Joi.object().keys({ listingId: Joi.string().hex().length(24).required(), pinned: Joi.boolean().required() }) }),
+  celebrate({
+    body: Joi.object().keys({
+      listingId: Joi.string().hex().length(24).required(),
+      pinned: Joi.boolean().required(),
+    }),
+  }),
   pinRecentView
 );
 
@@ -164,7 +163,9 @@ router.get("/announcements", async (req, res, next) => {
       $and: [visibilityFilter, notDismissedFilter],
     });
 
-    console.log(`[Announcements] Found ${announcements.length} announcements for user ${req.user.email}`);
+    console.log(
+      `[Announcements] Found ${announcements.length} announcements for user ${req.user.email}`
+    );
 
     res.json({
       success: true,
@@ -247,6 +248,21 @@ router.patch(
       next(error);
     }
   }
+);
+// === ADMIN ROUTES ===
+
+// Send listing reminder emails to users without listings
+router.post(
+  "/admin/send-listing-reminders",
+  adminAuth,
+  celebrate({
+    body: Joi.object().keys({
+      dryRun: Joi.boolean().default(false),
+      minDaysOld: Joi.number().integer().min(1).default(7),
+      limit: Joi.number().integer().min(1).max(1000).optional(),
+    }),
+  }),
+  adminSendListingReminders
 );
 
 module.exports = router;

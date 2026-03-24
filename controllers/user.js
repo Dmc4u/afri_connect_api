@@ -878,4 +878,98 @@ module.exports = {
       next(err);
     }
   },
+
+  // Admin: Send reminder emails to users who haven't created listings
+  adminSendListingReminders: async (req, res, next) => {
+    try {
+      const { dryRun = false, minDaysOld = 7, limit = null } = req.body || {};
+
+      // Calculate cutoff date
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - minDaysOld);
+
+      // Find users who meet the criteria
+      const users = await User.aggregate([
+        {
+          $match: {
+            createdAt: { $lte: cutoffDate },
+            "settings.emailNotifications": { $ne: false },
+          },
+        },
+        {
+          $lookup: {
+            from: "listings",
+            localField: "_id",
+            foreignField: "owner",
+            as: "listings",
+          },
+        },
+        {
+          $match: {
+            $or: [{ listings: { $exists: false } }, { listings: { $size: 0 } }],
+          },
+        },
+        {
+          $project: {
+            _id: 1,
+            name: 1,
+            email: 1,
+            createdAt: 1,
+            settings: 1,
+          },
+        },
+        ...(limit ? [{ $limit: limit }] : []),
+      ]);
+
+      if (dryRun) {
+        // Return users without sending emails
+        return res.json({
+          success: true,
+          dryRun: true,
+          usersFound: users.length,
+          users: users.map((user) => ({
+            name: user.name,
+            email: user.email,
+            registeredDaysAgo: Math.floor((Date.now() - user.createdAt) / (1000 * 60 * 60 * 24)),
+          })),
+        });
+      }
+
+      // Send emails
+      const { sendReminderToCreateListing } = require("../utils/notifications");
+      let successCount = 0;
+      let failureCount = 0;
+      let skippedCount = 0;
+      const errors = [];
+
+      for (const user of users) {
+        try {
+          const result = await sendReminderToCreateListing(user);
+          if (result.skipped) {
+            skippedCount++;
+          } else if (result.success) {
+            successCount++;
+          } else {
+            failureCount++;
+            errors.push({ email: user.email, error: result.error });
+          }
+        } catch (error) {
+          failureCount++;
+          errors.push({ email: user.email, error: error.message });
+        }
+      }
+
+      res.json({
+        success: true,
+        dryRun: false,
+        total: users.length,
+        sent: successCount,
+        skipped: skippedCount,
+        failed: failureCount,
+        errors: errors.length > 0 ? errors : undefined,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
 };
