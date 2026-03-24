@@ -2,6 +2,15 @@ const ForumPost = require("../models/ForumPost");
 const User = require("../models/User");
 const { BadRequestError, NotFoundError, ForbiddenError } = require("../utils/errors");
 
+// Define post limits for each tier
+const POST_LIMITS = {
+  Free: 10,
+  Starter: 15,
+  Premium: 40,
+  Pro: Infinity,
+  admin: Infinity,
+};
+
 // Get all forum posts (public)
 const getAllPosts = async (req, res, next) => {
   try {
@@ -106,9 +115,25 @@ const createPost = async (req, res, next) => {
 
     // Check user tier for forum access
     const user = await User.findById(req.user._id);
-    if (!["Starter", "Premium", "Pro"].includes(user.tier) && user.role !== "admin") {
+
+    // Get post limit for user's tier
+    const userTier = user.role === "admin" ? "admin" : user.tier;
+    const postLimit = POST_LIMITS[userTier];
+
+    if (postLimit === undefined) {
+      throw new ForbiddenError("Invalid membership tier");
+    }
+
+    // Count user's existing posts (only published ones count toward limit)
+    const userPostCount = await ForumPost.countDocuments({
+      author: req.user._id,
+      status: "published",
+    });
+
+    // Check if user has reached their post limit
+    if (userPostCount >= postLimit) {
       throw new ForbiddenError(
-        "Forum access requires a paid membership (Starter, Premium, or Pro)"
+        `You have reached your post limit (${postLimit} posts for ${user.tier} tier). Upgrade your membership to create more posts.`
       );
     }
 
@@ -379,6 +404,35 @@ const deleteReply = async (req, res, next) => {
   }
 };
 
+// Get user's post stats (protected) - returns current count and limit
+const getUserPostStats = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user._id);
+
+    // Get post limit for user's tier
+    const userTier = user.role === "admin" ? "admin" : user.tier;
+    const postLimit = POST_LIMITS[userTier];
+
+    // Count user's existing posts (only published ones)
+    const postCount = await ForumPost.countDocuments({
+      author: req.user._id,
+      status: "published",
+    });
+
+    res.json({
+      success: true,
+      stats: {
+        postCount,
+        postLimit: postLimit === Infinity ? "Unlimited" : postLimit,
+        tier: user.tier,
+        canCreateMore: postCount < postLimit,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getAllPosts,
   getPostById,
@@ -389,4 +443,5 @@ module.exports = {
   deleteReply,
   toggleLike,
   getMyPosts,
+  getUserPostStats,
 };

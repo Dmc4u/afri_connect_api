@@ -331,8 +331,27 @@ router.get(
 router.get("/users/recent", async (req, res, next) => {
   try {
     const limit = Math.min(Math.max(parseInt(req.query.limit) || 10, 1), 100);
+    const timeRange = req.query.timeRange || "week";
 
-    const users = await User.find()
+    // Calculate date threshold based on time range
+    let dateThreshold = new Date();
+    switch (timeRange) {
+      case "week":
+        dateThreshold.setDate(dateThreshold.getDate() - 7);
+        break;
+      case "2weeks":
+        dateThreshold.setDate(dateThreshold.getDate() - 14);
+        break;
+      case "month":
+        dateThreshold.setMonth(dateThreshold.getMonth() - 1);
+        break;
+      default:
+        dateThreshold.setDate(dateThreshold.getDate() - 7);
+    }
+
+    const users = await User.find({
+      createdAt: { $gte: dateThreshold },
+    })
       .select("name email tier role createdAt profilePhoto country location")
       .sort({ createdAt: -1 })
       .limit(limit);
@@ -566,6 +585,64 @@ router.patch(
     }
   }
 );
+
+// Delete user (with cascade delete of related data)
+router.delete("/users/:id", userIdValidation, async (req, res, next) => {
+  try {
+    const targetUser = await User.findById(req.params.id);
+    if (!targetUser) {
+      throw new NotFoundError("User not found");
+    }
+
+    // Don't allow deleting admin users by non-super-admin
+    if (targetUser.role === "admin" && req.user.role !== "super-admin") {
+      throw new ForbiddenError("Cannot delete admin users");
+    }
+
+    // Don't allow self-deletion
+    if (targetUser._id.toString() === req.user._id.toString()) {
+      throw new ForbiddenError("Cannot delete your own account");
+    }
+
+    // Delete related data
+    await Promise.all([
+      // Delete user's listings
+      Listing.deleteMany({ owner: targetUser._id }),
+      // Delete user's payments
+      Payment.deleteMany({ user: targetUser._id }),
+      // Delete user's API keys
+      ApiKey.deleteMany({ user: targetUser._id }),
+      // Delete user's API usage records
+      ApiUsage.deleteMany({ userId: targetUser._id }),
+      // Delete user's activity logs
+      ActivityLog.deleteMany({ userId: targetUser._id }),
+      // Delete user's forum posts
+      ForumPost.deleteMany({ author: targetUser._id }),
+      // Delete user's message notifications
+      MessageNotification.deleteMany({
+        $or: [{ sender: targetUser._id }, { recipient: targetUser._id }],
+      }),
+    ]);
+
+    // Delete the user
+    await User.findByIdAndDelete(req.params.id);
+
+    // Log the deletion
+    await logActivity(
+      req.user._id,
+      "user_deleted",
+      `Admin ${req.user.email} deleted user ${targetUser.email}`,
+      { deletedUserId: targetUser._id, deletedUserEmail: targetUser.email }
+    );
+
+    res.json({
+      success: true,
+      message: "User and all related data deleted successfully",
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 
 // === LISTING MANAGEMENT ===
 

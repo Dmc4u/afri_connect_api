@@ -27,6 +27,8 @@ const appStatusRouter = require("./appStatus");
 const faqRouter = require("./faq");
 const businessLeadersRouter = require("./businessLeaders");
 const adminBusinessLeadersRouter = require("./adminBusinessLeaders");
+const talentFellowsRouter = require("./talentFellows");
+const adminTalentFellowsRouter = require("./adminTalentFellows");
 const testimonyRouter = require("./testimony");
 const { NotFoundError } = require("../utils/errors");
 
@@ -41,6 +43,7 @@ router.use("/api/faq", faqRouter);
 
 // Public content routes
 router.use("/business-leaders", businessLeadersRouter);
+router.use("/talent-fellows", talentFellowsRouter);
 
 router.use("/users", userRouter);
 router.use("/listings", listingRouter);
@@ -51,6 +54,7 @@ router.use("/api/proxy", proxyRouter);
 router.use("/api", apiRouter);
 
 // Admin sub-routes that must win over /admin router fallbacks
+router.use("/admin/talent-fellows", adminTalentFellowsRouter);
 router.use("/admin/business-leaders", adminBusinessLeadersRouter);
 router.use("/admin", adminRouter);
 router.use("/analytics", analyticsRouter);

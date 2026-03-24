@@ -10,6 +10,7 @@ const {
   deleteReply,
   toggleLike,
   getMyPosts,
+  getUserPostStats,
 } = require("../controllers/forum");
 const auth = require("../middlewares/auth");
 
@@ -255,6 +256,7 @@ router.get("/categories", (req, res) => {
 router.use(auth);
 
 router.get("/my/posts", queryValidation, getMyPosts);
+router.get("/my/post-stats", getUserPostStats);
 router.post("/posts", createPostValidation, createPost);
 router.patch("/posts/:id", postIdValidation, updatePostValidation, updatePost);
 router.delete("/posts/:id", postIdValidation, deletePost);
