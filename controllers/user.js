@@ -192,7 +192,7 @@ const quickSignup = (req, res, next) => {
       const emailPrefix = email.split("@")[0];
       const defaultName = isProvisionedAdmin
         ? `Admin ${emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1)}`
-        : `User ${emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1)}`;
+        : emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1);
 
       // Create user with minimal info - profile incomplete
       return User.create({
