@@ -108,6 +108,7 @@ const listingSchema = new mongoose.Schema(
       {
         filename: String,
         originalname: String,
+        name: String, // Custom title/name for the media (user-provided)
         mimetype: String,
         size: Number,
         url: String,
@@ -184,7 +185,7 @@ listingSchema.pre("findOneAndUpdate", async function (next) {
     if ($set && $set.title) {
       const base = slugify($set.title);
       const Model = this.model;
-      const doc = await Model.findOne(this.getQuery()).select('_id');
+      const doc = await Model.findOne(this.getQuery()).select("_id");
       const id = doc?._id;
       const slug = await generateUniqueSlug(Model, base, id);
       this.set({ slug });
@@ -206,22 +207,22 @@ listingSchema.index({ createdAt: -1 });
 function slugify(text = "") {
   return String(text)
     .toLowerCase()
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '') // strip diacritics
-    .replace(/[^a-z0-9\s-]/g, '')
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "") // strip diacritics
+    .replace(/[^a-z0-9\s-]/g, "")
     .trim()
-    .replace(/[\s_-]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+    .replace(/[\s_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 // Helper: ensure uniqueness by appending -2, -3, ... as needed
 async function generateUniqueSlug(Model, base, currentId) {
-  if (!base) base = 'listing';
+  if (!base) base = "listing";
   let candidate = base;
   let i = 2;
   // Try up to a reasonable number of attempts
   while (true) {
-    const exists = await Model.findOne({ slug: candidate, _id: { $ne: currentId } }).select('_id');
+    const exists = await Model.findOne({ slug: candidate, _id: { $ne: currentId } }).select("_id");
     if (!exists) return candidate;
     candidate = `${base}-${i++}`;
   }

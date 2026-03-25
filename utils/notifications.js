@@ -315,9 +315,17 @@ const emailTemplates = {
     </body></html>`,
   }),
 
-  listingApproved: (user, listing) => ({
-    subject: `Listing Approved - ${APP_NAME}`,
-    html: `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f5f5;">
+  listingApproved: (user, listing) => {
+    // Determine if this is a talent or business listing
+    const talentCategories =
+      /talent|music|comedy|instrumentalist|artist|dancer|singer|rapper|dj|producer|actor|actress|voice over artist|other talent/i;
+    const isTalent = talentCategories.test(listing.category);
+    const listingType = isTalent ? "talent listing" : "business listing";
+    const audienceType = isTalent ? "your audience" : "potential customers";
+
+    return {
+      subject: `Listing Approved - ${APP_NAME}`,
+      html: `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f5f5;">
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
         <div style="background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%); padding: 30px 20px; text-align: center;">
           <h1 style="color: #ffffff; margin:0; font-size: 32px; font-weight: 700; letter-spacing: 1px;">${APP_NAME}</h1>
@@ -326,7 +334,7 @@ const emailTemplates = {
         <div style="padding: 20px;">
           <h2>Your Listing Has Been Approved!</h2>
           <p>Hello ${user.name},</p>
-          <p>Great news! Your business listing "<strong>${listing.title}</strong>" has been approved and is now live on ${APP_NAME}.</p>
+          <p>Great news! Your ${listingType} "<strong>${listing.title}</strong>" has been approved and is now live on ${APP_NAME}.</p>
           <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
             <h3>Listing Details:</h3>
             <p><strong>Title:</strong> ${listing.title}</p>
@@ -337,7 +345,7 @@ const emailTemplates = {
           <div style="text-align: center; margin: 30px 0;">
             <a href="${FRONTEND_URL}/businesses/${listing._id}" style="background-color: #28a745; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px;">View Your Listing</a>
           </div>
-          <p>Your listing is now visible to potential customers. Start connecting with your audience!</p>
+          <p>Your listing is now visible to ${audienceType}. Start connecting with your audience!</p>
           <p>Best regards,<br>The ${APP_NAME} Team</p>
         </div>
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#f8f9fa">
@@ -349,7 +357,8 @@ const emailTemplates = {
         </table>
       </div>
     </body></html>`,
-  }),
+    };
+  },
 
   listingRejected: (user, listing, reason) => ({
     subject: `Listing Requires Changes - ${APP_NAME}`,

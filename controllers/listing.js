@@ -57,9 +57,28 @@ const getAllListings = async (req, res, next) => {
     // Exclude talent showcase contestants ONLY when explicitly requested (for business listings page)
     // Talent directory (/discover-talent) should include all talent contestants
     if (excludeWinners === "true") {
+      // Exclude ALL talent categories from business listings page
+      const talentCategories = [
+        "Talent",
+        "Music",
+        "Comedy",
+        "Instrumentalist",
+        "Artist",
+        "Dancer",
+        "Singer",
+        "Rapper",
+        "DJ",
+        "Producer",
+        "Actor",
+        "Actress",
+        "Voice Over Artist",
+        "Other Talent",
+      ];
+
+      query.category = { $nin: talentCategories };
+
+      // Also exclude listings that are associated with talent showcase contestants
       const TalentContestant = require("../models/TalentContestant");
-      // Exclude ALL listings that are associated with talent showcase contestants
-      // This ensures showcase contestants don't appear on business listings page
       const contestantListingIds = await TalentContestant.find({
         listing: { $exists: true, $ne: null },
       })
@@ -328,6 +347,13 @@ const createListing = async (req, res, next) => {
           (f) => f.mimetype && f.mimetype.startsWith("video/")
         ).length;
 
+        // Business listings should only have images (no videos)
+        if (!isTalent && incomingVideos > 0) {
+          throw new BadRequestError(
+            `Business listings can only have images. Videos are only allowed for talent listings.`
+          );
+        }
+
         // Business listings (Free tier): 15 images max
         if (isFree && !isTalent && incomingImages > 15) {
           throw new BadRequestError(
@@ -395,6 +421,7 @@ const createListing = async (req, res, next) => {
         return {
           filename: file.filename,
           originalname: file.originalname,
+          name: file.originalname, // Will be customized later via separate upload endpoint
           mimetype: file.mimetype,
           size: file.size,
           url: fileUrl,
@@ -405,6 +432,7 @@ const createListing = async (req, res, next) => {
               : file.mimetype.startsWith("audio/")
                 ? "audio"
                 : "document",
+          description: "", // Will be added later via separate upload endpoint
         };
       });
 
@@ -579,6 +607,13 @@ const uploadMedia = async (req, res, next) => {
     const isTalent = talentCategories.test(listing.category);
 
     if (!isAdminUser) {
+      // Business listings should only have images (no videos)
+      if (!isTalent && isVideoUpload) {
+        throw new BadRequestError(
+          `Business listings can only have images. Videos are only allowed for talent listings.`
+        );
+      }
+
       // Quantity restrictions
       const existingImageCount = listing.mediaFiles.filter((m) => m.type === "image").length;
       const existingVideoCount = listing.mediaFiles.filter((m) => m.type === "video").length;
@@ -648,9 +683,17 @@ const uploadMedia = async (req, res, next) => {
       }
     }
 
+    console.log("📥 Backend received upload:", {
+      originalname: req.file.originalname,
+      customName: req.body.name,
+      willSaveName: req.body.name || req.file.originalname,
+      description: req.body.description,
+    });
+
     const mediaFile = {
       filename: req.file.filename,
       originalname: req.file.originalname,
+      name: req.body.name || req.file.originalname, // Save custom title provided by user
       mimetype: req.file.mimetype,
       size: req.file.size,
       url: fileUrl,
