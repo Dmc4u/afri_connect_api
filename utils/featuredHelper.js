@@ -49,17 +49,17 @@ function isOldGenericWinnerDescription(description, performanceTitle) {
 
 /**
  * Convert YouTube URL to embed format
- * Uses youtube-nocookie.com for better cross-device compatibility and privacy
+ * Uses standard YouTube embed with parameters for maximum cross-device compatibility
  */
 function getYouTubeEmbedUrl(url) {
   if (!url) return null;
 
-  // Already an embed URL - convert to nocookie if needed
+  // Already an embed URL - standardize with compatibility params
   if (url.includes("youtube.com/embed/") || url.includes("youtube-nocookie.com/embed/")) {
-    // Extract video ID and reconstruct with nocookie domain
+    // Extract video ID and reconstruct with standard domain and compatibility params
     const videoId = url.split("/embed/")[1]?.split("?")[0]?.split("&")[0];
     return videoId
-      ? `https://www.youtube-nocookie.com/embed/${videoId}?rel=0&modestbranding=1&enablejsapi=1`
+      ? `https://www.youtube.com/embed/${videoId}?autoplay=0&rel=0&modestbranding=1&playsinline=1`
       : url;
   }
 
@@ -87,9 +87,9 @@ function getYouTubeEmbedUrl(url) {
     videoId = url.split("youtube.com/v/")[1]?.split("?")[0]?.split("&")[0];
   }
 
-  // Use youtube-nocookie.com for better embedding compatibility across devices
+  // Use standard YouTube embed with cross-device compatibility parameters
   return videoId
-    ? `https://www.youtube-nocookie.com/embed/${videoId}?rel=0&modestbranding=1&enablejsapi=1`
+    ? `https://www.youtube.com/embed/${videoId}?autoplay=0&rel=0&modestbranding=1&playsinline=1`
     : url;
 }
 
