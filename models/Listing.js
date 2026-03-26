@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { ALL_CATEGORIES } = require("../utils/categories");
 
 const listingSchema = new mongoose.Schema(
   {
@@ -19,59 +20,7 @@ const listingSchema = new mongoose.Schema(
     category: {
       type: String,
       required: [true, "Category is required"],
-      enum: [
-        // Business categories
-        "Technology",
-        "Creative",
-        "Professional Services",
-        "Retail",
-        "Food & Beverage",
-        "Healthcare",
-        "Education",
-        "Finance",
-        "Real Estate",
-        "Transportation",
-        "Entertainment",
-        "Nollywood",
-        "Construction",
-        "Agriculture",
-        "Manufacturing",
-        "Marketing",
-        "Fashion",
-        "Consulting",
-        "Logistics",
-        "Podcasts & Radio",
-        "Sports & Fitness",
-        "Non-profit & NGOs",
-        // Talent categories
-        "Talent",
-        "Music",
-        "Comedy",
-        "Instrumentalist",
-        "Artist",
-        "Dancer",
-        "Singer",
-        "Rapper",
-        "DJ",
-        "Producer",
-        "Web Developer",
-        "Mobile Developer",
-        "UI/UX Design",
-        "Graphic Design",
-        "Digital Marketing",
-        "IT Support",
-        "Cybersecurity",
-        "Content Writing",
-        "Photography",
-        "Videography",
-        "Afrobeats & Music",
-        "Content Creators",
-        "Actor/Actress",
-        "Voice Over Artist",
-        "Other Talent",
-        // Fallback
-        "Other",
-      ],
+      enum: ALL_CATEGORIES,
     },
     location: {
       type: String,

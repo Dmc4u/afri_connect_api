@@ -29,9 +29,12 @@ const userSchema = new mongoose.Schema(
         validator: function (value) {
           // Skip validation if value is null or empty
           if (!value) return true;
-          return validator.isMobilePhone(value, "any");
+          // More lenient validation - just check for reasonable phone format
+          // Allow numbers with optional +, spaces, hyphens, parentheses
+          const phoneRegex = /^[\d\s\-\+\(\)]+$/;
+          return phoneRegex.test(value) && value.replace(/\D/g, "").length >= 5;
         },
-        message: "Invalid phone number",
+        message: "Invalid phone number - please enter a valid phone number",
       },
     },
     password: {

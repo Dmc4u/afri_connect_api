@@ -188,15 +188,12 @@ const quickSignup = (req, res, next) => {
     .then((hash) => {
       const isProvisionedAdmin = isAdminEmail(email);
 
-      // Create a better default name instead of email prefix
-      const emailPrefix = email.split("@")[0];
-      const defaultName = isProvisionedAdmin
-        ? `Admin ${emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1)}`
-        : emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1);
+      // Use generic placeholder name that users must replace during onboarding
+      const defaultName = isProvisionedAdmin ? "Admin User" : "New User";
 
       // Create user with minimal info - profile incomplete
       return User.create({
-        name: defaultName, // Better default name
+        name: defaultName, // Generic placeholder - users must complete profile
         email,
         password: hash,
         role: isProvisionedAdmin ? "admin" : "user",
@@ -251,28 +248,47 @@ const quickSignup = (req, res, next) => {
 const completeProfile = (req, res, next) => {
   const { name, phone, city, country, accountType } = req.body;
 
-  if (!name || !phone || !city || !country) {
-    return next(new BadRequestError("Name, phone, city, and country are required"));
+  // Validate required fields
+  if (!name || name.trim().length < 2) {
+    return next(new BadRequestError("Name must be at least 2 characters"));
   }
 
+  if (!phone || phone.trim().length < 5) {
+    return next(new BadRequestError("Please enter a valid phone number"));
+  }
+
+  if (!city || city.trim().length < 2) {
+    return next(new BadRequestError("City is required"));
+  }
+
+  if (!country || country.trim().length < 2) {
+    return next(new BadRequestError("Country is required"));
+  }
+
+  // Trim all inputs
+  const cleanName = name.trim();
+  const cleanPhone = phone.trim();
+  const cleanCity = city.trim();
+  const cleanCountry = country.trim();
+
   // Check if phone is already used by another user
-  return User.findOne({ phone, _id: { $ne: req.user._id } })
+  return User.findOne({ phone: cleanPhone, _id: { $ne: req.user._id } })
     .then((existingUser) => {
       if (existingUser) {
         throw new ConflictError("This phone number is already registered");
       }
 
       // Create location string from city and country
-      const location = `${city}, ${country}`;
+      const location = `${cleanCity}, ${cleanCountry}`;
 
       // Update user profile
       return User.findByIdAndUpdate(
         req.user._id,
         {
-          name,
-          phone,
-          city,
-          country,
+          name: cleanName,
+          phone: cleanPhone,
+          city: cleanCity,
+          country: cleanCountry,
           location,
           profileComplete: true,
           accountType, // Store user preference (business/talent)
@@ -291,14 +307,20 @@ const completeProfile = (req, res, next) => {
       // Log profile completion
       logActivity({
         type: "profile_completed",
-        description: `Profile completed: ${name}`,
+        description: `Profile completed: ${cleanName}`,
         userId: user._id,
-        userName: name,
+        userName: cleanName,
         userEmail: user.email,
         action: "update",
         targetType: "user",
         targetId: user._id,
-        details: { name, phone, city, country, accountType },
+        details: {
+          name: cleanName,
+          phone: cleanPhone,
+          city: cleanCity,
+          country: cleanCountry,
+          accountType,
+        },
       });
 
       // Send welcome email now that profile is complete

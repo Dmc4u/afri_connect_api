@@ -1,5 +1,6 @@
 const express = require("express");
 const { celebrate, Joi } = require("celebrate");
+const { ALL_CATEGORIES } = require("../utils/categories");
 const {
   getAllListings,
   getListingById,
@@ -12,6 +13,7 @@ const {
   toggleFeatureListing,
 } = require("../controllers/listing");
 const auth = require("../middlewares/auth");
+const optionalAuth = require("../middlewares/optionalAuth");
 const upload = require("../middlewares/upload");
 const { requireFeatureAccess } = require("../middlewares/tierCheck");
 
@@ -23,59 +25,7 @@ const createListingValidation = celebrate({
     title: Joi.string().trim().min(2).max(100).required(),
     description: Joi.string().trim().min(10).max(1000).required(),
     category: Joi.string()
-      .valid(
-        // Business categories
-        "Technology",
-        "Creative",
-        "Professional Services",
-        "Retail",
-        "Food & Beverage",
-        "Healthcare",
-        "Education",
-        "Finance",
-        "Real Estate",
-        "Transportation",
-        "Entertainment",
-        "Nollywood",
-        "Construction",
-        "Agriculture",
-        "Manufacturing",
-        "Marketing",
-        "Fashion",
-        "Consulting",
-        "Logistics",
-        "Podcasts & Radio",
-        "Sports & Fitness",
-        "Non-profit & NGOs",
-        // Talent categories
-        "Talent",
-        "Music",
-        "Comedy",
-        "Instrumentalist",
-        "Artist",
-        "Dancer",
-        "Singer",
-        "Rapper",
-        "DJ",
-        "Producer",
-        "Web Developer",
-        "Mobile Developer",
-        "UI/UX Design",
-        "Graphic Design",
-        "Digital Marketing",
-        "IT Support",
-        "Cybersecurity",
-        "Content Writing",
-        "Photography",
-        "Videography",
-        "Afrobeats & Music",
-        "Content Creators",
-        "Actor/Actress",
-        "Voice Over Artist",
-        "Other Talent",
-        // Fallback
-        "Other"
-      )
+      .valid(...ALL_CATEGORIES)
       .required(),
     location: Joi.string().trim().min(2).max(100).required(),
     website: Joi.string().trim().allow("").optional(),
@@ -91,59 +41,7 @@ const updateListingValidation = celebrate({
     .keys({
       title: Joi.string().trim().min(2).max(100),
       description: Joi.string().trim().min(10).max(1000),
-      category: Joi.string().valid(
-        // Business categories
-        "Technology",
-        "Creative",
-        "Professional Services",
-        "Retail",
-        "Food & Beverage",
-        "Healthcare",
-        "Education",
-        "Finance",
-        "Real Estate",
-        "Transportation",
-        "Entertainment",
-        "Nollywood",
-        "Construction",
-        "Agriculture",
-        "Manufacturing",
-        "Marketing",
-        "Fashion",
-        "Consulting",
-        "Logistics",
-        "Podcasts & Radio",
-        "Sports & Fitness",
-        "Non-profit & NGOs",
-        // Talent categories
-        "Talent",
-        "Music",
-        "Comedy",
-        "Instrumentalist",
-        "Artist",
-        "Dancer",
-        "Singer",
-        "Rapper",
-        "DJ",
-        "Producer",
-        "Web Developer",
-        "Mobile Developer",
-        "UI/UX Design",
-        "Graphic Design",
-        "Digital Marketing",
-        "IT Support",
-        "Cybersecurity",
-        "Content Writing",
-        "Photography",
-        "Videography",
-        "Afrobeats & Music",
-        "Content Creators",
-        "Actor/Actress",
-        "Voice Over Artist",
-        "Other Talent",
-        // Fallback
-        "Other"
-      ),
+      category: Joi.string().valid(...ALL_CATEGORIES),
       location: Joi.string().trim().min(2).max(100),
       website: Joi.string().trim().allow(""),
       businessHours: Joi.string().trim().allow(""),
@@ -198,182 +96,208 @@ router.get("/", queryValidation, getAllListings);
 // Protected routes with specific paths (MUST come before /:id wildcard route)
 router.get("/my-listings", auth, queryValidation, getMyListings);
 
-// Public single listing view (comes after specific routes to avoid conflict)
-router.get("/:id", listingIdValidation, getListingById);
+// Public single listing view with optional auth (allows admins to view pending listings)
+router.get("/:id", optionalAuth, listingIdValidation, getListingById);
 
 // Other protected routes
 router.post("/", auth, upload.array("mediaFiles", 10), createListingValidation, createListing);
 router.post("/:id/upload", auth, upload.single("file"), listingIdValidation, uploadMedia);
-router.post("/:id/add-url-media", auth, listingIdValidation, celebrate({
-  body: Joi.object().keys({
-    url: Joi.string().uri().required(),
-    type: Joi.string().valid("youtube", "image", "video").required(),
-    name: Joi.string().trim().max(200).default("Media"),
-    description: Joi.string().trim().max(500).allow("").optional(),
+router.post(
+  "/:id/add-url-media",
+  auth,
+  listingIdValidation,
+  celebrate({
+    body: Joi.object().keys({
+      url: Joi.string().uri().required(),
+      type: Joi.string().valid("youtube", "image", "video").required(),
+      name: Joi.string().trim().max(200).default("Media"),
+      description: Joi.string().trim().max(500).allow("").optional(),
+    }),
   }),
-}), async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const { url, type, name, description } = req.body;
+  async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const { url, type, name, description } = req.body;
 
-    const Listing = require("../models/Listing");
-    const listing = await Listing.findById(id);
+      const Listing = require("../models/Listing");
+      const listing = await Listing.findById(id);
 
-    if (!listing) {
-      return res.status(404).json({ success: false, message: "Listing not found" });
+      if (!listing) {
+        return res.status(404).json({ success: false, message: "Listing not found" });
+      }
+
+      // Check ownership
+      if (listing.owner.toString() !== req.user._id.toString()) {
+        return res
+          .status(403)
+          .json({ success: false, message: "You can only add media to your own listings" });
+      }
+
+      // Add the URL-based media
+      listing.mediaFiles.push({
+        filename: name,
+        originalname: name,
+        mimetype:
+          type === "youtube" ? "video/youtube" : type === "image" ? "image/url" : "video/url",
+        url,
+        type,
+        description: description || "",
+        uploadedAt: new Date(),
+      });
+
+      await listing.save();
+
+      res.json({
+        success: true,
+        message: "URL media added successfully",
+        mediaFiles: listing.mediaFiles,
+      });
+    } catch (error) {
+      next(error);
     }
-
-    // Check ownership
-    if (listing.owner.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ success: false, message: "You can only add media to your own listings" });
-    }
-
-    // Add the URL-based media
-    listing.mediaFiles.push({
-      filename: name,
-      originalname: name,
-      mimetype: type === "youtube" ? "video/youtube" : type === "image" ? "image/url" : "video/url",
-      url,
-      type,
-      description: description || "",
-      uploadedAt: new Date(),
-    });
-
-    await listing.save();
-
-    res.json({
-      success: true,
-      message: "URL media added successfully",
-      mediaFiles: listing.mediaFiles,
-    });
-  } catch (error) {
-    next(error);
   }
-});
-router.patch("/:id/media/:mediaId", auth, celebrate({
-  params: Joi.object().keys({
-    id: Joi.string().hex().length(24).required(),
-    mediaId: Joi.string().hex().length(24).required(),
+);
+router.patch(
+  "/:id/media/:mediaId",
+  auth,
+  celebrate({
+    params: Joi.object().keys({
+      id: Joi.string().hex().length(24).required(),
+      mediaId: Joi.string().hex().length(24).required(),
+    }),
+    body: Joi.object()
+      .keys({
+        name: Joi.string().trim().max(200).optional(),
+        description: Joi.string().trim().max(500).allow("").optional(),
+      })
+      .min(1),
   }),
-  body: Joi.object().keys({
-    name: Joi.string().trim().max(200).optional(),
-    description: Joi.string().trim().max(500).allow("").optional(),
-  }).min(1),
-}), async (req, res, next) => {
-  try {
-    const { id, mediaId } = req.params;
-    const { name, description } = req.body;
+  async (req, res, next) => {
+    try {
+      const { id, mediaId } = req.params;
+      const { name, description } = req.body;
 
-    const Listing = require("../models/Listing");
-    const listing = await Listing.findById(id);
+      const Listing = require("../models/Listing");
+      const listing = await Listing.findById(id);
 
-    if (!listing) {
-      return res.status(404).json({ success: false, message: "Listing not found" });
+      if (!listing) {
+        return res.status(404).json({ success: false, message: "Listing not found" });
+      }
+
+      // Check ownership
+      if (listing.owner.toString() !== req.user._id.toString()) {
+        return res
+          .status(403)
+          .json({ success: false, message: "You can only update media on your own listings" });
+      }
+
+      // Find and update the media file
+      const mediaFile = listing.mediaFiles.id(mediaId);
+      if (!mediaFile) {
+        return res.status(404).json({ success: false, message: "Media file not found" });
+      }
+
+      if (name !== undefined) {
+        mediaFile.filename = name;
+        mediaFile.originalname = name;
+      }
+      if (description !== undefined) {
+        mediaFile.description = description;
+      }
+
+      await listing.save();
+
+      res.json({
+        success: true,
+        message: "Media info updated successfully",
+        mediaFiles: listing.mediaFiles,
+      });
+    } catch (error) {
+      next(error);
     }
-
-    // Check ownership
-    if (listing.owner.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ success: false, message: "You can only update media on your own listings" });
-    }
-
-    // Find and update the media file
-    const mediaFile = listing.mediaFiles.id(mediaId);
-    if (!mediaFile) {
-      return res.status(404).json({ success: false, message: "Media file not found" });
-    }
-
-    if (name !== undefined) {
-      mediaFile.filename = name;
-      mediaFile.originalname = name;
-    }
-    if (description !== undefined) {
-      mediaFile.description = description;
-    }
-
-    await listing.save();
-
-    res.json({
-      success: true,
-      message: "Media info updated successfully",
-      mediaFiles: listing.mediaFiles,
-    });
-  } catch (error) {
-    next(error);
   }
-});
+);
 
 // Replace existing media file with a new one
-router.put("/:id/media/:mediaId/replace", auth, upload.single("file"), celebrate({
-  params: Joi.object().keys({
-    id: Joi.string().hex().length(24).required(),
-    mediaId: Joi.string().hex().length(24).required(),
+router.put(
+  "/:id/media/:mediaId/replace",
+  auth,
+  upload.single("file"),
+  celebrate({
+    params: Joi.object().keys({
+      id: Joi.string().hex().length(24).required(),
+      mediaId: Joi.string().hex().length(24).required(),
+    }),
   }),
-}), async (req, res, next) => {
-  try {
-    const { id, mediaId } = req.params;
-    const path = require("path");
-    const fs = require("fs").promises;
+  async (req, res, next) => {
+    try {
+      const { id, mediaId } = req.params;
+      const path = require("path");
+      const fs = require("fs").promises;
 
-    const Listing = require("../models/Listing");
-    const listing = await Listing.findById(id);
+      const Listing = require("../models/Listing");
+      const listing = await Listing.findById(id);
 
-    if (!listing) {
-      return res.status(404).json({ success: false, message: "Listing not found" });
-    }
-
-    // Check ownership
-    if (listing.owner.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ success: false, message: "You can only replace media on your own listings" });
-    }
-
-    if (!req.file) {
-      return res.status(400).json({ success: false, message: "No file uploaded" });
-    }
-
-    // Find the existing media file
-    const mediaFile = listing.mediaFiles.id(mediaId);
-    if (!mediaFile) {
-      return res.status(404).json({ success: false, message: "Media file not found" });
-    }
-
-    // Delete old file from disk if it exists and is not a URL-based media
-    if (mediaFile.filename && !mediaFile.url?.startsWith('http')) {
-      try {
-        const oldFilePath = path.join(__dirname, "..", "uploads", "listings", mediaFile.filename);
-        await fs.unlink(oldFilePath);
-        console.log(`Deleted old file: ${mediaFile.filename}`);
-      } catch (err) {
-        console.log("Old file not found on disk or already deleted:", err.message);
+      if (!listing) {
+        return res.status(404).json({ success: false, message: "Listing not found" });
       }
+
+      // Check ownership
+      if (listing.owner.toString() !== req.user._id.toString()) {
+        return res
+          .status(403)
+          .json({ success: false, message: "You can only replace media on your own listings" });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({ success: false, message: "No file uploaded" });
+      }
+
+      // Find the existing media file
+      const mediaFile = listing.mediaFiles.id(mediaId);
+      if (!mediaFile) {
+        return res.status(404).json({ success: false, message: "Media file not found" });
+      }
+
+      // Delete old file from disk if it exists and is not a URL-based media
+      if (mediaFile.filename && !mediaFile.url?.startsWith("http")) {
+        try {
+          const oldFilePath = path.join(__dirname, "..", "uploads", "listings", mediaFile.filename);
+          await fs.unlink(oldFilePath);
+          console.log(`Deleted old file: ${mediaFile.filename}`);
+        } catch (err) {
+          console.log("Old file not found on disk or already deleted:", err.message);
+        }
+      }
+
+      // Update media file with new file information
+      mediaFile.filename = req.file.filename;
+      mediaFile.originalname = req.file.originalname;
+      mediaFile.mimetype = req.file.mimetype;
+      mediaFile.size = req.file.size;
+      mediaFile.url = `/uploads/listings/${req.file.filename}`;
+      mediaFile.type = req.file.mimetype.startsWith("image/")
+        ? "image"
+        : req.file.mimetype.startsWith("video/")
+          ? "video"
+          : req.file.mimetype.startsWith("audio/")
+            ? "audio"
+            : "document";
+      mediaFile.uploadedAt = new Date();
+
+      await listing.save();
+
+      res.json({
+        success: true,
+        message: "Media replaced successfully",
+        mediaFile: mediaFile,
+        mediaFiles: listing.mediaFiles,
+      });
+    } catch (error) {
+      next(error);
     }
-
-    // Update media file with new file information
-    mediaFile.filename = req.file.filename;
-    mediaFile.originalname = req.file.originalname;
-    mediaFile.mimetype = req.file.mimetype;
-    mediaFile.size = req.file.size;
-    mediaFile.url = `/uploads/listings/${req.file.filename}`;
-    mediaFile.type = req.file.mimetype.startsWith("image/")
-      ? "image"
-      : req.file.mimetype.startsWith("video/")
-        ? "video"
-        : req.file.mimetype.startsWith("audio/")
-          ? "audio"
-          : "document";
-    mediaFile.uploadedAt = new Date();
-
-    await listing.save();
-
-    res.json({
-      success: true,
-      message: "Media replaced successfully",
-      mediaFile: mediaFile,
-      mediaFiles: listing.mediaFiles,
-    });
-  } catch (error) {
-    next(error);
   }
-});
+);
 
 router.patch("/:id", auth, listingIdValidation, updateListingValidation, updateListing);
 router.delete("/:id/media/:mediaId", auth, mediaIdValidation, deleteListingMedia);

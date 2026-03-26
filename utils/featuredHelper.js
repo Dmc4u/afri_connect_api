@@ -1,6 +1,7 @@
 const Listing = require("../models/Listing");
 const FeaturedPlacement = require("../models/FeaturedPlacement");
 const TalentShowcase = require("../models/TalentShowcase");
+const { TALENT_CATEGORIES } = require("./categories");
 
 async function resolveShowcaseTitle(contestant) {
   try {
@@ -104,34 +105,6 @@ async function autoFeatureWinner(contestant) {
     const winnerLabel = `Winner of ${showcaseTitle}`;
 
     const userId = contestant?.user?._id || contestant?.user;
-
-    const TALENT_CATEGORIES = [
-      "Talent",
-      "Music",
-      "Comedy",
-      "Instrumentalist",
-      "Artist",
-      "Dancer",
-      "Singer",
-      "Rapper",
-      "DJ",
-      "Producer",
-      "Web Developer",
-      "Mobile Developer",
-      "UI/UX Design",
-      "Graphic Design",
-      "Digital Marketing",
-      "IT Support",
-      "Cybersecurity",
-      "Content Writing",
-      "Photography",
-      "Videography",
-      "Afrobeats & Music",
-      "Content Creators",
-      "Actor/Actress",
-      "Voice Over Artist",
-      "Other Talent",
-    ];
 
     // Get or create listing
     let listing = contestant.listing;

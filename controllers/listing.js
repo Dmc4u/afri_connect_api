@@ -1,6 +1,7 @@
 const Listing = require("../models/Listing");
 const User = require("../models/User");
 const { BadRequestError, NotFoundError, ForbiddenError } = require("../utils/errors");
+const { TALENT_CATEGORIES, isTalentCategory } = require("../utils/categories");
 const path = require("path");
 const fs = require("fs").promises;
 const gcs = require("../utils/gcs");
@@ -58,24 +59,7 @@ const getAllListings = async (req, res, next) => {
     // Talent directory (/discover-talent) should include all talent contestants
     if (excludeWinners === "true") {
       // Exclude ALL talent categories from business listings page
-      const talentCategories = [
-        "Talent",
-        "Music",
-        "Comedy",
-        "Instrumentalist",
-        "Artist",
-        "Dancer",
-        "Singer",
-        "Rapper",
-        "DJ",
-        "Producer",
-        "Actor",
-        "Actress",
-        "Voice Over Artist",
-        "Other Talent",
-      ];
-
-      query.category = { $nin: talentCategories };
+      query.category = { $nin: TALENT_CATEGORIES };
 
       // Also exclude listings that are associated with talent showcase contestants
       const TalentContestant = require("../models/TalentContestant");
@@ -140,9 +124,30 @@ const getListingById = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    let listing = await Listing.findOne({ _id: id, status: "active" })
-      .populate("owner", "name email tier role settings profilePhoto")
-      .lean();
+    // Check if the user is authenticated and is an admin or listing owner
+    const isAdmin = req.user && req.user.role === "admin";
+    const userId = req.user?._id;
+
+    let listing;
+
+    if (isAdmin) {
+      // Admins can view any listing regardless of status
+      listing = await Listing.findOne({ _id: id })
+        .populate("owner", "name email tier role settings profilePhoto")
+        .lean();
+    } else {
+      // First try to find an active listing
+      listing = await Listing.findOne({ _id: id, status: "active" })
+        .populate("owner", "name email tier role settings profilePhoto")
+        .lean();
+
+      // If not found and user is authenticated, check if they own a pending listing
+      if (!listing && userId) {
+        listing = await Listing.findOne({ _id: id, owner: userId })
+          .populate("owner", "name email tier role settings profilePhoto")
+          .lean();
+      }
+    }
 
     if (!listing) {
       throw new NotFoundError("Listing not found");
@@ -249,9 +254,7 @@ const createListing = async (req, res, next) => {
 
     if (!isAdmin) {
       // Determine if this is a talent or business listing
-      const talentCategories =
-        /talent|music|comedy|instrumentalist|artist|dancer|singer|rapper|dj|producer|actor|actress|voice over artist|other talent/i;
-      const isTalent = talentCategories.test(category);
+      const isTalent = isTalentCategory(category);
 
       // Count business vs talent listings separately
       const allUserListings = await Listing.find({
@@ -261,10 +264,8 @@ const createListing = async (req, res, next) => {
         .select("category")
         .lean();
 
-      const businessCount = allUserListings.filter(
-        (l) => !talentCategories.test(l.category)
-      ).length;
-      const talentCount = allUserListings.filter((l) => talentCategories.test(l.category)).length;
+      const businessCount = allUserListings.filter((l) => !isTalentCategory(l.category)).length;
+      const talentCount = allUserListings.filter((l) => isTalentCategory(l.category)).length;
 
       // Enforce separate limits: Free tier = 4 business + 2 talent
       const userTier = user.tier || "Free";
@@ -334,9 +335,7 @@ const createListing = async (req, res, next) => {
       const isFree = !user.tier || user.tier === "Free";
 
       // Determine if this is a talent or business listing
-      const talentCategories =
-        /talent|music|comedy|instrumentalist|artist|dancer|singer|rapper|dj|producer|actor|actress|voice over artist|other talent/i;
-      const isTalent = talentCategories.test(category);
+      const isTalent = isTalentCategory(category);
 
       // Count incoming media to enforce caps
       if (!isAdmin) {
@@ -602,9 +601,7 @@ const uploadMedia = async (req, res, next) => {
     const isVideoUpload = req.file.mimetype && req.file.mimetype.startsWith("video/");
 
     // Determine if this is a talent or business listing
-    const talentCategories =
-      /talent|music|comedy|instrumentalist|artist|dancer|singer|rapper|dj|producer|actor|actress|voice over artist|other talent/i;
-    const isTalent = talentCategories.test(listing.category);
+    const isTalent = isTalentCategory(listing.category);
 
     if (!isAdminUser) {
       // Business listings should only have images (no videos)
