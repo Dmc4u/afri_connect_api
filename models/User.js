@@ -39,8 +39,18 @@ const userSchema = new mongoose.Schema(
     },
     password: {
       type: String,
-      required: true,
+      required: false, // Not required for OAuth users
       select: false,
+    },
+    googleId: {
+      type: String,
+      unique: true,
+      sparse: true, // Allow multiple documents without this field
+      // No default - omit field entirely for non-OAuth users
+    },
+    avatar: {
+      type: String,
+      default: "",
     },
     profilePhoto: {
       type: String,

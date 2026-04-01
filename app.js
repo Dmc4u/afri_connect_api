@@ -13,6 +13,7 @@ const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const helmet = require("helmet");
+const passport = require("passport");
 const path = require("path");
 const fs = require("fs");
 const fsp = require("fs/promises");
@@ -46,6 +47,11 @@ const {
   quickSignup,
   completeProfile,
 } = require("./controllers/user");
+const {
+  configureGoogleStrategy,
+  googleAuth,
+  googleAuthCallback,
+} = require("./controllers/googleAuth");
 const { initializeSocket } = require("./utils/socket");
 const PricingSettings = require("./models/PricingSettings");
 const { bulkCorrectLegacyAutoProUsers } = require("./utils/adminProvisioning");
@@ -153,6 +159,12 @@ function rawBodySaver(req, res, buf, encoding) {
 
 app.use(express.json({ verify: rawBodySaver, limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, verify: rawBodySaver, limit: "50mb" }));
+
+// Initialize Passport for OAuth
+app.use(passport.initialize());
+
+// Configure Google OAuth Strategy
+configureGoogleStrategy();
 
 // Enable trust proxy for Cloudflare/Nginx
 app.set("trust proxy", 1);
@@ -386,6 +398,10 @@ app.put("/auth/complete-profile", auth, completeProfile);
 
 // Email OTP 2FA verification
 app.post("/auth/verify-otp", strictLimiter, validateVerifyOtp, verifyLoginOtp);
+
+// Google OAuth routes
+app.get("/auth/google", googleAuth);
+app.get("/auth/google/callback", googleAuthCallback);
 
 // Public PayPal client-id endpoint (no auth required)
 app.get("/paypal/client-id", (req, res) => {

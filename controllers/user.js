@@ -107,12 +107,11 @@ const createUser = (req, res, next) => {
         role: isProvisionedAdmin ? "admin" : "user",
         tier: isProvisionedAdmin ? "Pro" : "Free",
         adminProvisioned: isProvisionedAdmin,
-        // Auto-enable 2FA for admins (high-privilege accounts)
         settings: {
           emailNotifications: true,
           profileVisibility: true,
           phoneVisibility: false,
-          twoFactorAuth: isProvisionedAdmin,
+          twoFactorAuth: false, // Disabled by default (can be enabled later in settings)
         },
       });
     })
@@ -178,11 +177,17 @@ const quickSignup = (req, res, next) => {
   }
 
   // Check if user already exists with this email
+  console.log(`[Quick Signup] Checking if email exists: ${email}`);
   return User.findOne({ email })
     .then((existingUser) => {
+      console.log(
+        `[Quick Signup] Existing user found:`,
+        existingUser ? `YES - ${existingUser._id}` : "NO"
+      );
       if (existingUser) {
         throw new ConflictError("An account with this email already exists");
       }
+      console.log(`[Quick Signup] Proceeding to create user for: ${email}`);
       return bcrypt.hash(password, 10);
     })
     .then((hash) => {
@@ -199,18 +204,21 @@ const quickSignup = (req, res, next) => {
         role: isProvisionedAdmin ? "admin" : "user",
         tier: isProvisionedAdmin ? "Pro" : "Free",
         adminProvisioned: isProvisionedAdmin,
-        profileComplete: false, // Mark profile as incomplete
+        profileComplete: isProvisionedAdmin ? true : false, // Admins don't need onboarding
+        accountType: isProvisionedAdmin ? "business" : null, // Set default for admins
         settings: {
           emailNotifications: true,
           profileVisibility: true,
           phoneVisibility: false,
-          twoFactorAuth: isProvisionedAdmin,
+          twoFactorAuth: false, // Disabled by default
         },
       });
     })
     .then((user) => {
       const userObj = user.toObject();
       delete userObj.password;
+
+      const isProvisionedAdmin = user.role === "admin";
 
       // Log quick registration activity
       logActivity({
@@ -222,10 +230,10 @@ const quickSignup = (req, res, next) => {
         action: "create",
         targetType: "user",
         targetId: user._id,
-        details: { email, quickSignup: true },
+        details: { email, quickSignup: true, isAdmin: isProvisionedAdmin },
       });
 
-      // Generate token for immediate login
+      // Generate token for immediate login (both admin and regular users)
       const token = jwt.sign({ _id: user._id }, JWT_SECRET, { expiresIn: "7d" });
 
       return res.status(201).send({
@@ -235,11 +243,28 @@ const quickSignup = (req, res, next) => {
     })
     .catch((err) => {
       if (err.code === 11000) {
-        return next(new ConflictError("An account with this email already exists"));
+        // Log which field is causing the duplicate
+        console.log("[Quick Signup] ❌ MongoDB E11000 Duplicate Key Error:");
+        console.log("Error details:", JSON.stringify(err.keyPattern || {}));
+        console.log("Error value:", JSON.stringify(err.keyValue || {}));
+
+        const duplicateField = Object.keys(err.keyPattern || {})[0];
+        if (duplicateField === "email") {
+          return next(new ConflictError("An account with this email already exists"));
+        } else if (duplicateField === "googleId") {
+          return next(new ConflictError("Database constraint error: googleId conflict"));
+        } else if (duplicateField === "phone") {
+          return next(new ConflictError("An account with this phone number already exists"));
+        } else {
+          return next(
+            new ConflictError(`Database constraint error: ${duplicateField} already exists`)
+          );
+        }
       }
       if (err.name === "ValidationError") {
         return next(new BadRequestError("Validation failed"));
       }
+      console.log("[Quick Signup] ❌ Unexpected error:", err);
       return next(err);
     });
 };
@@ -371,13 +396,7 @@ const login = (req, res, next) => {
         await user.save();
       }
 
-      // Auto-enable 2FA for admins (high-privilege accounts)
-      if (user.role === "admin" && !(user.settings && user.settings.twoFactorAuth === true)) {
-        user.settings = user.settings || {};
-        user.settings.twoFactorAuth = true;
-        await user.save();
-      }
-
+      // Note: 2FA is disabled by default. Admins can enable it in settings if needed.
       // If 2FA is enabled, require Email OTP before issuing JWT
       if (user.settings && user.settings.twoFactorAuth === true) {
         const now = Date.now();
