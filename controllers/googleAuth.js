@@ -2,7 +2,7 @@ const passport = require("passport");
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
-const { JWT_SECRET } = require("../utils/config");
+const { JWT_SECRET, PUBLIC_APP_URL } = require("../utils/config");
 const { isAdminEmail } = require("../utils/adminCheck");
 const { syncAdminProvisioning } = require("../utils/adminProvisioning");
 const { logActivity } = require("../utils/activityLogger");
@@ -143,7 +143,7 @@ const googleAuthCallback = (req, res, next) => {
     if (err) {
       console.error("Google callback error:", err);
       // Redirect to frontend with error
-      const frontendURL = process.env.FRONTEND_URL || "http://localhost:5173";
+      const frontendURL = PUBLIC_APP_URL || "http://localhost:3001";
       return res.redirect(
         `${frontendURL}/?auth=error&message=${encodeURIComponent(
           err.message || "Authentication failed"
@@ -152,7 +152,7 @@ const googleAuthCallback = (req, res, next) => {
     }
 
     if (!user) {
-      const frontendURL = process.env.FRONTEND_URL || "http://localhost:5173";
+      const frontendURL = PUBLIC_APP_URL || "http://localhost:3001";
       return res.redirect(
         `${frontendURL}/?auth=error&message=${encodeURIComponent("User not found")}`
       );
@@ -167,13 +167,13 @@ const googleAuthCallback = (req, res, next) => {
       delete userObj.password;
 
       // Redirect to frontend with token and user data
-      const frontendURL = process.env.FRONTEND_URL || "http://localhost:5173";
+      const frontendURL = PUBLIC_APP_URL || "http://localhost:3001";
       const userData = encodeURIComponent(JSON.stringify(userObj));
 
       return res.redirect(`${frontendURL}/?auth=success&token=${token}&user=${userData}`);
     } catch (error) {
       console.error("Token generation error:", error);
-      const frontendURL = process.env.FRONTEND_URL || "http://localhost:5173";
+      const frontendURL = PUBLIC_APP_URL || "http://localhost:3001";
       return res.redirect(
         `${frontendURL}/?auth=error&message=${encodeURIComponent("Token generation failed")}`
       );

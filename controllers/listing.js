@@ -654,6 +654,7 @@ const uploadMedia = async (req, res, next) => {
         resourceType,
         purpose: "listing",
         filename: req.file.originalname,
+        customName: req.body.name, // Use user-provided title
       });
 
       const localPath = path.join(__dirname, "..", "uploads", "listings", req.file.filename);

@@ -28,6 +28,14 @@ function getUploadProvider() {
 }
 
 function isGcsEnabled() {
+  // Only enable GCS in production environment
+  const nodeEnv = String(process.env.NODE_ENV || "")
+    .trim()
+    .toLowerCase();
+  if (nodeEnv === "development" || nodeEnv === "dev") {
+    return false;
+  }
+
   const explicit = parseBoolEnv(process.env.USE_GCS);
   if (explicit !== null) return explicit;
   return getUploadProvider() === "gcs";
@@ -68,11 +76,14 @@ function inferExt(filename) {
   return ext;
 }
 
-function buildObjectName({ resourceType, purpose, filename }) {
+function buildObjectName({ resourceType, purpose, filename, customName }) {
   const prefix = getGcsUploadPrefix();
   const typeFolder = resourceType === "image" ? "images" : "videos";
   const purposeFolder = purpose === "commercial" ? "commercials" : "";
-  const safeName = sanitizeBasename(filename);
+
+  // Use custom name if provided, otherwise use filename
+  const nameToUse = customName || filename;
+  const safeName = sanitizeBasename(nameToUse);
   const ext = inferExt(safeName) || inferExt(filename);
   const nonce = crypto.randomBytes(6).toString("hex");
   const ts = Date.now();
@@ -80,7 +91,8 @@ function buildObjectName({ resourceType, purpose, filename }) {
   const parts = [prefix, typeFolder];
   if (purposeFolder) parts.push(purposeFolder);
   const base = safeName ? safeName.replace(ext, "") : "upload";
-  parts.push(`${base || "upload"}-${ts}-${nonce}${ext}`);
+  // Only add timestamp and nonce for uniqueness, but keep readable name
+  parts.push(`${base || "upload"}-${nonce}${ext}`);
   return parts.filter(Boolean).join("/");
 }
 

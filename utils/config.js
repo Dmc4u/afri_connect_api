@@ -11,6 +11,7 @@ const {
   // ✅ App
   APP_NAME = "AfriOnet",
   FRONTEND_URL = "http://localhost:3000",
+  PUBLIC_APP_URL = "http://localhost:3001",
   BRAND_LOGO_URL, // Optional: Set to your hosted logo URL (e.g., https://afrionet.com/logo.png)
 
   // ✅ Email/SMTP (support both SMTP_* and legacy EMAIL_* names)
@@ -98,6 +99,7 @@ module.exports = {
   // ✅ App
   APP_NAME,
   FRONTEND_URL,
+  PUBLIC_APP_URL,
   BRAND_LOGO_URL: BRAND_LOGO_URL || `${FRONTEND_URL}/afri-c.svg`,
 
   // ✅ Email/SMTP
