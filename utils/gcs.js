@@ -166,9 +166,57 @@ async function deleteObject({ bucketName, objectName }) {
   const file = bucket.file(objectName);
   try {
     await file.delete({ ignoreNotFound: true });
+    console.log(`✅ GCS file deleted: ${objectName}`);
   } catch (e) {
     console.warn("⚠️ GCS delete failed:", e?.message || e);
   }
+}
+
+// Helper function to extract GCS object name from URL and delete
+async function deleteFromUrl(fileUrl) {
+  if (!fileUrl || !isGcsEnabled()) return;
+
+  const bucketName = getGcsBucketName();
+  if (!bucketName) return;
+
+  try {
+    // Extract object name from GCS URL
+    // Format: https://storage.googleapis.com/bucket-name/path/to/file.jpg
+    const storagePattern = /storage\.googleapis\.com\/[^\/]+\/(.+)$/;
+    const customPattern = new RegExp(`${getPublicBaseUrl()}\/(.+)$`);
+
+    let objectName;
+    if (storagePattern.test(fileUrl)) {
+      objectName = decodeURIComponent(fileUrl.match(storagePattern)[1]);
+    } else if (getPublicBaseUrl() && customPattern.test(fileUrl)) {
+      objectName = decodeURIComponent(fileUrl.match(customPattern)[1]);
+    }
+
+    if (objectName) {
+      await deleteObject({ bucketName, objectName });
+    }
+  } catch (e) {
+    console.warn("⚠️ Failed to parse/delete GCS URL:", fileUrl, e.message);
+  }
+}
+
+// Helper function to delete all media files from a listing
+async function deleteListingMedia(listing) {
+  if (!listing || !isGcsEnabled()) return;
+
+  const deletePromises = [];
+
+  // Delete all media files
+  if (listing.mediaFiles && listing.mediaFiles.length > 0) {
+    for (const media of listing.mediaFiles) {
+      if (media.url) {
+        deletePromises.push(deleteFromUrl(media.url));
+      }
+    }
+  }
+
+  await Promise.allSettled(deletePromises);
+  console.log(`✅ Deleted ${deletePromises.length} media files for listing ${listing._id}`);
 }
 
 module.exports = {
@@ -182,4 +230,6 @@ module.exports = {
   getSignedUploadUrl,
   uploadFromPath,
   deleteObject,
+  deleteFromUrl,
+  deleteListingMedia,
 };

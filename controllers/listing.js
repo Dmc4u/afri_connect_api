@@ -547,7 +547,7 @@ const deleteListing = async (req, res, next) => {
       throw new ForbiddenError("You can only delete your own listings");
     }
 
-    // Delete associated media files
+    // Delete associated media files from local storage
     for (const mediaFile of listing.mediaFiles) {
       try {
         const filePath = path.join(__dirname, "..", "uploads", "listings", mediaFile.filename);
@@ -557,12 +557,15 @@ const deleteListing = async (req, res, next) => {
       }
     }
 
+    // Delete associated media files from GCS
+    await gcs.deleteListingMedia(listing);
+
     // Soft delete - change status instead of removing
     await Listing.findByIdAndUpdate(id, { status: "deleted" });
 
     res.json({
       success: true,
-      message: "Listing deleted successfully",
+      message: "Listing and media deleted successfully",
     });
   } catch (error) {
     next(error);

@@ -604,6 +604,30 @@ router.delete("/users/:id", userIdValidation, async (req, res, next) => {
       throw new ForbiddenError("Cannot delete your own account");
     }
 
+    // Delete all GCS media files from user's listings before deleting
+    const gcs = require("../utils/gcs");
+    const userListings = await Listing.find({ owner: targetUser._id });
+
+    if (userListings.length > 0) {
+      console.log(
+        `🗑️ Deleting media for ${userListings.length} listings of user ${targetUser.email}`
+      );
+      await Promise.allSettled(userListings.map((listing) => gcs.deleteListingMedia(listing)));
+    }
+
+    // Delete user profile photos from GCS (avatar and profilePhoto)
+    const profilePhotoDeletions = [];
+    if (targetUser.avatar) {
+      profilePhotoDeletions.push(gcs.deleteFromUrl(targetUser.avatar));
+    }
+    if (targetUser.profilePhoto) {
+      profilePhotoDeletions.push(gcs.deleteFromUrl(targetUser.profilePhoto));
+    }
+    if (profilePhotoDeletions.length > 0) {
+      console.log(`🗑️ Deleting ${profilePhotoDeletions.length} profile photo(s) from GCS...`);
+      await Promise.allSettled(profilePhotoDeletions);
+    }
+
     // Delete related data
     await Promise.all([
       // Delete user's listings
@@ -637,7 +661,7 @@ router.delete("/users/:id", userIdValidation, async (req, res, next) => {
 
     res.json({
       success: true,
-      message: "User and all related data deleted successfully",
+      message: "User, related data, and all media files deleted successfully",
     });
   } catch (error) {
     next(error);
@@ -771,15 +795,22 @@ router.patch("/listings/:id/approve", listingIdValidation, async (req, res, next
 // Reject listing
 router.patch("/listings/:id/reject", rejectListingValidation, async (req, res, next) => {
   try {
-    const listing = await Listing.findByIdAndUpdate(
-      req.params.id,
-      { status: "deleted" },
-      { new: true, runValidators: true }
-    ).populate("owner", "name email tier settings");
+    const listing = await Listing.findById(req.params.id).populate(
+      "owner",
+      "name email tier settings"
+    );
 
     if (!listing) {
       throw new NotFoundError("Listing not found");
     }
+
+    // Delete media files from GCS before rejection
+    const gcs = require("../utils/gcs");
+    await gcs.deleteListingMedia(listing);
+
+    // Update listing status to deleted
+    listing.status = "deleted";
+    await listing.save();
 
     // Log activity
     logActivity({
@@ -811,7 +842,7 @@ router.patch("/listings/:id/reject", rejectListingValidation, async (req, res, n
 
     res.json({
       success: true,
-      message: "Listing rejected successfully",
+      message: "Listing rejected and media deleted successfully",
       listing,
     });
   } catch (error) {

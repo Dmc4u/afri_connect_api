@@ -603,8 +603,31 @@ const updateUserPhoto = (req, res, next) => {
   // For local storage, construct the URL path
   const profilePhoto = `/uploads/profiles/${req.file.filename}`;
 
-  return User.findByIdAndUpdate(req.user._id, { profilePhoto }, { new: true, runValidators: true })
-    .orFail(() => new NotFoundError("User not found"))
+  // First, get the user to access the old profile photo
+  return User.findById(req.user._id)
+    .then(async (user) => {
+      if (!user) {
+        throw new NotFoundError("User not found");
+      }
+
+      // Delete old profile photo from GCS if it exists and is a GCS URL
+      if (user.profilePhoto) {
+        const gcs = require("../utils/gcs");
+        try {
+          await gcs.deleteFromUrl(user.profilePhoto);
+          console.log(`✅ Deleted old profile photo from GCS: ${user.profilePhoto}`);
+        } catch (error) {
+          console.log(`⚠️ Could not delete old profile photo from GCS: ${error.message}`);
+        }
+      }
+
+      // Update with new photo
+      return User.findByIdAndUpdate(
+        req.user._id,
+        { profilePhoto },
+        { new: true, runValidators: true }
+      );
+    })
     .then((user) => {
       const userObj = user.toObject();
       delete userObj.password;
@@ -626,12 +649,31 @@ const deleteUserPhoto = (req, res, next) => {
   // All tiers can now remove profile photos (including Free talent)
   // No tier restrictions for basic profile customization
 
-  return User.findByIdAndUpdate(
-    req.user._id,
-    { profilePhoto: null },
-    { new: true, runValidators: true }
-  )
-    .orFail(() => new NotFoundError("User not found"))
+  // First, get the user to access the old profile photo
+  return User.findById(req.user._id)
+    .then(async (user) => {
+      if (!user) {
+        throw new NotFoundError("User not found");
+      }
+
+      // Delete profile photo from GCS if it exists and is a GCS URL
+      if (user.profilePhoto) {
+        const gcs = require("../utils/gcs");
+        try {
+          await gcs.deleteFromUrl(user.profilePhoto);
+          console.log(`✅ Deleted profile photo from GCS: ${user.profilePhoto}`);
+        } catch (error) {
+          console.log(`⚠️ Could not delete profile photo from GCS: ${error.message}`);
+        }
+      }
+
+      // Update user to remove photo
+      return User.findByIdAndUpdate(
+        req.user._id,
+        { profilePhoto: null },
+        { new: true, runValidators: true }
+      );
+    })
     .then((user) => {
       const userObj = user.toObject();
       delete userObj.password;
