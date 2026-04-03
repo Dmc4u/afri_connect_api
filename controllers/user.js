@@ -249,16 +249,18 @@ const quickSignup = (req, res, next) => {
         console.log("Error value:", JSON.stringify(err.keyValue || {}));
 
         const duplicateField = Object.keys(err.keyPattern || {})[0];
+        console.log("[Quick Signup] Duplicate field detected:", duplicateField);
+
         if (duplicateField === "email") {
           return next(new ConflictError("An account with this email already exists"));
         } else if (duplicateField === "googleId") {
-          return next(new ConflictError("Database constraint error: googleId conflict"));
+          return next(new ConflictError("This Google account is already linked to another user"));
         } else if (duplicateField === "phone") {
           return next(new ConflictError("An account with this phone number already exists"));
         } else {
-          return next(
-            new ConflictError(`Database constraint error: ${duplicateField} already exists`)
-          );
+          // Fallback for unexpected duplicate fields
+          console.log("[Quick Signup] ⚠️ Unexpected duplicate field:", duplicateField);
+          return next(new ConflictError("An account with these credentials already exists"));
         }
       }
       if (err.name === "ValidationError") {
