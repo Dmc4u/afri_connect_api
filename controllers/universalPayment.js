@@ -614,7 +614,11 @@ async function applyPaymentEffects(payment, user, metadata) {
           user.tierExpiresAt = newExpiry;
         }
         await user.save();
-        console.log(`✅ User upgraded to ${payment.tierUpgrade.to}`);
+
+        // Sync tier to all user's listings
+        const Listing = require("../models/Listing");
+        await Listing.updateMany({ owner: user._id }, { $set: { tier: payment.tierUpgrade.to } });
+        console.log(`✅ User upgraded to ${payment.tierUpgrade.to} and synced to listings`);
       }
       break;
 

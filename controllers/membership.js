@@ -1,4 +1,5 @@
 const User = require("../models/User");
+const Listing = require("../models/Listing");
 const Payment = require("../models/Payment");
 const PaypalTransaction = require("../models/PaypalTransaction");
 const { BadRequestError, NotFoundError, ForbiddenError } = require("../utils/errors");
@@ -192,6 +193,9 @@ const upgradeMembership = async (req, res, next) => {
       user.tier = tier;
       user.tierExpiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000); // 1 year for admin
       await user.save();
+
+      // Sync tier to all admin's listings
+      await Listing.updateMany({ owner: user._id }, { $set: { tier: tier } });
 
       return res.json({
         success: true,
@@ -452,6 +456,9 @@ const captureMembershipPayment = async (req, res, next) => {
       user.tierExpiresAt = newExpiry;
     }
     await user.save();
+
+    // Sync tier to all user's listings
+    await Listing.updateMany({ owner: user._id }, { $set: { tier: payment.tierUpgrade.to } });
 
     // Update PayPal transaction
     const payer = capture?.payer || {};
@@ -758,6 +765,9 @@ const adminSetUserTier = async (req, res, next) => {
     const previousTier = targetUser.tier || "Free";
     targetUser.tier = tier;
     await targetUser.save();
+
+    // Sync tier to all user's listings
+    await Listing.updateMany({ owner: targetUser._id }, { $set: { tier: tier } });
 
     // Optional: mark any active subscription as cancelled when downgrading to Free
     if (previousTier !== "Free" && tier === "Free") {

@@ -333,25 +333,29 @@ router.get("/users/recent", async (req, res, next) => {
     const limit = Math.min(Math.max(parseInt(req.query.limit) || 10, 1), 100);
     const timeRange = req.query.timeRange || "week";
 
-    // Calculate date threshold based on time range
-    let dateThreshold = new Date();
-    switch (timeRange) {
-      case "week":
-        dateThreshold.setDate(dateThreshold.getDate() - 7);
-        break;
-      case "2weeks":
-        dateThreshold.setDate(dateThreshold.getDate() - 14);
-        break;
-      case "month":
-        dateThreshold.setMonth(dateThreshold.getMonth() - 1);
-        break;
-      default:
-        dateThreshold.setDate(dateThreshold.getDate() - 7);
+    // Build query - only add date filter if not "all"
+    const query = {};
+
+    if (timeRange !== "all") {
+      // Calculate date threshold based on time range
+      let dateThreshold = new Date();
+      switch (timeRange) {
+        case "week":
+          dateThreshold.setDate(dateThreshold.getDate() - 7);
+          break;
+        case "2weeks":
+          dateThreshold.setDate(dateThreshold.getDate() - 14);
+          break;
+        case "month":
+          dateThreshold.setMonth(dateThreshold.getMonth() - 1);
+          break;
+        default:
+          dateThreshold.setDate(dateThreshold.getDate() - 7);
+      }
+      query.createdAt = { $gte: dateThreshold };
     }
 
-    const users = await User.find({
-      createdAt: { $gte: dateThreshold },
-    })
+    const users = await User.find(query)
       .select("name email tier role createdAt profilePhoto country location")
       .sort({ createdAt: -1 })
       .limit(limit);
@@ -510,6 +514,12 @@ router.patch("/users/:id", userIdValidation, updateUserValidation, async (req, r
       runValidators: true,
     }).select("-password");
 
+    // If tier was updated, sync it to all user's listings
+    if (updates.tier) {
+      await Listing.updateMany({ owner: req.params.id }, { $set: { tier: updates.tier } });
+      console.log(`✅ Synced tier ${updates.tier} to all listings for user ${user.email}`);
+    }
+
     res.json({
       success: true,
       message: "User updated successfully",
@@ -550,6 +560,15 @@ router.patch(
       }
 
       await user.save();
+
+      // Sync tier to all user's listings
+      const listingUpdateResult = await Listing.updateMany(
+        { owner: user._id },
+        { $set: { tier: tier } }
+      );
+      console.log(
+        `✅ Synced tier ${tier} to ${listingUpdateResult.modifiedCount} listings for user ${user.email}`
+      );
 
       // Create a payment record for tracking
       await Payment.create({
