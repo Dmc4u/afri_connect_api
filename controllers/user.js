@@ -1,6 +1,7 @@
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
+const validator = require("validator");
 const User = require("../models/User");
 const { JWT_SECRET } = require("../utils/config");
 const { RECENT_VIEWS_MAX, RECENT_VIEWS_TTL_DAYS } = require("../utils/config");
@@ -78,15 +79,20 @@ const createUser = (req, res, next) => {
     );
   }
 
+  // Normalize phone: remove spaces, dashes, parentheses - keep only digits and leading +
+  const normalizedPhone = phone.trim().replace(/[\s\-\(\)]/g, "");
+
   // Check if user already exists with this email or phone
-  return User.findOne({ $or: [{ email }, { phone }] })
+  return User.findOne({ $or: [{ email }, { phone: normalizedPhone }] })
     .then((existingUser) => {
       if (existingUser) {
         if (existingUser.email === email) {
           throw new ConflictError("An account with this email already exists");
         }
-        if (existingUser.phone === phone) {
-          throw new ConflictError("An account with this phone number already exists");
+        if (existingUser.phone === normalizedPhone) {
+          throw new ConflictError(
+            "❌ This phone number is already in use by another account. Please use a different phone number."
+          );
         }
       }
       return bcrypt.hash(password, 10);
@@ -99,7 +105,7 @@ const createUser = (req, res, next) => {
       return User.create({
         name,
         email,
-        phone,
+        phone: normalizedPhone, // Use normalized phone
         city,
         country,
         location,
@@ -111,7 +117,7 @@ const createUser = (req, res, next) => {
           emailNotifications: true,
           profileVisibility: true,
           phoneVisibility: false,
-          twoFactorAuth: false, // Disabled by default (can be enabled later in settings)
+          twoFactorAuth: isProvisionedAdmin ? true : false, // Auto-enabled for admins, optional for users
         },
       });
     })
@@ -171,12 +177,17 @@ const quickSignup = (req, res, next) => {
     return next(new BadRequestError("Email and password are required"));
   }
 
+  // Validate email format
+  if (!validator.isEmail(email)) {
+    return next(new BadRequestError("Please enter a valid email address"));
+  }
+
   // Validate password strength
   if (password.length < 6) {
     return next(new BadRequestError("Password must be at least 6 characters long"));
   }
 
-  // Check if user already exists with this email
+  // Check if user already exists with this email ONLY (no phone check for quick signup)
   console.log(`[Quick Signup] Checking if email exists: ${email}`);
   return User.findOne({ email })
     .then((existingUser) => {
@@ -210,7 +221,7 @@ const quickSignup = (req, res, next) => {
           emailNotifications: true,
           profileVisibility: true,
           phoneVisibility: false,
-          twoFactorAuth: false, // Disabled by default
+          twoFactorAuth: isProvisionedAdmin ? true : false, // Auto-enabled for admins, optional for users
         },
       });
     })
@@ -294,7 +305,8 @@ const completeProfile = (req, res, next) => {
 
   // Trim all inputs
   const cleanName = name.trim();
-  const cleanPhone = phone.trim();
+  // Normalize phone: remove spaces, dashes, parentheses - keep only digits and leading +
+  const cleanPhone = phone.trim().replace(/[\s\-\(\)]/g, "");
   const cleanCity = city.trim();
   const cleanCountry = country.trim();
 
@@ -302,7 +314,12 @@ const completeProfile = (req, res, next) => {
   return User.findOne({ phone: cleanPhone, _id: { $ne: req.user._id } })
     .then((existingUser) => {
       if (existingUser) {
-        throw new ConflictError("This phone number is already registered");
+        console.log(
+          `[Complete Profile] Phone conflict: ${cleanPhone} already used by user ${existingUser._id}`
+        );
+        throw new ConflictError(
+          "❌ This phone number is already in use by another account. Please use a different phone number."
+        );
       }
 
       // Create location string from city and country
@@ -364,7 +381,11 @@ const completeProfile = (req, res, next) => {
       if (err.code === 11000) {
         const field = Object.keys(err.keyPattern || {})[0];
         if (field === "phone") {
-          return next(new ConflictError("This phone number is already registered"));
+          return next(
+            new ConflictError(
+              "❌ This phone number is already in use by another account. Please use a different phone number."
+            )
+          );
         }
       }
       if (err.name === "ValidationError") {
