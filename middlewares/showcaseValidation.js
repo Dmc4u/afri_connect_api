@@ -170,11 +170,12 @@ const validateContestantRegistration = [
     .notEmpty()
     .withMessage("Video URL is required")
     .custom((value) => {
-      // Accept YouTube URLs or uploaded video URLs (localhost or production)
+      // Accept YouTube URLs, uploaded video URLs (absolute), or local paths (relative)
       const isYouTube = value.includes("youtube.com") || value.includes("youtu.be");
-      const isUploadedVideo = value.startsWith("http://") || value.startsWith("https://");
+      const isAbsoluteUrl = value.startsWith("http://") || value.startsWith("https://");
+      const isRelativePath = value.startsWith("/"); // Local development uploads
 
-      if (!isYouTube && !isUploadedVideo) {
+      if (!isYouTube && !isAbsoluteUrl && !isRelativePath) {
         throw new Error("Invalid video URL");
       }
       return true;
