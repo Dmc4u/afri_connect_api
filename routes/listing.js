@@ -198,8 +198,7 @@ router.patch(
       }
 
       if (name !== undefined) {
-        mediaFile.filename = name;
-        mediaFile.originalname = name;
+        mediaFile.name = name; // Update the custom title/name field
       }
       if (description !== undefined) {
         mediaFile.description = description;
