@@ -325,6 +325,10 @@ const createListing = async (req, res, next) => {
       status: isAdmin ? "active" : "pending", // Admins' listings are auto-approved
     };
 
+    // NOTE: Media validation happens on the frontend before submission
+    // Files are uploaded separately via /listings/:id/upload endpoint after listing creation
+    // This matches the current two-step architecture: create listing → upload media
+
     // Enforce per-tier media limits and types
     // Business (Free): 15 images, Talent (Free): 10 videos
     // Business (Starter): 20 images, Talent (Starter): 15 videos
@@ -436,37 +440,6 @@ const createListing = async (req, res, next) => {
       });
 
       listingData.mediaFiles = await Promise.all(uploadPromises);
-    }
-
-    // ✅ VALIDATE MEDIA REQUIREMENTS (Backend validation to prevent API bypass)
-    // Enforce media requirements for non-admin users
-    if (!isAdmin) {
-      const isTalent = isTalentCategory(category);
-      const hasMediaFiles = listingData.mediaFiles && listingData.mediaFiles.length > 0;
-
-      if (isTalent) {
-        // Talent listings MUST have at least 1 video
-        const hasVideo = listingData.mediaFiles?.some(
-          (file) => file.type === "video" || file.mimetype?.startsWith("video/")
-        );
-
-        if (!hasVideo) {
-          throw new BadRequestError(
-            "At least one video is required for talent listings. Please upload a video showcasing your talent."
-          );
-        }
-      } else {
-        // Business listings MUST have at least 1 image
-        const hasImage = listingData.mediaFiles?.some(
-          (file) => file.type === "image" || file.mimetype?.startsWith("image/")
-        );
-
-        if (!hasImage) {
-          throw new BadRequestError(
-            "At least one image is required for business listings. Please upload at least one business photo."
-          );
-        }
-      }
     }
 
     const listing = await Listing.create(listingData);
