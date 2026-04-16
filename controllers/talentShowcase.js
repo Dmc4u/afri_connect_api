@@ -1156,6 +1156,13 @@ exports.registerContestant = async (req, res) => {
 
     // If there's an entry fee, verify payment was made
     if (hasEntryFee && !skipPayment && !isAdmin) {
+      console.log(
+        "💰 Checking payment requirement. OrderId:",
+        paymentOrderId,
+        "EntryFee:",
+        showcase.entryFee
+      );
+
       if (!paymentOrderId) {
         return res.status(400).json({
           success: false,
@@ -1165,45 +1172,32 @@ exports.registerContestant = async (req, res) => {
         });
       }
 
-      // Verify payment with PayPal (amount/currency + approval state)
-      try {
-        const { getOrder, captureOrder } = require("../utils/paypal");
+      // Check if payment was already captured via universal payment system
+      const Payment = require("../models/Payment");
+      console.log(
+        "🔍 Looking for payment with orderId:",
+        paymentOrderId,
+        "paymentType: showcase, status: completed"
+      );
 
-        // Pre-check: validate order details before capturing
-        const order = await getOrder(paymentOrderId);
-        const unit = order?.purchase_units?.[0];
-        const orderCurrency = unit?.amount?.currency_code;
-        const orderAmount = parseFloat(unit?.amount?.value || "0");
-        const expectedCurrency = (showcase.entryFeeCurrency || "USD").toUpperCase();
+      const existingPayment = await Payment.findOne({
+        orderId: paymentOrderId,
+        paymentType: "showcase",
+        status: "completed",
+      });
 
-        if (orderCurrency && orderCurrency !== expectedCurrency) {
-          return res.status(400).json({
-            success: false,
-            message: "Payment currency mismatch. Please retry payment.",
-          });
-        }
+      console.log(
+        "💳 Payment found:",
+        existingPayment ? "YES" : "NO",
+        existingPayment ? `Amount: ${existingPayment.amount.value}` : ""
+      );
 
-        if (orderAmount && Math.abs(orderAmount - showcase.entryFee) > 0.01) {
+      if (existingPayment) {
+        // Payment already captured, just verify amount matches
+        if (Math.abs(existingPayment.amount.value - showcase.entryFee) > 0.01) {
           return res.status(400).json({
             success: false,
             message: "Payment amount mismatch. Please retry payment.",
-          });
-        }
-
-        if (order?.status && !["APPROVED", "COMPLETED"].includes(order.status)) {
-          return res.status(400).json({
-            success: false,
-            message: "Order not approved. Please complete payment first.",
-          });
-        }
-
-        // Capture the PayPal order
-        const capture = await captureOrder(paymentOrderId);
-
-        if (capture.status !== "COMPLETED") {
-          return res.status(400).json({
-            success: false,
-            message: "Payment verification failed. Please complete payment first.",
           });
         }
 
@@ -1211,14 +1205,64 @@ exports.registerContestant = async (req, res) => {
           paid: true,
           amount: showcase.entryFee,
           transactionId: paymentOrderId,
-          paidAt: new Date(),
+          paidAt: existingPayment.updatedAt || new Date(),
         };
-      } catch (error) {
-        console.error("Payment verification error:", error);
-        return res.status(400).json({
-          success: false,
-          message: "Payment verification failed. Please try again.",
-        });
+      } else {
+        // Legacy flow: Verify payment with PayPal and capture
+        try {
+          const { getOrder, captureOrder } = require("../utils/paypal");
+
+          // Pre-check: validate order details before capturing
+          const order = await getOrder(paymentOrderId);
+          const unit = order?.purchase_units?.[0];
+          const orderCurrency = unit?.amount?.currency_code;
+          const orderAmount = parseFloat(unit?.amount?.value || "0");
+          const expectedCurrency = (showcase.entryFeeCurrency || "USD").toUpperCase();
+
+          if (orderCurrency && orderCurrency !== expectedCurrency) {
+            return res.status(400).json({
+              success: false,
+              message: "Payment currency mismatch. Please retry payment.",
+            });
+          }
+
+          if (orderAmount && Math.abs(orderAmount - showcase.entryFee) > 0.01) {
+            return res.status(400).json({
+              success: false,
+              message: "Payment amount mismatch. Please retry payment.",
+            });
+          }
+
+          if (order?.status && !["APPROVED", "COMPLETED"].includes(order.status)) {
+            return res.status(400).json({
+              success: false,
+              message: "Order not approved. Please complete payment first.",
+            });
+          }
+
+          // Capture the PayPal order
+          const capture = await captureOrder(paymentOrderId);
+
+          if (capture.status !== "COMPLETED") {
+            return res.status(400).json({
+              success: false,
+              message: "Payment verification failed. Please complete payment first.",
+            });
+          }
+
+          entryFeeData = {
+            paid: true,
+            amount: showcase.entryFee,
+            transactionId: paymentOrderId,
+            paidAt: new Date(),
+          };
+        } catch (error) {
+          console.error("Payment verification error:", error);
+          return res.status(400).json({
+            success: false,
+            message: "Payment verification failed. Please try again.",
+          });
+        }
       }
     } else if (isAdmin || !hasEntryFee) {
       // Admin bypass or free entry

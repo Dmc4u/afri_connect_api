@@ -244,19 +244,26 @@ const createUniversalOrder = async (req, res) => {
       };
     } else if (type === "advertising") {
       // Compute advertising price on the server to prevent client-side manipulation.
-      const placement = String(metadata?.placement || "").trim();
+      // Support both 'placement' (legacy) and 'package' (new package system)
+      const placement = String(metadata?.placement || metadata?.package || "").trim();
+      const packageType = metadata?.package; // Preserve package for pricing function
       const durationDays = metadata?.duration ?? metadata?.numberOfDays;
       const videoDurationSec = metadata?.videoDuration;
       if (!placement) {
-        return res.status(400).json({ error: "Advertising placement is required" });
+        return res.status(400).json({ error: "Advertising placement or package is required" });
       }
 
-      const pricing = computeAdvertisingPricing({ placement, durationDays, videoDurationSec });
+      const pricing = computeAdvertisingPricing({
+        placement,
+        package: packageType,
+        durationDays,
+        videoDurationSec,
+      });
       authoritativeAmount = pricing.totalAmount;
       authoritativeCurrency = "USD";
       context.advertising = {
         placement,
-        durationDays: pricing.days,
+        package: packageType, // Include package type        durationDays: pricing.days,
         videoDuration: Math.max(0, parseInt(videoDurationSec, 10) || 0),
         basePlanAmount: pricing.basePlanAmount,
         videoDurationAddon: pricing.videoDurationAddon,
@@ -623,7 +630,38 @@ async function applyPaymentEffects(payment, user, metadata) {
       break;
 
     case "showcase":
-      // Handle showcase payment effects
+      // Handle showcase registration after payment
+      if (metadata && metadata.showcaseId) {
+        const TalentShowcase = require("../models/TalentShowcase");
+        const showcase = await TalentShowcase.findById(metadata.showcaseId);
+
+        if (showcase && user) {
+          // Register user for the showcase
+          if (!showcase.participants) {
+            showcase.participants = [];
+          }
+
+          const alreadyRegistered = showcase.participants.some(
+            (p) => p.userId && p.userId.toString() === user._id.toString()
+          );
+
+          if (!alreadyRegistered) {
+            showcase.participants.push({
+              userId: user._id,
+              name: user.name,
+              email: user.email,
+              registeredAt: new Date(),
+              paymentStatus: "paid",
+              transactionId: payment.orderId,
+            });
+
+            await showcase.save();
+            console.log(`✅ User ${user.email} registered for showcase: ${metadata.showcaseTitle}`);
+          } else {
+            console.log(`ℹ️ User already registered for showcase: ${metadata.showcaseTitle}`);
+          }
+        }
+      }
       console.log("✅ Showcase payment processed");
       break;
 
