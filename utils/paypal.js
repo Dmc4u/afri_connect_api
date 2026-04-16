@@ -3,6 +3,11 @@ const cfg = require("./config");
 const baseUrl =
   cfg.PAYPAL_MODE === "live" ? "https://api-m.paypal.com" : "https://api-m.sandbox.paypal.com";
 
+// Get correct frontend URL based on environment
+const getFrontendUrl = () => {
+  return cfg.FRONTEND_URL || cfg.PUBLIC_APP_URL || "http://localhost:3001";
+};
+
 // Get OAuth2 Access Token
 async function getAccessToken() {
   const response = await fetch(`${baseUrl}/v1/oauth2/token`, {
@@ -52,8 +57,8 @@ async function createOrder(amount, seatType, currency = "USD", userId = null, co
     application_context: {
       brand_name: "AfriOnet",
       user_action: "PAY_NOW",
-      return_url: context.returnUrl || "http://localhost:3001/featured?paypal=approved",
-      cancel_url: context.cancelUrl || "http://localhost:3001/featured?paypal=cancel",
+      return_url: context.returnUrl || `${getFrontendUrl()}/featured?paypal=approved`,
+      cancel_url: context.cancelUrl || `${getFrontendUrl()}/featured?paypal=cancel`,
     },
   };
 
