@@ -444,6 +444,10 @@ app.use("/api/upload", uploadRouter);
 const mediaRouter = require("./routes/media");
 app.use("/api/media", mediaRouter);
 
+// Agent support system routes
+const agentRouter = require("./routes/agents");
+app.use("/api/agents", agentRouter);
+
 // Public endpoint to get unique user countries (for exchange rate display)
 app.get("/users/countries", async (req, res) => {
   try {

@@ -95,6 +95,17 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+
+    // Agent system fields
+    isAgent: {
+      type: Boolean,
+      default: false,
+    },
+    agentProfile: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Agent",
+      default: null,
+    },
     settings: {
       emailNotifications: {
         type: Boolean,
