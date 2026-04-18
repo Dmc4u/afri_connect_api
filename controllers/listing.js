@@ -311,6 +311,22 @@ const createListing = async (req, res, next) => {
       }
     }
 
+    // Validate Website / Social Media URL is required
+    if (!website || website.trim().length < 5) {
+      throw new BadRequestError(
+        "Website / Social Media URL is required. Please provide at least one: Website, Facebook, Instagram, WhatsApp, or LinkedIn link"
+      );
+    }
+
+    // Validate URL format
+    const urlPattern =
+      /^(https?:\/\/)?([\w\d\-_]+\.+[a-z]{2,}|wa\.me|facebook\.com|instagram\.com|linkedin\.com)/i;
+    if (!urlPattern.test(website.trim())) {
+      throw new BadRequestError(
+        "Please provide a valid URL (e.g., https://yourbusiness.com, https://facebook.com/yourbusiness, https://wa.me/234812345678)"
+      );
+    }
+
     const listingData = {
       title,
       description,
@@ -476,6 +492,24 @@ const updateListing = async (req, res, next) => {
     delete updates.owner;
     delete updates.views;
     delete updates.createdAt;
+
+    // Validate Website / Social Media URL if it's being updated
+    if (updates.website !== undefined) {
+      if (!updates.website || updates.website.trim().length < 5) {
+        throw new BadRequestError(
+          "Website / Social Media URL is required. Please provide at least one: Website, Facebook, Instagram, WhatsApp, or LinkedIn link"
+        );
+      }
+
+      // Validate URL format
+      const urlPattern =
+        /^(https?:\/\/)?([\w\d\-_]+\.+[a-z]{2,}|wa\.me|facebook\.com|instagram\.com|linkedin\.com)/i;
+      if (!urlPattern.test(updates.website.trim())) {
+        throw new BadRequestError(
+          "Please provide a valid URL (e.g., https://yourbusiness.com, https://facebook.com/yourbusiness, https://wa.me/234812345678)"
+        );
+      }
+    }
 
     const updatedListing = await Listing.findByIdAndUpdate(
       id,

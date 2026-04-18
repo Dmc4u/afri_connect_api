@@ -29,7 +29,9 @@ const listingSchema = new mongoose.Schema(
     },
     website: {
       type: String,
+      required: [true, "Website / Social Media URL is required"],
       trim: true,
+      minlength: [5, "Website / Social Media URL must be at least 5 characters"],
     },
     businessHours: {
       type: String,
