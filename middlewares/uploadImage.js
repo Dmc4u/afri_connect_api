@@ -13,10 +13,12 @@ const imageStorage = multer.diskStorage({
     cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    const safeExt = ext && ext.length <= 10 ? ext : "";
-    const uniqueSuffix = `${req.user?._id || "user"}-${Date.now()}`;
-    cb(null, `image-${uniqueSuffix}${safeExt}`);
+    // Preserve original filename (sanitized for safety)
+    const sanitizedName = file.originalname
+      .replace(/[^a-zA-Z0-9._-]/g, "_")
+      .replace(/_+/g, "_")
+      .replace(/^_|_$/g, "");
+    cb(null, sanitizedName || `image_${Date.now()}${path.extname(file.originalname)}`);
   },
 });
 

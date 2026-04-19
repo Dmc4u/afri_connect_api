@@ -46,6 +46,8 @@ const {
   verifyLoginOtp,
   quickSignup,
   completeProfile,
+  forgotPassword,
+  resetPassword,
 } = require("./controllers/user");
 const {
   configureGoogleStrategy,
@@ -398,6 +400,10 @@ app.put("/auth/complete-profile", auth, completeProfile);
 
 // Email OTP 2FA verification
 app.post("/auth/verify-otp", strictLimiter, validateVerifyOtp, verifyLoginOtp);
+
+// Password reset routes
+app.post("/auth/forgot-password", strictLimiter, forgotPassword);
+app.post("/auth/reset-password", strictLimiter, resetPassword);
 
 // Google OAuth routes
 app.get("/auth/google", googleAuth);

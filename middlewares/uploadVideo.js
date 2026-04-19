@@ -14,10 +14,12 @@ const videoStorage = multer.diskStorage({
     cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
-    const userId = req.user?._id || "anonymous";
-    const uniqueSuffix = `${userId}-${Date.now()}`;
-    const ext = path.extname(file.originalname);
-    cb(null, `video-${uniqueSuffix}${ext}`);
+    // Preserve original filename (sanitized for safety)
+    const sanitizedName = file.originalname
+      .replace(/[^a-zA-Z0-9._-]/g, "_")
+      .replace(/_+/g, "_")
+      .replace(/^_|_$/g, "");
+    cb(null, sanitizedName || `video_${Date.now()}${path.extname(file.originalname)}`);
   },
 });
 

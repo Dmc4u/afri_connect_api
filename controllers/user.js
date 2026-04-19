@@ -838,6 +838,125 @@ const enableLeadGeneration = (req, res, next) => {
     });
 };
 
+// POST /auth/forgot-password - Send password reset email
+const forgotPassword = async (req, res, next) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return next(new BadRequestError("Email is required"));
+    }
+
+    // Find user by email
+    const user = await User.findOne({ email });
+
+    // Always return success even if user not found (security best practice)
+    if (!user) {
+      return res.send({
+        message: "If an account with that email exists, a password reset link has been sent.",
+      });
+    }
+
+    // Check if user has a password (OAuth users don't have passwords)
+    const userWithPassword = await User.findById(user._id).select("+password");
+    if (!userWithPassword.password) {
+      return res.send({
+        message: "If an account with that email exists, a password reset link has been sent.",
+      });
+    }
+
+    // Generate reset token
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    const hashedToken = crypto.createHash("sha256").update(resetToken).digest("hex");
+
+    // Save hashed token and expiration (1 hour)
+    user.passwordResetToken = hashedToken;
+    user.passwordResetExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    await user.save();
+
+    // Send password reset email
+    const result = await notificationUtils.sendPasswordResetEmail(user, resetToken);
+
+    if (!result || result.success !== true) {
+      user.passwordResetToken = null;
+      user.passwordResetExpires = null;
+      await user.save();
+      return next(new BadRequestError("Failed to send password reset email. Please try again."));
+    }
+
+    logActivity({
+      type: "password_reset_requested",
+      description: `Password reset requested for ${email}`,
+      userId: user._id,
+      userName: user.name,
+      userEmail: user.email,
+      action: "request",
+      targetType: "user",
+      targetId: user._id,
+    });
+
+    return res.send({
+      message: "If an account with that email exists, a password reset link has been sent.",
+    });
+  } catch (err) {
+    return next(err);
+  }
+};
+
+// POST /auth/reset-password - Reset password with token
+const resetPassword = async (req, res, next) => {
+  try {
+    const { token, password } = req.body;
+
+    if (!token || !password) {
+      return next(new BadRequestError("Token and new password are required"));
+    }
+
+    if (password.length < 8) {
+      return next(new BadRequestError("Password must be at least 8 characters"));
+    }
+
+    // Hash the token to compare with stored hash
+    const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
+
+    // Find user with valid reset token
+    const user = await User.findOne({
+      passwordResetToken: hashedToken,
+      passwordResetExpires: { $gt: Date.now() },
+    }).select("+password +passwordResetToken");
+
+    if (!user) {
+      return next(new BadRequestError("Invalid or expired reset token"));
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Update password and clear reset token
+    user.password = hashedPassword;
+    user.passwordResetToken = null;
+    user.passwordResetExpires = null;
+    await user.save();
+
+    logActivity({
+      type: "password_reset_completed",
+      description: `Password reset completed for ${user.email}`,
+      userId: user._id,
+      userName: user.name,
+      userEmail: user.email,
+      action: "update",
+      targetType: "user",
+      targetId: user._id,
+    });
+
+    return res.send({
+      message: "Password has been reset successfully. You can now log in with your new password.",
+    });
+  } catch (err) {
+    return next(err);
+  }
+};
+
 module.exports = {
   getCurrentUser,
   createUser,
@@ -845,6 +964,8 @@ module.exports = {
   completeProfile,
   login,
   verifyLoginOtp,
+  forgotPassword,
+  resetPassword,
   updateUser,
   updateUserPhoto,
   deleteUserPhoto,

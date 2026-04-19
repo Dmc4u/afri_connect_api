@@ -132,6 +132,16 @@ const userSchema = new mongoose.Schema(
       attempts: { type: Number, default: 0 },
       lastSentAt: { type: Date, default: null },
     },
+    // Password reset token (stored hashed; expires in 1 hour)
+    passwordResetToken: {
+      type: String,
+      default: null,
+      select: false,
+    },
+    passwordResetExpires: {
+      type: Date,
+      default: null,
+    },
     // Pro tier specific fields
     verifiedBadge: {
       type: Boolean,
