@@ -14,6 +14,7 @@ const {
   sendEmail,
   utils: notificationUtils,
   sendWelcomeEmail,
+  sendPasswordResetEmail,
 } = require("../utils/notifications");
 const {
   BadRequestError,
@@ -875,7 +876,7 @@ const forgotPassword = async (req, res, next) => {
     await user.save();
 
     // Send password reset email
-    const result = await notificationUtils.sendPasswordResetEmail(user, resetToken);
+    const result = await sendPasswordResetEmail(user, resetToken);
 
     if (!result || result.success !== true) {
       user.passwordResetToken = null;
