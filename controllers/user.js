@@ -913,6 +913,10 @@ const resetPassword = async (req, res, next) => {
       return next(new BadRequestError("Token and new password are required"));
     }
 
+    if (token === "undefined" || token === "null") {
+      return next(new BadRequestError("Invalid or expired reset token"));
+    }
+
     if (password.length < 8) {
       return next(new BadRequestError("Password must be at least 8 characters"));
     }

@@ -152,7 +152,7 @@ const emailTemplates = {
     </body></html>`,
   }),
 
-  passwordReset: (user, resetToken) => ({
+  passwordReset: ({ user = {}, resetToken = "" } = {}) => ({
     subject: `Password Reset Request - ${APP_NAME}`,
     html: `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f5f5;">
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
@@ -162,7 +162,7 @@ const emailTemplates = {
         </div>
         <div style="padding: 20px;">
           <h2>Password Reset Request</h2>
-          <p>Hello ${user.name},</p>
+          <p>Hello ${user.name || "there"},</p>
           <p>We received a request to reset your password for your ${APP_NAME} account.</p>
           <p>Click the button below to reset your password:</p>
           <div style="text-align: center; margin: 30px 0;">
