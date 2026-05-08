@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { FORUM_CATEGORY_IDS } = require("../utils/forumCategories");
 
 const forumPostSchema = new mongoose.Schema(
   {
@@ -31,18 +32,7 @@ const forumPostSchema = new mongoose.Schema(
     category: {
       type: String,
       required: [true, "Category is required"],
-      enum: [
-        "general",
-        "business",
-        "technology",
-        "marketing",
-        "networking",
-        "advice",
-        "showcase",
-        "feedback",
-        "support",
-        "announcements",
-      ],
+      enum: FORUM_CATEGORY_IDS,
       index: true,
     },
     tags: [

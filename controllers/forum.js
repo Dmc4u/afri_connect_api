@@ -433,6 +433,45 @@ const getUserPostStats = async (req, res, next) => {
   }
 };
 
+const getForumUnreadCount = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user._id).select("lastForumViewedAt createdAt");
+    const lastSeenAt = user?.lastForumViewedAt || user?.createdAt || new Date(0);
+
+    const unreadCount = await ForumPost.countDocuments({
+      status: "published",
+      author: { $ne: req.user._id },
+      createdAt: { $gt: lastSeenAt },
+    });
+
+    res.json({
+      success: true,
+      unreadCount,
+      lastSeenAt,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const markForumAsSeen = async (req, res, next) => {
+  try {
+    const seenAt = new Date();
+
+    await User.findByIdAndUpdate(req.user._id, {
+      lastForumViewedAt: seenAt,
+    });
+
+    res.json({
+      success: true,
+      unreadCount: 0,
+      seenAt,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getAllPosts,
   getPostById,
@@ -444,4 +483,6 @@ module.exports = {
   toggleLike,
   getMyPosts,
   getUserPostStats,
+  getForumUnreadCount,
+  markForumAsSeen,
 };

@@ -175,6 +175,10 @@ const userSchema = new mongoose.Schema(
         pinned: { type: Boolean, default: false },
       },
     ],
+    lastForumViewedAt: {
+      type: Date,
+      default: null,
+    },
     // Subscription fields for 2Checkout integration
     subscriptionId: {
       type: String, // 2Checkout subscription reference
