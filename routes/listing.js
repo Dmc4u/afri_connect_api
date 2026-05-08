@@ -11,6 +11,8 @@ const {
   deleteListingMedia,
   deleteListing,
   toggleFeatureListing,
+  toggleLikeListing,
+  toggleFollowListing,
 } = require("../controllers/listing");
 const auth = require("../middlewares/auth");
 const optionalAuth = require("../middlewares/optionalAuth");
@@ -90,8 +92,8 @@ const queryValidation = celebrate({
   }),
 });
 
-// Public routes (no authentication required)
-router.get("/", queryValidation, getAllListings);
+// Public routes (authentication optional for current user's engagement state)
+router.get("/", optionalAuth, queryValidation, getAllListings);
 
 // Protected routes with specific paths (MUST come before /:id wildcard route)
 router.get("/my-listings", auth, queryValidation, getMyListings);
@@ -102,6 +104,8 @@ router.get("/:id", optionalAuth, listingIdValidation, getListingById);
 // Other protected routes
 router.post("/", auth, upload.array("mediaFiles", 10), createListingValidation, createListing);
 router.post("/:id/upload", auth, upload.single("file"), listingIdValidation, uploadMedia);
+router.post("/:id/like", auth, listingIdValidation, toggleLikeListing);
+router.post("/:id/follow", auth, listingIdValidation, toggleFollowListing);
 router.post(
   "/:id/add-url-media",
   auth,

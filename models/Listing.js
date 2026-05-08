@@ -87,6 +87,32 @@ const listingSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    likedBy: [
+      {
+        user: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+          required: true,
+        },
+        createdAt: {
+          type: Date,
+          default: Date.now,
+        },
+      },
+    ],
+    followers: [
+      {
+        user: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+          required: true,
+        },
+        createdAt: {
+          type: Date,
+          default: Date.now,
+        },
+      },
+    ],
     featured: {
       type: Boolean,
       default: false,
@@ -153,6 +179,8 @@ listingSchema.index({ category: 1, status: 1 });
 listingSchema.index({ location: 1, status: 1 });
 listingSchema.index({ tier: 1, status: 1 });
 listingSchema.index({ createdAt: -1 });
+listingSchema.index({ "likedBy.user": 1 });
+listingSchema.index({ "followers.user": 1 });
 
 // Helper: slugify text
 function slugify(text = "") {

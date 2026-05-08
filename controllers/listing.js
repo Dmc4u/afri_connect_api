@@ -31,6 +31,26 @@ async function generateUniqueSlug(base, currentId) {
   }
 }
 
+function addEngagementState(listing, userId) {
+  const likedBy = listing?.likedBy || [];
+  const followers = listing?.followers || [];
+  const currentUserId = userId ? String(userId) : null;
+
+  return {
+    ...listing,
+    likedBy: undefined,
+    followers: undefined,
+    likesCount: likedBy.length,
+    followersCount: followers.length,
+    isLiked: currentUserId
+      ? likedBy.some((like) => String(like.user || like) === currentUserId)
+      : false,
+    isFollowing: currentUserId
+      ? followers.some((follow) => String(follow.user || follow) === currentUserId)
+      : false,
+  };
+}
+
 // Get all listings (public)
 const getAllListings = async (req, res, next) => {
   try {
@@ -100,6 +120,7 @@ const getAllListings = async (req, res, next) => {
         return l;
       })
     );
+    listings = listings.map((listing) => addEngagementState(listing, req.user?._id));
     // fire-and-forget updates; no await
 
     const total = await Listing.countDocuments(query);
@@ -170,7 +191,7 @@ const getListingById = async (req, res, next) => {
 
     res.json({
       success: true,
-      listing,
+      listing: addEngagementState(listing, userId),
     });
   } catch (error) {
     next(error);
@@ -219,6 +240,7 @@ const getMyListings = async (req, res, next) => {
         return l;
       })
     );
+    listings = listings.map((listing) => addEngagementState(listing, req.user?._id));
 
     const total = await Listing.countDocuments(query);
 
@@ -790,6 +812,80 @@ const toggleFeatureListing = async (req, res, next) => {
   }
 };
 
+const toggleLikeListing = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user._id;
+
+    const listing = await Listing.findById(id);
+    if (!listing || listing.status === "deleted") {
+      throw new NotFoundError("Listing not found");
+    }
+
+    const likeIndex = (listing.likedBy || []).findIndex(
+      (like) => String(like.user) === String(userId)
+    );
+    const isLiked = likeIndex === -1;
+
+    if (isLiked) {
+      listing.likedBy.push({ user: userId, createdAt: new Date() });
+    } else {
+      listing.likedBy.splice(likeIndex, 1);
+    }
+
+    await listing.save();
+
+    res.json({
+      success: true,
+      action: isLiked ? "liked" : "unliked",
+      listingId: listing._id,
+      likesCount: listing.likedBy.length,
+      followersCount: listing.followers.length,
+      isLiked,
+      isFollowing: listing.followers.some((follow) => String(follow.user) === String(userId)),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const toggleFollowListing = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user._id;
+
+    const listing = await Listing.findById(id);
+    if (!listing || listing.status === "deleted") {
+      throw new NotFoundError("Listing not found");
+    }
+
+    const followIndex = (listing.followers || []).findIndex(
+      (follow) => String(follow.user) === String(userId)
+    );
+    const isFollowing = followIndex === -1;
+
+    if (isFollowing) {
+      listing.followers.push({ user: userId, createdAt: new Date() });
+    } else {
+      listing.followers.splice(followIndex, 1);
+    }
+
+    await listing.save();
+
+    res.json({
+      success: true,
+      action: isFollowing ? "followed" : "unfollowed",
+      listingId: listing._id,
+      likesCount: listing.likedBy.length,
+      followersCount: listing.followers.length,
+      isLiked: listing.likedBy.some((like) => String(like.user) === String(userId)),
+      isFollowing,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getAllListings,
   getListingById,
@@ -800,4 +896,6 @@ module.exports = {
   deleteListingMedia,
   deleteListing,
   toggleFeatureListing,
+  toggleLikeListing,
+  toggleFollowListing,
 };
