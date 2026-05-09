@@ -84,10 +84,14 @@ const getPostById = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const post = await ForumPost.findOne({
-      _id: id,
-      status: "published",
-    })
+    const post = await ForumPost.findOneAndUpdate(
+      {
+        _id: id,
+        status: "published",
+      },
+      { $inc: { views: 1 } },
+      { new: true }
+    )
       .populate("author", "name email tier role avatar settings")
       .populate("replies.author", "name email tier role avatar settings")
       .lean();
@@ -96,12 +100,38 @@ const getPostById = async (req, res, next) => {
       throw new NotFoundError("Forum post not found");
     }
 
-    // Increment views (don't await to avoid slowing response)
-    ForumPost.findByIdAndUpdate(id, { $inc: { views: 1 } }).exec();
-
     res.json({
       success: true,
       post,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Record a forum post view from the list UI without fetching the full post again
+const incrementPostView = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const post = await ForumPost.findOneAndUpdate(
+      {
+        _id: id,
+        status: "published",
+      },
+      { $inc: { views: 1 } },
+      { new: true }
+    )
+      .select("views")
+      .lean();
+
+    if (!post) {
+      throw new NotFoundError("Forum post not found");
+    }
+
+    res.json({
+      success: true,
+      views: post.views || 0,
     });
   } catch (error) {
     next(error);
@@ -475,6 +505,7 @@ const markForumAsSeen = async (req, res, next) => {
 module.exports = {
   getAllPosts,
   getPostById,
+  incrementPostView,
   createPost,
   updatePost,
   deletePost,

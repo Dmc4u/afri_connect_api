@@ -3,6 +3,7 @@ const { celebrate, Joi } = require("celebrate");
 const {
   getAllPosts,
   getPostById,
+  incrementPostView,
   createPost,
   updatePost,
   deletePost,
@@ -78,6 +79,7 @@ const queryValidation = celebrate({
 // Public routes
 router.get("/posts", queryValidation, getAllPosts);
 router.get("/posts/:id", postIdValidation, getPostById);
+router.post("/posts/:id/view", postIdValidation, incrementPostView);
 router.get("/categories", (req, res) => {
   res.json({ categories: FORUM_CATEGORIES });
 });
