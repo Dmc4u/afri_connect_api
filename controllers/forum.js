@@ -13,6 +13,16 @@ const POST_LIMITS = {
 
 const FORUM_USER_FIELDS = "name email tier role avatar profilePhoto settings";
 
+const getUserForumTier = (user) => (user.role === "admin" || user.isAdmin ? "admin" : user.tier);
+
+const assertForumAccess = (user) => {
+  const userTier = getUserForumTier(user);
+  if (POST_LIMITS[userTier] === undefined) {
+    throw new ForbiddenError("Invalid membership tier");
+  }
+  return userTier;
+};
+
 // Get all forum posts (public)
 const getAllPosts = async (req, res, next) => {
   try {
@@ -149,7 +159,7 @@ const createPost = async (req, res, next) => {
     const user = await User.findById(req.user._id);
 
     // Get post limit for user's tier
-    const userTier = user.role === "admin" ? "admin" : user.tier;
+    const userTier = assertForumAccess(user);
     const postLimit = POST_LIMITS[userTier];
 
     if (postLimit === undefined) {
@@ -270,11 +280,7 @@ const addReply = async (req, res, next) => {
 
     // Check user tier for forum access
     const user = await User.findById(req.user._id);
-    if (!["Starter", "Premium", "Pro"].includes(user.tier) && !user.isAdmin) {
-      throw new ForbiddenError(
-        "Forum access requires a paid membership (Starter, Premium, or Pro)"
-      );
-    }
+    assertForumAccess(user);
 
     const post = await ForumPost.findOne({
       _id: id,
@@ -321,11 +327,7 @@ const toggleLike = async (req, res, next) => {
 
     // Check user tier for forum access
     const user = await User.findById(req.user._id);
-    if (!["Starter", "Premium", "Pro"].includes(user.tier) && user.role !== "admin") {
-      throw new ForbiddenError(
-        "Forum access requires a paid membership (Starter, Premium, or Pro)"
-      );
-    }
+    assertForumAccess(user);
 
     const post = await ForumPost.findOne({
       _id: id,
@@ -442,7 +444,7 @@ const getUserPostStats = async (req, res, next) => {
     const user = await User.findById(req.user._id);
 
     // Get post limit for user's tier
-    const userTier = user.role === "admin" ? "admin" : user.tier;
+    const userTier = assertForumAccess(user);
     const postLimit = POST_LIMITS[userTier];
 
     // Count user's existing posts (only published ones)
