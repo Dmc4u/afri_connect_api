@@ -11,6 +11,8 @@ const POST_LIMITS = {
   admin: Infinity,
 };
 
+const FORUM_USER_FIELDS = "name email tier role avatar profilePhoto settings";
+
 // Get all forum posts (public)
 const getAllPosts = async (req, res, next) => {
   try {
@@ -43,8 +45,8 @@ const getAllPosts = async (req, res, next) => {
     sortOptions[sortBy] = sortOrder === "desc" ? -1 : 1;
 
     const posts = await ForumPost.find(query)
-      .populate("author", "name email tier role avatar settings")
-      .populate("replies.author", "name email tier role avatar settings")
+      .populate("author", FORUM_USER_FIELDS)
+      .populate("replies.author", FORUM_USER_FIELDS)
       .sort(sortOptions)
       .skip(skip)
       .limit(parseInt(limit))
@@ -92,8 +94,8 @@ const getPostById = async (req, res, next) => {
       { $inc: { views: 1 } },
       { new: true }
     )
-      .populate("author", "name email tier role avatar settings")
-      .populate("replies.author", "name email tier role avatar settings")
+      .populate("author", FORUM_USER_FIELDS)
+      .populate("replies.author", FORUM_USER_FIELDS)
       .lean();
 
     if (!post) {
@@ -181,7 +183,7 @@ const createPost = async (req, res, next) => {
     };
 
     const post = await ForumPost.create(postData);
-    await post.populate("author", "name email tier role avatar settings");
+    await post.populate("author", FORUM_USER_FIELDS);
 
     res.status(201).json({
       success: true,
@@ -220,7 +222,7 @@ const updatePost = async (req, res, next) => {
       id,
       { ...updates, updatedAt: Date.now() },
       { new: true, runValidators: true }
-    ).populate("author", "name email tier role avatar settings");
+    ).populate("author", FORUM_USER_FIELDS);
 
     res.json({
       success: true,
@@ -297,7 +299,7 @@ const addReply = async (req, res, next) => {
     await post.save();
 
     // Populate the new reply
-    await post.populate("replies.author", "name email tier role avatar settings");
+    await post.populate("replies.author", FORUM_USER_FIELDS);
 
     const newReply = post.replies[post.replies.length - 1];
 
@@ -374,7 +376,7 @@ const getMyPosts = async (req, res, next) => {
     const skip = (page - 1) * limit;
 
     const posts = await ForumPost.find(query)
-      .populate("author", "name email tier role avatar settings")
+      .populate("author", FORUM_USER_FIELDS)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit))
