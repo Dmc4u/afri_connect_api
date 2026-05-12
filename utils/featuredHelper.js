@@ -48,6 +48,18 @@ function isOldGenericWinnerDescription(description, performanceTitle) {
   return false;
 }
 
+function resolveWinnerWebsite(contestant) {
+  const socialMedia = contestant?.socialMedia || {};
+  return (
+    socialMedia.youtube ||
+    socialMedia.instagram ||
+    socialMedia.facebook ||
+    socialMedia.twitter ||
+    contestant?.videoUrl ||
+    "https://afrionet.com/discover-talent"
+  );
+}
+
 /**
  * Convert YouTube URL to embed format
  * Uses standard YouTube embed with parameters for maximum cross-device compatibility
@@ -163,6 +175,7 @@ async function autoFeatureWinner(contestant) {
         title: contestant.performanceTitle,
         description: winnerLabel,
         location: userCity ? `${userCity}, ${userCountry}` : userCountry,
+        website: resolveWinnerWebsite(contestant),
         mediaFiles: mediaFiles,
         status: "active",
         featured: true,

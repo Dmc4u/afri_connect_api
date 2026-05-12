@@ -305,11 +305,8 @@ async function checkAndStartScheduledEvents() {
             phase.startTime = new Date(currentTime);
 
             if (phase.name === "countdown") {
-              phase.endTime =
-                timeline.thankYouMessage?.nextEventDate ||
-                phase.endTime ||
-                new Date(currentTime.getTime() + 30 * 24 * 60 * 60 * 1000);
-              currentTime = new Date(phase.endTime);
+              phase.duration = 0;
+              phase.endTime = new Date(currentTime);
               return;
             }
 
@@ -395,12 +392,38 @@ async function checkAndAdvancePhases() {
 
       let currentPhase = timeline.getCurrentPhase();
 
+      if (currentPhase?.name === "countdown" || timeline.currentPhase === "countdown") {
+        console.log(
+          `⏰ Countdown reached - immediately completing event: ${timeline.showcase.title}`
+        );
+        timeline.phases?.forEach((phase) => {
+          if (phase.name === "countdown" || phase.status === "active") {
+            phase.status = "completed";
+          }
+        });
+        timeline.currentPhase = "ended";
+        timeline.eventStatus = "completed";
+        timeline.isLive = false;
+        timeline.actualEndTime = new Date();
+        await timeline.save();
+        await TalentShowcase.findByIdAndUpdate(timeline.showcase._id, {
+          status: "completed",
+          endDate: new Date(),
+        });
+        console.log(`✅ Event completed instantly at countdown: ${timeline.showcase.title}`);
+        continue;
+      }
+
       // FIX: Detect and repair countdown phases with incorrect far-future endTimes
       // (Legacy data where countdown was set to next event date instead of 2 minute duration)
       const countdownPhase = timeline.phases?.find((p) => p.name === "countdown");
       if (countdownPhase && countdownPhase.status !== "completed") {
-        const countdownDuration = timeline.config?.countdownDuration || 2; // Should be 2 minutes
-        const expectedDurationMs = countdownDuration * 60 * 1000; // 2 minutes in ms
+        const countdownDuration = Number(timeline.config?.countdownDuration ?? 0);
+        if (countdownDuration <= 0) {
+          countdownPhase.endTime = countdownPhase.startTime || countdownPhase.endTime || now;
+          countdownPhase.duration = 0;
+        }
+        const expectedDurationMs = countdownDuration * 60 * 1000;
 
         if (countdownPhase.startTime && countdownPhase.endTime) {
           const actualDurationMs =

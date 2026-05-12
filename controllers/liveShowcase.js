@@ -253,11 +253,8 @@ exports.startLiveEvent = async (req, res) => {
         phase.startTime = new Date(cursor);
 
         if (phase.name === "countdown") {
-          // Countdown is continuous. Preserve a future endTime if it exists; otherwise default to 30 days.
-          const existingEnd = phase.endTime ? new Date(phase.endTime) : null;
-          const fallbackEnd = new Date(cursor.getTime() + 30 * 24 * 60 * 60 * 1000);
-          phase.endTime = existingEnd && existingEnd > cursor ? existingEnd : fallbackEnd;
-          cursor = new Date(phase.endTime);
+          phase.duration = 0;
+          phase.endTime = new Date(cursor);
           break;
         }
 
@@ -301,9 +298,8 @@ exports.startLiveEvent = async (req, res) => {
             const ph = timeline.phases[i];
             ph.startTime = new Date(cursor);
             if (ph.name === "countdown") {
-              const existingEnd = ph.endTime ? new Date(ph.endTime) : null;
-              const fallbackEnd = new Date(cursor.getTime() + 30 * 24 * 60 * 60 * 1000);
-              ph.endTime = existingEnd && existingEnd > cursor ? existingEnd : fallbackEnd;
+              ph.duration = 0;
+              ph.endTime = new Date(cursor);
               break;
             }
             const minutes = Number(ph.duration);

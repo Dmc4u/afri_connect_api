@@ -132,6 +132,7 @@ router.get("/stats", async (req, res, next) => {
       pendingListings,
       newListingsInRange,
       categoriesAgg,
+      rangeCategoriesAgg,
       totalPayments,
       activeSubscriptions,
       paymentsAggInRange,
@@ -152,7 +153,13 @@ router.get("/stats", async (req, res, next) => {
       Listing.countDocuments({ status: "pending" }),
       // Range: Listings created in the selected window
       Listing.countDocuments({ createdAt: { $gte: startDate, $lte: now } }),
-      // Range: Category distribution limited to listings created in the window
+      // Current category distribution for all listings.
+      Listing.aggregate([
+        { $match: { status: { $ne: "deleted" } } },
+        { $group: { _id: { $ifNull: ["$category", "Other"] }, count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+      ]),
+      // Range: category distribution limited to listings created in the window.
       Listing.aggregate([
         { $match: { createdAt: { $gte: startDate, $lte: now } } },
         { $group: { _id: { $ifNull: ["$category", "Other"] }, count: { $sum: 1 } } },
@@ -201,6 +208,29 @@ router.get("/stats", async (req, res, next) => {
       createdAt: { $gte: prevStartDate, $lt: startDate },
     });
 
+    const bucketCount = range === "24h" ? 24 : range === "90d" ? 12 : range === "30d" ? 10 : 7;
+    const bucketMs = Math.max(1, Math.ceil(windowMs / bucketCount));
+    const userSeries = [];
+    for (let i = 0; i < bucketCount; i += 1) {
+      const bucketStart = new Date(startDate.getTime() + bucketMs * i);
+      const bucketEnd = i === bucketCount - 1 ? now : new Date(bucketStart.getTime() + bucketMs);
+      const [newUsers, totalUsersAtEnd] = await Promise.all([
+        User.countDocuments({ createdAt: { $gte: bucketStart, $lt: bucketEnd } }),
+        User.countDocuments({ createdAt: { $lte: bucketEnd } }),
+      ]);
+
+      userSeries.push({
+        label:
+          range === "24h"
+            ? bucketStart.toLocaleTimeString("en-US", { hour: "2-digit" })
+            : bucketStart.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+        start: bucketStart,
+        end: bucketEnd,
+        newUsers,
+        totalUsers: totalUsersAtEnd,
+      });
+    }
+
     // Derive payments totals across currencies
     const paymentsInRange = Array.isArray(paymentsAggInRange)
       ? paymentsAggInRange.reduce((acc, c) => acc + (c.count || 0), 0)
@@ -242,6 +272,7 @@ router.get("/stats", async (req, res, next) => {
       growth: {
         newUsersThisWeek: newUsersInRange,
         prevWindowUsers: prevUsersInRange,
+        userSeries,
         newListingsInRange,
         paymentsInRange,
         revenueInRange,
@@ -251,6 +282,7 @@ router.get("/stats", async (req, res, next) => {
         tiers: tiersAgg,
         newTiers: newUsersByTierAgg,
         categories: categoriesAgg,
+        rangeCategories: rangeCategoriesAgg,
       },
       api: {
         calls24h: apiCalls24h,

@@ -23,10 +23,36 @@ function parseBoolEnv(value) {
 // Cloudinary has been removed; cloud uploads for showcases use GCS.
 
 async function ensureWinnerAnnouncement(timeline, showcaseId) {
-  if (timeline?.winnerAnnouncement?.announcementTime) return;
+  const existingAnnouncement = timeline?.winnerAnnouncement;
+  if (
+    existingAnnouncement?.announcementTime &&
+    (existingAnnouncement?.winner ||
+      existingAnnouncement?.isTie ||
+      Number(existingAnnouncement?.totalVotes || 0) > 0) &&
+    !existingAnnouncement?.noWinner
+  ) {
+    if (existingAnnouncement?.winner && !existingAnnouncement?.featuredAt) {
+      try {
+        const winnerId = existingAnnouncement.winner?._id || existingAnnouncement.winner;
+        const winner = await TalentContestant.findById(winnerId)
+          .populate("user")
+          .populate("listing");
 
-  const TalentContestant = require("../models/TalentContestant");
+        if (winner) {
+          const { autoFeatureWinner } = require("../utils/featuredHelper");
+          await autoFeatureWinner(winner);
+          existingAnnouncement.featuredAt = new Date();
+          await timeline.save();
+        }
+      } catch (e) {
+        console.warn("⚠️ Failed to auto-feature existing winner:", e?.message || e);
+      }
+    }
+    return;
+  }
+
   const showcase = await TalentShowcase.findById(showcaseId);
+  if (!showcase) return;
 
   const prizeText = showcase?.prizeDetails?.amount
     ? `$${showcase.prizeDetails.amount} ${showcase.prizeDetails.description || "cash prize and featured placement"}`
@@ -37,17 +63,54 @@ async function ensureWinnerAnnouncement(timeline, showcaseId) {
     .populate("user")
     .populate("listing");
 
-  if (contestants.length === 0) {
+  const voteTotals = await ShowcaseVote.aggregate([
+    { $match: { showcase: showcase._id } },
+    {
+      $group: {
+        _id: "$contestant",
+        total: { $sum: { $ifNull: ["$voteWeight", 1] } },
+      },
+    },
+  ]);
+
+  const voteTotalByContestant = new Map(
+    voteTotals.map((row) => [String(row._id), Number(row.total) || 0])
+  );
+
+  const contestantsWithVotes = contestants.map((contestant) => {
+    const voteRecordTotal = voteTotalByContestant.get(String(contestant._id));
+    const effectiveVotes = Number.isFinite(voteRecordTotal)
+      ? voteRecordTotal
+      : Number(contestant.votes) || 0;
+
+    contestant.votes = effectiveVotes;
+    return contestant;
+  });
+
+  contestantsWithVotes.sort((a, b) => {
+    const voteDelta = (b.votes || 0) - (a.votes || 0);
+    if (voteDelta !== 0) return voteDelta;
+    return String(a._id).localeCompare(String(b._id));
+  });
+
+  await Promise.all(
+    contestantsWithVotes
+      .filter((contestant) => contestant.isModified("votes"))
+      .map((contestant) => contestant.save())
+  );
+
+  if (contestantsWithVotes.length === 0) {
     timeline.winnerAnnouncement = {
       totalVotes: 0,
       prizeDetails: `${prizeText} - No contestants participated`,
       announcementTime: new Date(),
       noWinner: true,
+      noContestants: true,
     };
     return;
   }
 
-  const totalVotes = contestants.reduce((sum, c) => sum + (c.votes || 0), 0);
+  const totalVotes = contestantsWithVotes.reduce((sum, c) => sum + (c.votes || 0), 0);
   if (totalVotes === 0) {
     timeline.winnerAnnouncement = {
       totalVotes: 0,
@@ -58,8 +121,8 @@ async function ensureWinnerAnnouncement(timeline, showcaseId) {
     return;
   }
 
-  const highestVotes = contestants[0].votes || 0;
-  const tiedContestants = contestants.filter((c) => (c.votes || 0) === highestVotes);
+  const highestVotes = contestantsWithVotes[0].votes || 0;
+  const tiedContestants = contestantsWithVotes.filter((c) => (c.votes || 0) === highestVotes);
 
   if (tiedContestants.length > 1) {
     timeline.winnerAnnouncement = {
@@ -78,7 +141,7 @@ async function ensureWinnerAnnouncement(timeline, showcaseId) {
     return;
   }
 
-  const winner = contestants[0];
+  const winner = contestantsWithVotes[0];
   timeline.winnerAnnouncement = {
     winner: winner._id,
     totalVotes: highestVotes,
@@ -93,6 +156,7 @@ async function ensureWinnerAnnouncement(timeline, showcaseId) {
   try {
     const { autoFeatureWinner } = require("../utils/featuredHelper");
     await autoFeatureWinner(winner);
+    timeline.winnerAnnouncement.featuredAt = new Date();
   } catch (e) {
     console.warn("⚠️ Failed to auto-feature winner:", e?.message || e);
   }
@@ -4177,7 +4241,13 @@ exports.getStructuredTimeline = async (req, res) => {
         typeof timeline.currentPhase === "object"
           ? timeline.currentPhase.name
           : timeline.currentPhase;
-      if (currentPhaseName === "winner" && !timeline?.winnerAnnouncement?.announcementTime) {
+      if (
+        currentPhaseName === "winner" &&
+        (!timeline?.winnerAnnouncement?.announcementTime ||
+          timeline?.winnerAnnouncement?.noWinner ||
+          (!timeline?.winnerAnnouncement?.winner &&
+            Number(timeline?.winnerAnnouncement?.totalVotes || 0) === 0))
+      ) {
         const showcaseId = timeline.showcase?._id?.toString() || String(timeline.showcase);
         await ensureWinnerAnnouncement(timeline, showcaseId);
         await timeline.save();
@@ -4674,11 +4744,8 @@ exports.skipToStage = async (req, res) => {
         ph.startTime = new Date(cursor);
 
         if (ph.name === "countdown") {
-          // Countdown is continuous; keep a valid future endTime.
-          const existingEnd = ph.endTime ? new Date(ph.endTime) : null;
-          const fallbackEnd = new Date(cursor.getTime() + 30 * 24 * 60 * 60 * 1000);
-          const desiredEnd = existingEnd && existingEnd > cursor ? existingEnd : fallbackEnd;
-          ph.endTime = desiredEnd;
+          ph.duration = 0;
+          ph.endTime = new Date(cursor);
           break;
         }
 
@@ -4727,10 +4794,8 @@ exports.skipToStage = async (req, res) => {
           ph.startTime = new Date(cursor);
 
           if (ph.name === "countdown") {
-            const existingEnd = ph.endTime ? new Date(ph.endTime) : null;
-            const fallbackEnd = new Date(cursor.getTime() + 30 * 24 * 60 * 60 * 1000);
-            const desiredEnd = existingEnd && existingEnd > cursor ? existingEnd : fallbackEnd;
-            ph.endTime = desiredEnd;
+            ph.duration = 0;
+            ph.endTime = new Date(cursor);
             break;
           }
 
@@ -5198,10 +5263,8 @@ exports.resumePerformancePhase = async (req, res) => {
       ph.startTime = new Date(cursor);
 
       if (ph.name === "countdown") {
-        const existingEnd = ph.endTime ? new Date(ph.endTime) : null;
-        const fallbackEnd = new Date(cursor.getTime() + 30 * 24 * 60 * 60 * 1000);
-        const desiredEnd = existingEnd && existingEnd > cursor ? existingEnd : fallbackEnd;
-        ph.endTime = desiredEnd;
+        ph.duration = 0;
+        ph.endTime = new Date(cursor);
         break;
       }
 
@@ -5637,13 +5700,85 @@ exports.commercialsComplete = async (req, res) => {
       });
     }
 
-    console.log("📺 Commercials complete signal received (TV-style schedule preserves timings)");
+    console.log("📺 Commercials complete signal received - advancing to voting");
+
+    const now = new Date();
+    const commercialIndex = timeline.phases.findIndex((phase) => phase.name === "commercial");
+    const votingIndex = timeline.phases.findIndex((phase) => phase.name === "voting");
+
+    if (commercialIndex >= 0) {
+      timeline.phases[commercialIndex].status = "completed";
+      timeline.phases[commercialIndex].endTime = now;
+    }
+
+    if (votingIndex >= 0) {
+      const votingPhase = timeline.phases[votingIndex];
+      const originalStartMs = votingPhase.startTime
+        ? new Date(votingPhase.startTime).getTime()
+        : now.getTime();
+      const originalEndMs = votingPhase.endTime
+        ? new Date(votingPhase.endTime).getTime()
+        : now.getTime() + (Number(votingPhase.duration) || 0) * 60000;
+      const votingDurationMs = Math.max(0, originalEndMs - originalStartMs);
+      const shiftMs = now.getTime() - originalStartMs;
+
+      timeline.phases.forEach((phase, index) => {
+        if (index < votingIndex) {
+          phase.status = "completed";
+          return;
+        }
+
+        if (index === votingIndex) {
+          phase.status = "active";
+          phase.startTime = now;
+          phase.endTime = new Date(now.getTime() + votingDurationMs);
+          return;
+        }
+
+        if (phase.status !== "completed") {
+          phase.status = "pending";
+        }
+
+        if (phase.name !== "countdown") {
+          if (phase.startTime) {
+            phase.startTime = new Date(new Date(phase.startTime).getTime() + shiftMs);
+          }
+          if (phase.endTime) {
+            phase.endTime = new Date(new Date(phase.endTime).getTime() + shiftMs);
+          }
+        }
+      });
+
+      const thankYouPhase = timeline.phases.find((phase) => phase.name === "thankyou");
+      const countdownPhase = timeline.phases.find((phase) => phase.name === "countdown");
+      if (thankYouPhase?.endTime && countdownPhase) {
+        const countdownAt = new Date(thankYouPhase.endTime);
+        countdownPhase.startTime = countdownAt;
+        countdownPhase.endTime = countdownAt;
+        countdownPhase.duration = 0;
+        if (countdownPhase.status !== "completed") {
+          countdownPhase.status = "pending";
+        }
+      }
+
+      timeline.currentPhase = "voting";
+      await TalentShowcase.findByIdAndUpdate(id, {
+        isVotingOpen: true,
+        status: "voting",
+        votingStartTime: timeline.phases[votingIndex].startTime,
+        votingEndTime: timeline.phases[votingIndex].endTime,
+      });
+    } else {
+      timeline.advancePhase();
+    }
+
+    await timeline.save();
 
     res.json({
       success: true,
-      message: "Commercials completion acknowledged (schedule continues by time)",
+      message: "Commercials completed - advanced to voting",
       previousPhase: "commercial",
-      nextPhase: "voting",
+      currentPhase: timeline.currentPhase,
     });
   } catch (error) {
     console.error("❌ Error handling commercials complete:", error);

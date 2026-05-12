@@ -1,6 +1,10 @@
 const FeaturedPlacement = require("../models/FeaturedPlacement");
 const Listing = require("../models/Listing");
+const ShowcaseEventTimeline = require("../models/ShowcaseEventTimeline");
+const ShowcaseVote = require("../models/ShowcaseVote");
+const TalentContestant = require("../models/TalentContestant");
 const { ForbiddenError, BadRequestError } = require("../utils/errors");
+const { autoFeatureWinner } = require("../utils/featuredHelper");
 const { createOrder, captureOrder } = require("../utils/paypal");
 
 // Pricing configuration & helpers - Matches Advertising Package structure
@@ -44,6 +48,57 @@ async function getCapacitySnapshot(start, end, offerType) {
     endAt: { $gte: start },
   });
   return { overlapping }; // can extend with per-offer counts
+}
+
+function isWinnerPublic(timeline) {
+  return (
+    ["winner", "thankyou", "countdown", "ended"].includes(timeline?.currentPhase) ||
+    timeline?.eventStatus === "completed" ||
+    timeline?.isLive === false
+  );
+}
+
+async function ensurePublicWinnerPlacements(now) {
+  const timelines = await ShowcaseEventTimeline.find({
+    "winnerAnnouncement.winner": { $exists: true, $ne: null },
+    "winnerAnnouncement.noWinner": { $ne: true },
+    $or: [
+      { currentPhase: { $in: ["winner", "thankyou", "countdown", "ended"] } },
+      { eventStatus: "completed" },
+      { isLive: false },
+    ],
+  })
+    .select("showcase currentPhase eventStatus isLive winnerAnnouncement")
+    .sort({ updatedAt: -1 })
+    .limit(20);
+
+  for (const timeline of timelines) {
+    const totalVotes =
+      Number(timeline?.winnerAnnouncement?.totalVotes || 0) ||
+      (await ShowcaseVote.countDocuments({ showcase: timeline.showcase }));
+
+    if (totalVotes <= 0 || !isWinnerPublic(timeline)) continue;
+
+    const existingActivePlacement = await FeaturedPlacement.findOne({
+      showcaseId: timeline.showcase,
+      status: "approved",
+      endAt: { $gte: now },
+    }).select("_id");
+
+    if (existingActivePlacement && timeline.winnerAnnouncement.featuredAt) continue;
+
+    const winnerId = timeline.winnerAnnouncement.winner?._id || timeline.winnerAnnouncement.winner;
+    const winner = await TalentContestant.findById(winnerId).populate("user").populate("listing");
+    if (!winner) continue;
+
+    try {
+      await autoFeatureWinner(winner);
+      timeline.winnerAnnouncement.featuredAt = new Date();
+      await timeline.save();
+    } catch (e) {
+      console.warn("⚠️ Failed to auto-feature public winner:", e?.message || e);
+    }
+  }
 }
 
 function computePrice({ offerType, start, end }) {
@@ -209,6 +264,8 @@ exports.activePlacements = async (req, res, next) => {
   try {
     const now = new Date();
 
+    await ensurePublicWinnerPlacements(now);
+
     // Get all currently active approved placements
     const docs = await FeaturedPlacement.find({
       status: "approved",
@@ -229,45 +286,36 @@ exports.activePlacements = async (req, res, next) => {
       })
       .sort({ startAt: 1 });
 
-    // Filter out showcase winner placements where the showcase hasn't ended yet
-    // or where no actual voting occurred (to prevent showing winners before event completes)
+    // Filter showcase winner placements until their winner is public and vote-backed.
     const filteredDocs = [];
 
     for (const placement of docs) {
       // If this placement has a showcaseId (it's a winner placement)
       if (placement.showcaseId) {
-        // Check if the showcase event has actually completed
-        const ShowcaseEventTimeline = require("../models/ShowcaseEventTimeline");
-        const TalentContestant = require("../models/TalentContestant");
-
+        // Check if the showcase winner is public yet.
         const timeline = await ShowcaseEventTimeline.findOne({
           showcase: placement.showcaseId._id,
         });
 
         // Only show winner if:
-        // 1. Timeline exists and event has ended (eventStatus = 'completed' or currentPhase = 'ended')
+        // 1. Timeline reached winner/ended/completed state
         // 2. A winner has been declared in the timeline
         // 3. At least one vote was cast
         if (timeline) {
-          const hasEnded =
-            timeline.eventStatus === "completed" ||
-            timeline.currentPhase === "ended" ||
-            !timeline.isLive;
+          const winnerIsPublic = isWinnerPublic(timeline);
 
           const hasWinner = timeline.winnerAnnouncement && timeline.winnerAnnouncement.winner;
 
           // Check if any votes were cast
-          const totalVotes = await TalentContestant.countDocuments({
+          const totalVotes = await ShowcaseVote.countDocuments({
             showcase: placement.showcaseId._id,
-            votes: { $gt: 0 },
           });
 
-          // Only include winner placement if event ended, winner declared, and votes were cast
-          if (hasEnded && hasWinner && totalVotes > 0) {
+          // Include winner placement once winner is public and votes exist
+          if (winnerIsPublic && hasWinner && totalVotes > 0) {
             filteredDocs.push(placement);
           }
-          // If event hasn't ended yet, don't show the winner placement
-          // (it was created prematurely or event is still in progress)
+          // If the winner is not public yet, hide the placement.
         }
         // If no timeline found, don't show the placement (data inconsistency)
       } else {

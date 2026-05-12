@@ -193,6 +193,27 @@ const showcaseEventTimeline = new mongoose.Schema(
       totalVotes: Number,
       prizeDetails: String,
       announcementTime: Date,
+      featuredAt: Date,
+      noWinner: {
+        type: Boolean,
+        default: false,
+      },
+      noContestants: {
+        type: Boolean,
+        default: false,
+      },
+      isTie: {
+        type: Boolean,
+        default: false,
+      },
+      tiedContestants: [
+        {
+          id: mongoose.Schema.Types.ObjectId,
+          name: String,
+          performer: String,
+          votes: Number,
+        },
+      ],
     },
 
     // Thank You Message
@@ -399,15 +420,13 @@ showcaseEventTimeline.methods.generateTimeline = function () {
   currentTime = new Date(currentTime.getTime() + this.config.thankYouDuration * 60000);
 
   // 7. Countdown Phase (Instant Completion)
-  // This phase exists in the schedule but immediately completes the event when reached.
-  // It's created with a nominal 30-day duration for database consistency,
-  // but advancePhase() will instantly mark it complete and end the event.
-  const countdownDuration = this.config.countdownDuration || 0;
+  // This phase exists as a transition marker only. advancePhase() immediately
+  // completes the event when countdown is reached.
   this.phases.push({
     name: "countdown",
-    duration: 0, // Not a real duration - instant completion
+    duration: 0,
     startTime: new Date(currentTime),
-    endTime: new Date(currentTime.getTime() + 30 * 24 * 60 * 60 * 1000), // 30 days placeholder
+    endTime: new Date(currentTime),
     status: "pending",
   });
 
