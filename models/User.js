@@ -24,7 +24,7 @@ const userSchema = new mongoose.Schema(
       required: false,
       // NO default - omit field entirely when not provided (allows sparse unique index to work)
       validate: {
-        validator: function (value) {
+        validator(value) {
           // Skip validation if value is null or empty
           if (!value) return true;
           // More lenient validation - just check for reasonable phone format

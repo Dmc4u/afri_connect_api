@@ -30,6 +30,7 @@ const adminBusinessLeadersRouter = require("./adminBusinessLeaders");
 const talentFellowsRouter = require("./talentFellows");
 const adminTalentFellowsRouter = require("./adminTalentFellows");
 const testimonyRouter = require("./testimony");
+const quizRouter = require("./quiz");
 const { NotFoundError } = require("../utils/errors");
 
 const router = express.Router();
@@ -37,6 +38,7 @@ const router = express.Router();
 // Public API routes (must come BEFORE /api to avoid auth middleware)
 router.use("/api/live-talent-event", liveTalentEventRouter);
 router.use("/api/admin/live-event", adminLiveEventRouter);
+router.use("/api/quiz", quizRouter);
 router.use("/api/ai-support", aiSupportRouter);
 router.use("/api/app-status", appStatusRouter);
 router.use("/api/faq", faqRouter);

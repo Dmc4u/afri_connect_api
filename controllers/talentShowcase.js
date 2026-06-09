@@ -667,43 +667,22 @@ exports.getShowcases = async (req, res) => {
 
     const total = await TalentShowcase.countDocuments(filter);
 
-    // If no showcases found, return next event date for countdown
+    // If no showcases match, only expose a next event date when an actual
+    // upcoming showcase exists. Do not fabricate a monthly fallback date.
     if (showcases.length === 0) {
-      const lastCompletedEvent = await TalentShowcase.findOne({
-        status: "completed",
-      }).sort({ eventDate: -1 });
-
-      let nextEventDate = null;
-      if (lastCompletedEvent) {
-        const timeline = await ShowcaseEventTimeline.findOne({ showcase: lastCompletedEvent._id });
-        nextEventDate = timeline?.nextEventDate || lastCompletedEvent.nextEventDate;
-
-        if (!nextEventDate && lastCompletedEvent.eventDate) {
-          const lastDate = new Date(lastCompletedEvent.eventDate);
-          const nextMonth = new Date(lastDate);
-          nextMonth.setMonth(nextMonth.getMonth() + 1);
-          nextEventDate = nextMonth;
-        }
-      } else {
-        // No events exist yet - set default to first Saturday of next month at 8 PM
-        const now = new Date();
-        const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-
-        // Find first Saturday of next month
-        while (nextMonth.getDay() !== 6) {
-          nextMonth.setDate(nextMonth.getDate() + 1);
-        }
-
-        // Set time to 8 PM (20:00)
-        nextMonth.setHours(20, 0, 0, 0);
-        nextEventDate = nextMonth;
-      }
+      const nextShowcase = await TalentShowcase.findOne({
+        eventDate: { $gt: new Date() },
+        status: { $nin: ["cancelled", "completed"] },
+      })
+        .sort({ eventDate: 1 })
+        .select("eventDate")
+        .lean();
 
       return res.json({
         success: true,
         showcases: [],
         userRegistrations: {},
-        nextEventDate,
+        nextEventDate: nextShowcase?.eventDate || null,
         pagination: {
           total: 0,
           page: parseInt(page),

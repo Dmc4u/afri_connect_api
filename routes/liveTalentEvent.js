@@ -210,54 +210,16 @@ router.get("/", async (req, res) => {
       if (nextShowcase) {
         // Use the actual next scheduled showcase date
         nextEventDate = nextShowcase.eventDate;
-      } else {
-        // If no next showcase exists, check timeline's configured date
-        const eventTimeline = await ShowcaseEventTimeline.findOne({ showcase: showcase._id });
-        if (eventTimeline?.thankYouMessage?.nextEventDate) {
-          nextEventDate = eventTimeline.thankYouMessage.nextEventDate;
-        } else {
-          // Final fallback: calculate next month from current event
-          const nextMonth = new Date(showcase.eventDate);
-          nextMonth.setMonth(nextMonth.getMonth() + 1);
-          nextEventDate = nextMonth;
-        }
       }
     }
 
     if (!showcase) {
-      // No current event - check for the last completed event to get next event date
+      // No current event - only expose a next date for a real upcoming showcase.
       const lastEvent = await TalentShowcase.findOne({
         status: "completed",
       })
         .sort({ eventDate: -1 })
         .limit(1);
-
-      let nextEventDate = null;
-
-      if (lastEvent) {
-        const lastTimeline = await ShowcaseEventTimeline.findOne({ showcase: lastEvent._id });
-        nextEventDate =
-          lastTimeline?.thankYouMessage?.nextEventDate ||
-          (() => {
-            // Fallback: calculate next month from last event
-            const nextMonth = new Date(lastEvent.eventDate);
-            nextMonth.setMonth(nextMonth.getMonth() + 1);
-            return nextMonth;
-          })();
-      } else {
-        // No events exist yet - set default to first Saturday of next month at 8 PM
-        const now = new Date();
-        const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-
-        // Find first Saturday of next month
-        while (nextMonth.getDay() !== 6) {
-          nextMonth.setDate(nextMonth.getDate() + 1);
-        }
-
-        // Set time to 8 PM (20:00)
-        nextMonth.setHours(20, 0, 0, 0);
-        nextEventDate = nextMonth;
-      }
 
       return res.json({
         success: false,
@@ -265,7 +227,7 @@ router.get("/", async (req, res) => {
         message: "No upcoming live talent event scheduled",
         event: null,
         status: "no-event",
-        nextEventDate: nextEventDate,
+        nextEventDate: null,
         musicUrl: lastEvent?.musicUrl || null, // Include music from last event if available
         musicPlaying: lastEvent?.musicPlaying || false,
         lastEventDate: lastEvent?.eventDate || null,

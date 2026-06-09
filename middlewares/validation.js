@@ -159,6 +159,59 @@ module.exports.validateId = celebrate({
   }),
 });
 
+module.exports.validateQuizQuestionNumber = celebrate({
+  params: Joi.object().keys({
+    number: Joi.number().integer().min(1).max(100).required().messages({
+      "number.base": 'The "number" field must be a number',
+      "number.min": "The question number must be between 1 and 100",
+      "number.max": "The question number must be between 1 and 100",
+      "any.required": 'The "number" field is required',
+    }),
+  }),
+});
+
+module.exports.validateQuizSubmission = celebrate({
+  body: Joi.object().keys({
+    contestantName: Joi.string().optional().min(2).max(60).messages({
+      "string.empty": 'The "contestantName" field must be filled in',
+      "string.min": 'The minimum length of the "contestantName" field is 2',
+      "string.max": 'The maximum length of the "contestantName" field is 60',
+    }),
+    questionNumber: Joi.number().integer().min(1).max(100).required().messages({
+      "number.base": 'The "questionNumber" field must be a number',
+      "number.min": "The question number must be between 1 and 100",
+      "number.max": "The question number must be between 1 and 100",
+      "any.required": 'The "questionNumber" field is required',
+    }),
+    answer: Joi.string().required().max(500).messages({
+      "string.empty": 'The "answer" field must be filled in',
+      "string.max": 'The maximum length of the "answer" field is 500',
+    }),
+  }),
+});
+
+// Validate contestant registration
+module.exports.validateContestantRegistration = celebrate({
+  body: Joi.object().keys({
+    name: Joi.string().trim().required().min(2).max(60).messages({
+      "string.empty": 'The "name" field must be filled in',
+      "string.min": 'The minimum length of the "name" field is 2',
+      "string.max": 'The maximum length of the "name" field is 60',
+    }),
+    email: Joi.string().trim().required().email().messages({
+      "string.empty": 'The "email" field must be filled in',
+      "string.email": 'The "email" field must be a valid email',
+    }),
+    country: Joi.string().trim().required().min(2).messages({
+      "string.empty": 'The "country" field must be filled in',
+      "string.min": 'The minimum length of the "country" field is 2',
+    }),
+    profilePhoto: Joi.string().trim().max(500).allow("").optional().messages({
+      "string.max": 'The maximum length of the "profilePhoto" field is 500',
+    }),
+  }),
+});
+
 // Validate listing IDs in request parameters
 module.exports.validateListingId = celebrate({
   params: Joi.object().keys({
