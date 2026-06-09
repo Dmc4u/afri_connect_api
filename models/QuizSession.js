@@ -69,6 +69,16 @@ const quizSessionSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    firstPlacePrize: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    secondPlacePrize: {
+      type: String,
+      default: "",
+      trim: true,
+    },
     maxSelectedContestants: {
       type: Number,
       default: 5,

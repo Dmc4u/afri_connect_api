@@ -644,6 +644,8 @@ function serializeSession(session, options = {}) {
     questionPoolSize: session.questionPoolSize || 20,
     firstPlaceMinPoints: session.firstPlaceMinPoints || 0,
     secondPlaceMinPoints: session.secondPlaceMinPoints || 0,
+    firstPlacePrize: session.firstPlacePrize || "",
+    secondPlacePrize: session.secondPlacePrize || "",
     maxSelectedContestants: session.maxSelectedContestants,
     currentTurnContestant: session.currentTurnContestant,
     raffleSeed: session.raffleSeed,
@@ -1332,6 +1334,8 @@ const updateQuizSessionSettings = async (req, res, next) => {
       questionPoolSize,
       firstPlaceMinPoints,
       secondPlaceMinPoints,
+      firstPlacePrize,
+      secondPlacePrize,
       maxSelectedContestants,
       eventStartsAt,
       raffleRunsAt,
@@ -1428,6 +1432,26 @@ const updateQuizSessionSettings = async (req, res, next) => {
       session.secondPlaceMinPoints = secondPlaceMinPoints;
     }
 
+    if (firstPlacePrize !== undefined) {
+      if (typeof firstPlacePrize !== "string") {
+        return res.status(400).json({
+          success: false,
+          message: "1st place prize must be a string",
+        });
+      }
+      session.firstPlacePrize = firstPlacePrize.trim().slice(0, 120);
+    }
+
+    if (secondPlacePrize !== undefined) {
+      if (typeof secondPlacePrize !== "string") {
+        return res.status(400).json({
+          success: false,
+          message: "2nd place prize must be a string",
+        });
+      }
+      session.secondPlacePrize = secondPlacePrize.trim().slice(0, 120);
+    }
+
     if (maxSelectedContestants !== undefined) {
       if (maxSelectedContestants < 1 || maxSelectedContestants > 100) {
         return res.status(400).json({
@@ -1440,8 +1464,9 @@ const updateQuizSessionSettings = async (req, res, next) => {
 
     if (eventStartsAt !== undefined) {
       if (eventStartsAt === null || eventStartsAt === "") {
+        const hadEventStart = Boolean(session.eventStartsAt);
         session.eventStartsAt = null;
-        if (session.phase === "scheduled") {
+        if (hadEventStart && session.phase === "scheduled") {
           session.phase = "welcome";
           session.phaseStartedAt = new Date();
         }
@@ -1453,13 +1478,24 @@ const updateQuizSessionSettings = async (req, res, next) => {
             message: "Event start date and time must be valid",
           });
         }
-        session.eventStartsAt = scheduledStart;
-        session.phase = scheduledStart.getTime() > Date.now() ? "scheduled" : "welcome";
-        session.phaseStartedAt = new Date();
-        session.currentQuestionNumber = null;
-        if (scheduledStart.getTime() > Date.now() && hasPlayedCompetitionData(session)) {
-          resetSessionCompetitionData(session);
-          await QuizAnswer.deleteMany({ session: session._id });
+        const currentStartTime = session.eventStartsAt
+          ? new Date(session.eventStartsAt).getTime()
+          : null;
+        const nextStartTime = scheduledStart.getTime();
+        const startTimeChanged =
+          currentStartTime === null || Math.abs(currentStartTime - nextStartTime) >= 60000;
+
+        if (startTimeChanged) {
+          session.eventStartsAt = scheduledStart;
+          session.phase = scheduledStart.getTime() > Date.now() ? "scheduled" : "welcome";
+          session.phaseStartedAt = new Date();
+          session.currentQuestionNumber = null;
+          if (scheduledStart.getTime() > Date.now() && hasPlayedCompetitionData(session)) {
+            resetSessionCompetitionData(session);
+            await QuizAnswer.deleteMany({ session: session._id });
+          }
+        } else {
+          session.eventStartsAt = scheduledStart;
         }
       }
     }
