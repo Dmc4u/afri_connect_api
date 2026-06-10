@@ -29,6 +29,15 @@ const quizSessionSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    eventStartsAtLabel: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    eventEndsAt: {
+      type: Date,
+      default: null,
+    },
     phaseStartedAt: {
       type: Date,
       default: Date.now,

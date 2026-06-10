@@ -44,6 +44,14 @@ function normalizeSessionRules(rules) {
   return savedRules;
 }
 
+function getEventStartLabel(session) {
+  return (
+    String(session.eventStartsAtLabel || "").trim() ||
+    (session.eventStartsAt ? new Date(session.eventStartsAt).toLocaleString() : "") ||
+    "the scheduled event time"
+  );
+}
+
 async function createQuizProfileMessage({ contestant, title, body }) {
   if (!contestant?.user) {
     return;
@@ -74,9 +82,7 @@ async function createQuizProfileMessage({ contestant, title, body }) {
 }
 
 async function sendQuizRegistrationMessage(contestant, session) {
-  const eventStart = session.eventStartsAt
-    ? new Date(session.eventStartsAt).toLocaleString()
-    : "the scheduled event time";
+  const eventStart = getEventStartLabel(session);
   const name = contestant.name || "Contestant";
   const body =
     `Hi ${name},\n\n` +
@@ -101,9 +107,7 @@ function getOrdinalNumber(number) {
 }
 
 async function sendQuizSelectionMessages(registeredContestants, session) {
-  const eventStart = session.eventStartsAt
-    ? new Date(session.eventStartsAt).toLocaleString()
-    : "the scheduled event time";
+  const eventStart = getEventStartLabel(session);
 
   await Promise.all(
     registeredContestants.map((contestant) => {
@@ -524,8 +528,27 @@ function moveSessionToNextPhase(session) {
   return true;
 }
 
+function moveSessionToWinner(session) {
+  const quizSession = session;
+  quizSession.phase = "winner";
+  quizSession.phaseStartedAt = new Date();
+  quizSession.currentQuestionNumber = null;
+  quizSession.currentTurnContestant = null;
+  return quizSession;
+}
+
 async function syncSessionPhase(session) {
   const quizSession = session;
+
+  if (
+    quizSession.eventEndsAt &&
+    !["winner", "finished"].includes(quizSession.phase) &&
+    quizSession.eventEndsAt.getTime() <= Date.now()
+  ) {
+    moveSessionToWinner(quizSession);
+    await quizSession.save();
+    return quizSession;
+  }
 
   if (
     quizSession.raffleRunsAt &&
@@ -632,6 +655,8 @@ function serializeSession(session, options = {}) {
     title: session.title,
     phase: session.phase,
     eventStartsAt: session.eventStartsAt,
+    eventStartsAtLabel: session.eventStartsAtLabel || "",
+    eventEndsAt: session.eventEndsAt,
     phaseStartedAt: session.phaseStartedAt,
     serverNow: new Date(),
     timerRemainingSeconds: getTimerRemainingSeconds(session),
@@ -1338,6 +1363,8 @@ const updateQuizSessionSettings = async (req, res, next) => {
       secondPlacePrize,
       maxSelectedContestants,
       eventStartsAt,
+      eventStartsAtLabel,
+      eventEndsAt,
       raffleRunsAt,
       meetingLinks,
       welcomeNote,
@@ -1466,6 +1493,7 @@ const updateQuizSessionSettings = async (req, res, next) => {
       if (eventStartsAt === null || eventStartsAt === "") {
         const hadEventStart = Boolean(session.eventStartsAt);
         session.eventStartsAt = null;
+        session.eventStartsAtLabel = "";
         if (hadEventStart && session.phase === "scheduled") {
           session.phase = "welcome";
           session.phaseStartedAt = new Date();
@@ -1487,6 +1515,9 @@ const updateQuizSessionSettings = async (req, res, next) => {
 
         if (startTimeChanged) {
           session.eventStartsAt = scheduledStart;
+          session.eventStartsAtLabel = String(eventStartsAtLabel || "")
+            .trim()
+            .slice(0, 120);
           session.phase = scheduledStart.getTime() > Date.now() ? "scheduled" : "welcome";
           session.phaseStartedAt = new Date();
           session.currentQuestionNumber = null;
@@ -1496,6 +1527,40 @@ const updateQuizSessionSettings = async (req, res, next) => {
           }
         } else {
           session.eventStartsAt = scheduledStart;
+          if (eventStartsAtLabel !== undefined) {
+            session.eventStartsAtLabel = String(eventStartsAtLabel || "")
+              .trim()
+              .slice(0, 120);
+          }
+        }
+      }
+    }
+
+    if (eventEndsAt !== undefined) {
+      if (eventEndsAt === null || eventEndsAt === "") {
+        session.eventEndsAt = null;
+      } else {
+        const scheduledEnd = new Date(eventEndsAt);
+        if (Number.isNaN(scheduledEnd.getTime())) {
+          return res.status(400).json({
+            success: false,
+            message: "Event end date and time must be valid",
+          });
+        }
+
+        if (session.eventStartsAt && scheduledEnd.getTime() <= session.eventStartsAt.getTime()) {
+          return res.status(400).json({
+            success: false,
+            message: "Event end date and time must be after the event start time",
+          });
+        }
+
+        session.eventEndsAt = scheduledEnd;
+        if (
+          !["winner", "finished"].includes(session.phase) &&
+          scheduledEnd.getTime() <= Date.now()
+        ) {
+          moveSessionToWinner(session);
         }
       }
     }
@@ -1591,6 +1656,8 @@ const restartQuizSession = async (req, res, next) => {
     const session = await getActiveSession();
     session.phase = "welcome";
     session.eventStartsAt = null;
+    session.eventStartsAtLabel = "";
+    session.eventEndsAt = null;
     session.phaseStartedAt = new Date();
     resetSessionCompetitionData(session);
 
@@ -1600,6 +1667,84 @@ const restartQuizSession = async (req, res, next) => {
     return res.status(200).json({
       ...(await buildSessionPayload(session)),
       message: "Quiz event restarted successfully",
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const endQuizSession = async (req, res, next) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ success: false, message: "Admin access required" });
+    }
+
+    const session = await syncSessionPhase(await getActiveSession());
+    moveSessionToWinner(session);
+    await session.save();
+
+    return res.status(200).json({
+      ...(await buildSessionPayload(session)),
+      message: "Quiz event ended. Final winners are now shown.",
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const skipCurrentQuizContestant = async (req, res, next) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ success: false, message: "Admin access required" });
+    }
+
+    const session = await syncSessionPhase(await getActiveSession());
+    if (!["pick-number", "question"].includes(session.phase)) {
+      return res.status(400).json({
+        success: false,
+        message: "A contestant can only be skipped during the pick or answer stage.",
+      });
+    }
+
+    const turnContestants = await getTurnContestants(session);
+    if (!turnContestants.length) {
+      moveSessionToWinner(session);
+      await session.save();
+      return res.status(200).json({
+        ...(await buildSessionPayload(session)),
+        message: "No available contestants remain. Final winners are now shown.",
+      });
+    }
+
+    const currentTurnId = getCurrentTurnContestantId(session);
+    const foundCurrentIndex = turnContestants.findIndex(
+      (contestant) => getContestantId(contestant) === currentTurnId
+    );
+    const currentIndex = foundCurrentIndex >= 0 ? foundCurrentIndex : -1;
+
+    const nextContestant =
+      turnContestants.length > 1
+        ? turnContestants[(currentIndex + 1) % turnContestants.length]
+        : null;
+
+    if (!nextContestant) {
+      moveSessionToWinner(session);
+      await session.save();
+      return res.status(200).json({
+        ...(await buildSessionPayload(session)),
+        message: "No other contestant is available. Final winners are now shown.",
+      });
+    }
+
+    session.currentTurnContestant = nextContestant._id;
+    session.currentQuestionNumber = null;
+    session.phase = "pick-number";
+    session.phaseStartedAt = new Date();
+    await session.save();
+
+    return res.status(200).json({
+      ...(await buildSessionPayload(session)),
+      message: `${nextContestant.name || "The next contestant"} can pick now.`,
     });
   } catch (error) {
     return next(error);
@@ -1911,6 +2056,8 @@ module.exports = {
   updateQuizSessionSettings,
   executeQuizRaffle,
   restartQuizSession,
+  endQuizSession,
+  skipCurrentQuizContestant,
   deleteQuizContestant,
   contactQuizContestants,
   setQuizQuestion,

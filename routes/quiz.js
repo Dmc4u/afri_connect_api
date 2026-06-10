@@ -9,6 +9,8 @@ const {
   updateQuizSessionSettings,
   executeQuizRaffle,
   restartQuizSession,
+  endQuizSession,
+  skipCurrentQuizContestant,
   deleteQuizContestant,
   contactQuizContestants,
   setQuizQuestion,
@@ -50,6 +52,8 @@ router.get("/contestants", getQuizContestants);
 router.put("/admin/settings", auth, updateQuizSessionSettings);
 router.post("/admin/raffle", auth, strictLimiter, executeQuizRaffle);
 router.post("/admin/restart", auth, restartQuizSession);
+router.post("/admin/end", auth, endQuizSession);
+router.post("/admin/skip-current", auth, skipCurrentQuizContestant);
 router.delete("/admin/contestants/:contestantId", auth, deleteQuizContestant);
 router.post("/admin/contestants/message", auth, contactQuizContestants);
 router.post("/admin/questions", auth, setQuizQuestion);
