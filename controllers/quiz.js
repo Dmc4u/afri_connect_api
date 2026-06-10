@@ -1576,6 +1576,23 @@ const updateQuizSessionSettings = async (req, res, next) => {
             message: "Raffle date and time must be valid",
           });
         }
+        const currentRaffleTime = session.raffleRunsAt
+          ? new Date(session.raffleRunsAt).getTime()
+          : null;
+        const nextRaffleTime = scheduledRaffle.getTime();
+        const raffleTimeChanged =
+          currentRaffleTime === null || Math.abs(currentRaffleTime - nextRaffleTime) >= 60000;
+
+        if (raffleTimeChanged && hasRaffleRun(session) && nextRaffleTime > Date.now()) {
+          session.raffleSeed = "";
+          session.raffleExecutedAt = null;
+          session.currentTurnContestant = null;
+          session.contestants.forEach((contestant, index) => {
+            session.contestants[index].raffleStatus = "registered";
+            session.contestants[index].rafflePosition = null;
+            session.contestants[index].raffleRandomNumber = null;
+          });
+        }
         session.raffleRunsAt = scheduledRaffle;
       }
     }
