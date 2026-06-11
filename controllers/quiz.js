@@ -1258,6 +1258,7 @@ const submitQuizAnswer = async (req, res, next) => {
 
     let points = 0;
     let isCorrect = false;
+    let answerResult = "submitted";
 
     if (question.type === "multiple-choice") {
       const normalizedAnswer = trimmedAnswer.toUpperCase();
@@ -1269,6 +1270,7 @@ const submitQuizAnswer = async (req, res, next) => {
         isCorrect = true;
         points = 5;
       }
+      answerResult = isCorrect ? "correct" : "wrong";
     }
 
     session.bonusPending = false;
@@ -1307,11 +1309,18 @@ const submitQuizAnswer = async (req, res, next) => {
     });
 
     const contestants = await sortContestants(session);
+    const answerMessage =
+      answerResult === "correct"
+        ? `Correct answer. You earned ${points} points.`
+        : "Answer received. Written answers are recorded without automatic points.";
+    const resultMessage =
+      answerResult === "wrong" ? "Wrong answer. You earned 0 points." : answerMessage;
 
     res.set("Cache-Control", "no-store");
     return res.status(200).json({
       success: true,
-      message: isCorrect ? "Answer submitted successfully." : "Answer received.",
+      message: resultMessage,
+      answerResult,
       isCorrect,
       points,
       session: serializeSession(session),
@@ -1606,10 +1615,16 @@ const updateQuizSessionSettings = async (req, res, next) => {
         });
       }
 
-      session.meetingLinks = {
-        ...(session.meetingLinks?.toObject?.() ?? session.meetingLinks ?? {}),
-        zoom,
-      };
+      if (!zoom && session.meetingLinks?.zoom) {
+        session.meetingLinks = {
+          ...(session.meetingLinks?.toObject?.() ?? session.meetingLinks ?? {}),
+        };
+      } else {
+        session.meetingLinks = {
+          ...(session.meetingLinks?.toObject?.() ?? session.meetingLinks ?? {}),
+          zoom,
+        };
+      }
     }
 
     if (welcomeNote !== undefined) {
