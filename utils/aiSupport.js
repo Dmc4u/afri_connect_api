@@ -442,6 +442,20 @@ function getFallbackResponse(userMessage) {
 
   // Live events
   if (
+    message.includes("live q/a") ||
+    message.includes("q/a quiz") ||
+    message.includes("qa quiz") ||
+    message.includes("quiz event") ||
+    message.includes("pick question") ||
+    message.includes("question timer") ||
+    message.includes("time's up") ||
+    message.includes("times up")
+  ) {
+    return `AfriOnet Live Q/A Quiz events let selected contestants answer questions live, usually while joining through Zoom.\n\nHow it works:\n1. Register for the event when registration is open\n2. Join Zoom when the event starts or when your turn is near\n3. When it is your turn, pick an available question number\n4. Answer before the timer ends\n5. Correct answers earn points; wrong answers or time's up earn 0 points\n6. Used questions are disabled so they cannot be picked again\n7. Winners are based on the event's point targets and final leaderboard\n\nOn the quiz page, watch the Current stage, Current turn, timer, and leaderboard so you know when to pick or answer.`;
+  }
+
+  // Live events
+  if (
     message.includes("live event") ||
     message.includes("live broadcast") ||
     message.includes("live showcase")
@@ -555,6 +569,7 @@ function getQuickSuggestions() {
     { text: "Membership tiers & pricing", type: "membership" },
     { text: "Business listings & features", type: "listings" },
     { text: "Talent Showcases & entry fees", type: "showcases" },
+    { text: "Live Q/A quiz event help", type: "quiz-event" },
     { text: "How to create a business listing", type: "listing" },
     { text: "How to create a forum post", type: "forum" },
     { text: "Contact support", type: "support" },

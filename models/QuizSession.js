@@ -70,6 +70,14 @@ const quizSessionSchema = new mongoose.Schema(
       type: Number,
       default: 20,
     },
+    questionDisplayStart: {
+      type: Number,
+      default: 1,
+    },
+    questionDisplayEnd: {
+      type: Number,
+      default: 20,
+    },
     firstPlaceMinPoints: {
       type: Number,
       default: 0,

@@ -299,6 +299,8 @@ async function getActiveSession() {
       contestantsSeconds: 10,
       questionLimitPerContestant: 5,
       questionPoolSize: 20,
+      questionDisplayStart: 1,
+      questionDisplayEnd: 20,
       firstPlaceMinPoints: 0,
       secondPlaceMinPoints: 0,
       maxSelectedContestants: 5,
@@ -513,6 +515,26 @@ function hasContestantReachedQuestionLimitByContestant(session, contestant) {
   return (contestant.answeredQuestions || []).length >= limit;
 }
 
+function getQuestionDisplayRange(session) {
+  const poolSize = Math.max(1, Number(session.questionPoolSize || 20));
+  const start = Math.min(Math.max(1, Number(session.questionDisplayStart || 1)), poolSize);
+  const end = Math.min(Math.max(start, Number(session.questionDisplayEnd || poolSize)), poolSize);
+  return { start, end, poolSize };
+}
+
+function isQuestionInDisplayRange(session, questionNumber) {
+  const { start, end } = getQuestionDisplayRange(session);
+  return questionNumber >= start && questionNumber <= end;
+}
+
+async function getActiveQuestionCountForSession(session) {
+  const { start, end } = getQuestionDisplayRange(session);
+  return QuizQuestion.countDocuments({
+    active: true,
+    number: { $gte: start, $lte: end },
+  });
+}
+
 function moveSessionToNextPhase(session) {
   const quizSession = session;
   const nextPhase = getNextPhase(quizSession.phase);
@@ -595,12 +617,17 @@ async function syncSessionPhase(session) {
       break;
     }
 
-    quizSession.phase = nextPhase;
-    quizSession.phaseStartedAt = new Date(
-      quizSession.phaseStartedAt.getTime() + durationSeconds * 1000
-    );
-    if (nextPhase === "pick-number") {
-      quizSession.currentQuestionNumber = null;
+    if (quizSession.phase === "question") {
+      // eslint-disable-next-line no-await-in-loop, no-use-before-define
+      await completeExpiredQuestion(quizSession);
+    } else {
+      quizSession.phase = nextPhase;
+      quizSession.phaseStartedAt = new Date(
+        quizSession.phaseStartedAt.getTime() + durationSeconds * 1000
+      );
+      if (nextPhase === "pick-number") {
+        quizSession.currentQuestionNumber = null;
+      }
     }
     changed = true;
     durationSeconds = getPhaseDurationSeconds(quizSession);
@@ -667,6 +694,8 @@ function serializeSession(session, options = {}) {
     contestantsSeconds: session.contestantsSeconds,
     questionLimitPerContestant: session.questionLimitPerContestant,
     questionPoolSize: session.questionPoolSize || 20,
+    questionDisplayStart: getQuestionDisplayRange(session).start,
+    questionDisplayEnd: getQuestionDisplayRange(session).end,
     firstPlaceMinPoints: session.firstPlaceMinPoints || 0,
     secondPlaceMinPoints: session.secondPlaceMinPoints || 0,
     firstPlacePrize: session.firstPlacePrize || "",
@@ -851,6 +880,92 @@ async function advanceCurrentTurnContestant(session, answeredContestant) {
   return null;
 }
 
+async function completeQuestionForContestant(
+  session,
+  contestant,
+  question,
+  { points = 0, isCorrect = false, answer = "", user = null, recordAnswer = true } = {}
+) {
+  const quizSession = session;
+  const answeredContestant = contestant;
+  const questionNumber = Number(question?.number || session.currentQuestionNumber);
+  if (!questionNumber || !answeredContestant) {
+    return { completed: false };
+  }
+
+  quizSession.bonusPending = false;
+  answeredContestant.score = Number(answeredContestant.score || 0) + points;
+  answeredContestant.answeredQuestions = Array.from(
+    new Set([...(answeredContestant.answeredQuestions || []), questionNumber])
+  );
+  answeredContestant.lastAnsweredAt = new Date();
+
+  const nextAskedNumbers = Array.from(
+    new Set([...(quizSession.askedNumbers || []), questionNumber])
+  );
+  quizSession.askedNumbers = nextAskedNumbers;
+  quizSession.currentQuestionNumber = null;
+  quizSession.phaseStartedAt = new Date();
+
+  const activeQuestionCount = await getActiveQuestionCountForSession(quizSession);
+  const { start, end } = getQuestionDisplayRange(quizSession);
+  const usedDisplayedQuestionCount = nextAskedNumbers.filter(
+    (number) => number >= start && number <= end
+  ).length;
+  if (activeQuestionCount > 0 && usedDisplayedQuestionCount >= activeQuestionCount) {
+    quizSession.phase = "winner";
+    quizSession.currentTurnContestant = null;
+  } else {
+    const nextTurnContestant = await advanceCurrentTurnContestant(quizSession, answeredContestant);
+    quizSession.phase = nextTurnContestant ? "pick-number" : "winner";
+  }
+
+  if (recordAnswer && question?._id) {
+    await QuizAnswer.create({
+      session: quizSession._id,
+      question: question._id,
+      questionNumber,
+      user: user?._id || answeredContestant.user || null,
+      contestantName: answeredContestant.name,
+      answer: String(answer || "").trim() || "Time's up",
+      isCorrect,
+      points,
+      bonusAwarded: 0,
+    });
+  }
+
+  return { completed: true, questionNumber };
+}
+
+async function completeExpiredQuestion(session) {
+  const questionNumber = Number(session.currentQuestionNumber || 0);
+  if (session.phase !== "question" || !questionNumber) {
+    return { completed: false };
+  }
+
+  const contestant =
+    session.contestants.id?.(session.currentTurnContestant) ||
+    session.contestants.find(
+      (entry) => getContestantId(entry) === getCurrentTurnContestantId(session)
+    );
+  if (!contestant || (session.askedNumbers || []).includes(questionNumber)) {
+    return { completed: false };
+  }
+
+  const question = await QuizQuestion.findOne({ number: questionNumber, active: true });
+  if (!question) {
+    return { completed: false };
+  }
+
+  return completeQuestionForContestant(session, contestant, question, {
+    points: 0,
+    isCorrect: false,
+    answer: "Time's up",
+    user: contestant.user ? { _id: contestant.user } : null,
+    recordAnswer: true,
+  });
+}
+
 async function sortContestants(session) {
   const nonAdminContestants = await getNonAdminContestants(session);
   const contestants = hasRaffleRun(session)
@@ -922,8 +1037,12 @@ async function moveSessionToWinnerIfComplete(session) {
     return quizSession;
   }
 
-  const activeQuestionCount = await QuizQuestion.countDocuments({ active: true });
-  if (activeQuestionCount > 0 && (quizSession.askedNumbers || []).length >= activeQuestionCount) {
+  const activeQuestionCount = await getActiveQuestionCountForSession(quizSession);
+  const { start, end } = getQuestionDisplayRange(quizSession);
+  const usedDisplayedQuestionCount = (quizSession.askedNumbers || []).filter(
+    (number) => number >= start && number <= end
+  ).length;
+  if (activeQuestionCount > 0 && usedDisplayedQuestionCount >= activeQuestionCount) {
     quizSession.phase = "winner";
     quizSession.phaseStartedAt = new Date();
     quizSession.currentQuestionNumber = null;
@@ -981,6 +1100,7 @@ const advanceExpiredQuizSession = async (req, res, next) => {
     const elapsedSeconds = session.phaseStartedAt
       ? Math.floor((Date.now() - session.phaseStartedAt.getTime()) / 1000)
       : 0;
+    let timeoutResult = null;
 
     if (
       requestedPhase &&
@@ -989,12 +1109,18 @@ const advanceExpiredQuizSession = async (req, res, next) => {
       nextPhase !== session.phase &&
       elapsedSeconds >= durationSeconds - 1
     ) {
-      if (moveSessionToNextPhase(session)) {
+      if (session.phase === "question") {
+        timeoutResult = await completeExpiredQuestion(session);
+        await session.save();
+      } else if (moveSessionToNextPhase(session)) {
         await session.save();
       }
     } else if (durationSeconds > 0 && nextPhase !== session.phase && session.phaseStartedAt) {
       if (elapsedSeconds >= durationSeconds - 1) {
-        if (moveSessionToNextPhase(session)) {
+        if (session.phase === "question") {
+          timeoutResult = await completeExpiredQuestion(session);
+          await session.save();
+        } else if (moveSessionToNextPhase(session)) {
           await session.save();
         }
       }
@@ -1005,7 +1131,15 @@ const advanceExpiredQuizSession = async (req, res, next) => {
       await session.save();
     }
 
-    return res.status(200).json(await buildSessionPayload(session));
+    return res.status(200).json({
+      ...(await buildSessionPayload(session)),
+      ...(timeoutResult?.completed && {
+        message: "Time's up. You earned 0 points.",
+        answerResult: "time-up",
+        isCorrect: false,
+        points: 0,
+      }),
+    });
   } catch (error) {
     return next(error);
   }
@@ -1032,10 +1166,11 @@ const getQuizQuestionByNumber = async (req, res, next) => {
     }
 
     const session = await syncSessionPhase(await getActiveSession());
-    if (questionNumber > Number(session.questionPoolSize || 20)) {
+    const displayRange = getQuestionDisplayRange(session);
+    if (!isQuestionInDisplayRange(session, questionNumber)) {
       return res.status(400).json({
         success: false,
-        message: `Please choose a question number between 1 and ${session.questionPoolSize || 20}.`,
+        message: `Please choose a question number between ${displayRange.start} and ${displayRange.end}.`,
       });
     }
 
@@ -1273,40 +1408,14 @@ const submitQuizAnswer = async (req, res, next) => {
       answerResult = isCorrect ? "correct" : "wrong";
     }
 
-    session.bonusPending = false;
-
-    contestant.score += points;
-    contestant.answeredQuestions = Array.from(
-      new Set([...(contestant.answeredQuestions || []), questionNumber])
-    );
-    contestant.lastAnsweredAt = new Date();
-
-    session.currentQuestionNumber = questionNumber;
-    const nextAskedNumbers = Array.from(new Set([...(session.askedNumbers || []), questionNumber]));
-    session.askedNumbers = nextAskedNumbers;
-    const activeQuestionCount = await QuizQuestion.countDocuments({ active: true });
-
-    session.phaseStartedAt = new Date();
-    if (nextAskedNumbers.length >= activeQuestionCount) {
-      session.phase = "winner";
-      session.currentTurnContestant = null;
-    } else {
-      const nextTurnContestant = await advanceCurrentTurnContestant(session, contestant);
-      session.phase = nextTurnContestant ? "pick-number" : "winner";
-    }
-
-    await session.save();
-    await QuizAnswer.create({
-      session: session._id,
-      question: question._id,
-      questionNumber,
-      user: req.user._id,
-      contestantName: contestant.name,
-      answer: trimmedAnswer,
-      isCorrect,
+    await completeQuestionForContestant(session, contestant, question, {
       points,
-      bonusAwarded: 0,
+      isCorrect,
+      answer: trimmedAnswer,
+      user: req.user,
+      recordAnswer: true,
     });
+    await session.save();
 
     const contestants = await sortContestants(session);
     const answerMessage =
@@ -1366,6 +1475,8 @@ const updateQuizSessionSettings = async (req, res, next) => {
       contestantsSeconds,
       questionLimitPerContestant,
       questionPoolSize,
+      questionDisplayStart,
+      questionDisplayEnd,
       firstPlaceMinPoints,
       secondPlaceMinPoints,
       firstPlacePrize,
@@ -1446,6 +1557,41 @@ const updateQuizSessionSettings = async (req, res, next) => {
       }
 
       session.questionPoolSize = questionPoolSize;
+      if (Number(session.questionDisplayEnd || 0) > questionPoolSize) {
+        session.questionDisplayEnd = questionPoolSize;
+      }
+      if (Number(session.questionDisplayStart || 1) > questionPoolSize) {
+        session.questionDisplayStart = questionPoolSize;
+      }
+    }
+
+    if (questionDisplayStart !== undefined || questionDisplayEnd !== undefined) {
+      const poolSize = Number(session.questionPoolSize || questionPoolSize || 20);
+      const nextStart =
+        questionDisplayStart !== undefined
+          ? Number(questionDisplayStart)
+          : Number(session.questionDisplayStart || 1);
+      const nextEnd =
+        questionDisplayEnd !== undefined
+          ? Number(questionDisplayEnd)
+          : Number(session.questionDisplayEnd || poolSize);
+
+      if (!Number.isInteger(nextStart) || nextStart < 1 || nextStart > poolSize) {
+        return res.status(400).json({
+          success: false,
+          message: `Display from must be between 1 and ${poolSize}`,
+        });
+      }
+
+      if (!Number.isInteger(nextEnd) || nextEnd < nextStart || nextEnd > poolSize) {
+        return res.status(400).json({
+          success: false,
+          message: `Display to must be between ${nextStart} and ${poolSize}`,
+        });
+      }
+
+      session.questionDisplayStart = nextStart;
+      session.questionDisplayEnd = nextEnd;
     }
 
     if (firstPlaceMinPoints !== undefined) {
@@ -1736,6 +1882,10 @@ const skipCurrentQuizContestant = async (req, res, next) => {
         success: false,
         message: "A contestant can only be skipped during the pick or answer stage.",
       });
+    }
+
+    if (session.phase === "question" && session.currentQuestionNumber) {
+      await completeExpiredQuestion(session);
     }
 
     const turnContestants = await getTurnContestants(session);
