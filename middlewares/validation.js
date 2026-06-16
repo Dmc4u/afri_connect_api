@@ -209,6 +209,10 @@ module.exports.validateContestantRegistration = celebrate({
     profilePhoto: Joi.string().trim().max(500).allow("").optional().messages({
       "string.max": 'The maximum length of the "profilePhoto" field is 500',
     }),
+    eventId: Joi.string().length(24).hex().optional().messages({
+      "string.length": 'The "eventId" field must be 24 characters long',
+      "string.hex": 'The "eventId" field must be a hexadecimal value',
+    }),
   }),
 });
 

@@ -287,36 +287,51 @@ async function ensureDefaultQuestions() {
 }
 
 async function getActiveSession() {
-  let session = await QuizSession.findOne({ active: true });
+  let session = await QuizSession.findOne({ active: true }).sort({ updatedAt: -1, createdAt: -1 });
   if (!session) {
-    session = await QuizSession.create({
-      phase: "welcome",
-      phaseStartedAt: new Date(),
-      currentQuestionNumber: null,
-      questionTimerSeconds: 30,
-      welcomeSeconds: 90,
-      rulesSeconds: 80,
-      contestantsSeconds: 10,
-      questionLimitPerContestant: 5,
-      questionPoolSize: 20,
-      questionDisplayStart: 1,
-      questionDisplayEnd: 20,
-      firstPlaceMinPoints: 0,
-      secondPlaceMinPoints: 0,
-      maxSelectedContestants: 5,
-      currentTurnContestant: null,
-      contestants: [],
-      askedNumbers: [],
-      bonusPending: false,
-      meetingLinks: {
-        zoom: "",
-      },
-    });
+    session = await QuizSession.create(getFreshSessionFields());
   } else if (!session.phaseStartedAt) {
     session.phaseStartedAt = new Date();
     await session.save();
   }
   return session;
+}
+
+function getFreshSessionFields(overrides = {}) {
+  return {
+    title: "Live Q/A Event",
+    active: true,
+    phase: "welcome",
+    phaseStartedAt: new Date(),
+    currentQuestionNumber: null,
+    questionTimerSeconds: 30,
+    welcomeSeconds: 90,
+    rulesSeconds: 80,
+    contestantsSeconds: 10,
+    questionLimitPerContestant: 5,
+    questionPoolSize: 20,
+    questionDisplayStart: 1,
+    questionDisplayEnd: 20,
+    firstPlaceMinPoints: 0,
+    secondPlaceMinPoints: 0,
+    firstPlacePrize: "",
+    secondPlacePrize: "",
+    maxSelectedContestants: 5,
+    currentTurnContestant: null,
+    contestants: [],
+    askedNumbers: [],
+    bonusPending: false,
+    raffleSeed: "",
+    raffleExecutedAt: null,
+    raffleRunsAt: null,
+    meetingLinks: {
+      zoom: "",
+    },
+    welcomeNote:
+      "Welcome to the Q/A event. Take the opening moment to greet the participants and introduce the flow.",
+    rules: DEFAULT_EVENT_RULES_TEXT,
+    ...overrides,
+  };
 }
 
 function getPhaseDurationSeconds(session) {
@@ -713,6 +728,128 @@ function serializeSession(session, options = {}) {
   };
 }
 
+async function serializeEventSummary(session) {
+  const registeredContestants = await sortRegisteredContestants(session);
+
+  return {
+    id: session._id,
+    title: session.title || "Live Q/A Event",
+    active: Boolean(session.active),
+    phase: session.phase,
+    eventStartsAt: session.eventStartsAt,
+    eventStartsAtLabel: session.eventStartsAtLabel || "",
+    eventEndsAt: session.eventEndsAt,
+    raffleRunsAt: session.raffleRunsAt,
+    raffleExecutedAt: session.raffleExecutedAt,
+    questionTimerSeconds: session.questionTimerSeconds,
+    welcomeSeconds: session.welcomeSeconds,
+    rulesSeconds: session.rulesSeconds,
+    contestantsSeconds: session.contestantsSeconds,
+    questionLimitPerContestant: session.questionLimitPerContestant,
+    questionPoolSize: session.questionPoolSize || 20,
+    questionDisplayStart: getQuestionDisplayRange(session).start,
+    questionDisplayEnd: getQuestionDisplayRange(session).end,
+    firstPlaceMinPoints: session.firstPlaceMinPoints || 0,
+    secondPlaceMinPoints: session.secondPlaceMinPoints || 0,
+    firstPlacePrize: session.firstPlacePrize || "",
+    secondPlacePrize: session.secondPlacePrize || "",
+    maxSelectedContestants: session.maxSelectedContestants,
+    welcomeNote: session.welcomeNote || "",
+    rules: normalizeSessionRules(session.rules),
+    meetingLinks: {
+      zoom: session.meetingLinks?.zoom || "",
+    },
+    registeredCount: registeredContestants.length,
+    selectedCount:
+      registeredContestants.filter((contestant) => contestant.raffleStatus === "selected").length,
+    registeredContestants,
+    createdAt: session.createdAt,
+    updatedAt: session.updatedAt,
+  };
+}
+
+function serializePublicEventSummary(session, user = null) {
+  return {
+    id: session._id,
+    title: session.title || "Live Q/A Event",
+    active: Boolean(session.active),
+    phase: session.phase,
+    eventStartsAt: session.eventStartsAt,
+    eventStartsAtLabel: session.eventStartsAtLabel || "",
+    raffleExecutedAt: session.raffleExecutedAt,
+    registeredCount: session.contestants?.length || 0,
+    selectedCount:
+      session.contestants?.filter((contestant) => contestant.raffleStatus === "selected").length ||
+      0,
+    firstPlaceMinPoints: session.firstPlaceMinPoints || 0,
+    secondPlaceMinPoints: session.secondPlaceMinPoints || 0,
+    firstPlacePrize: session.firstPlacePrize || "",
+    secondPlacePrize: session.secondPlacePrize || "",
+    hasZoomMeeting: Boolean(session.meetingLinks?.zoom),
+    currentUserRegistered: Boolean(user && findContestantByUser(session, user)),
+  };
+}
+
+async function getQuizEventSummaries() {
+  const sessions = await QuizSession.find().sort({
+    active: -1,
+    eventStartsAt: -1,
+    createdAt: -1,
+  });
+  return Promise.all(sessions.map((session) => serializeEventSummary(session)));
+}
+
+async function getPublicQuizEventSummaries(user = null) {
+  const sessions = await QuizSession.find({
+    eventStartsAt: { $ne: null },
+    phase: { $ne: "finished" },
+  }).sort({
+    active: -1,
+    eventStartsAt: 1,
+    createdAt: 1,
+  });
+  return sessions.map((session) => serializePublicEventSummary(session, user));
+}
+
+function copySessionSettingsForNewEvent(sourceSession, overrides = {}) {
+  const nextStart = overrides.eventStartsAt ? new Date(overrides.eventStartsAt) : null;
+  const nextEnd = overrides.eventEndsAt ? new Date(overrides.eventEndsAt) : null;
+  const nextRaffle = overrides.raffleRunsAt ? new Date(overrides.raffleRunsAt) : null;
+
+  return getFreshSessionFields({
+    title: overrides.title || sourceSession?.title || "Live Q/A Event",
+    phase: nextStart && nextStart.getTime() > Date.now() ? "scheduled" : "welcome",
+    eventStartsAt: nextStart,
+    eventStartsAtLabel: String(overrides.eventStartsAtLabel || "").trim().slice(0, 120),
+    eventEndsAt: nextEnd,
+    raffleRunsAt: nextRaffle,
+    questionTimerSeconds: overrides.questionTimerSeconds || sourceSession?.questionTimerSeconds || 30,
+    welcomeSeconds: overrides.welcomeSeconds || sourceSession?.welcomeSeconds || 90,
+    rulesSeconds: overrides.rulesSeconds || sourceSession?.rulesSeconds || 80,
+    contestantsSeconds: overrides.contestantsSeconds || sourceSession?.contestantsSeconds || 10,
+    questionLimitPerContestant:
+      overrides.questionLimitPerContestant || sourceSession?.questionLimitPerContestant || 5,
+    questionPoolSize: overrides.questionPoolSize || sourceSession?.questionPoolSize || 20,
+    questionDisplayStart:
+      overrides.questionDisplayStart || sourceSession?.questionDisplayStart || 1,
+    questionDisplayEnd:
+      overrides.questionDisplayEnd || sourceSession?.questionDisplayEnd || sourceSession?.questionPoolSize || 20,
+    firstPlaceMinPoints:
+      overrides.firstPlaceMinPoints ?? sourceSession?.firstPlaceMinPoints ?? 0,
+    secondPlaceMinPoints:
+      overrides.secondPlaceMinPoints ?? sourceSession?.secondPlaceMinPoints ?? 0,
+    firstPlacePrize: overrides.firstPlacePrize ?? sourceSession?.firstPlacePrize ?? "",
+    secondPlacePrize: overrides.secondPlacePrize ?? sourceSession?.secondPlacePrize ?? "",
+    maxSelectedContestants:
+      overrides.maxSelectedContestants || sourceSession?.maxSelectedContestants || 5,
+    meetingLinks: {
+      zoom: String(overrides.meetingLinks?.zoom ?? sourceSession?.meetingLinks?.zoom ?? "").trim(),
+    },
+    welcomeNote: overrides.welcomeNote ?? sourceSession?.welcomeNote ?? getFreshSessionFields().welcomeNote,
+    rules: normalizeSessionRules(overrides.rules ?? sourceSession?.rules),
+  });
+}
+
 async function getNonAdminContestants(session) {
   const contestants = session.contestants || [];
   const adminEmails = new Set(getConfiguredAdminEmails());
@@ -1084,6 +1221,474 @@ const getQuizSession = async (req, res, next) => {
       await session.save();
     }
     return res.status(200).json(await buildSessionPayload(session));
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const getPublicQuizEvents = async (req, res, next) => {
+  try {
+    await getActiveSession();
+    return res.status(200).json({
+      success: true,
+      events: await getPublicQuizEventSummaries(req.user),
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const getQuizEvents = async (req, res, next) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ success: false, message: "Admin access required" });
+    }
+
+    await getActiveSession();
+    return res.status(200).json({
+      success: true,
+      events: await getQuizEventSummaries(),
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const createQuizEvent = async (req, res, next) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ success: false, message: "Admin access required" });
+    }
+
+    const activeSession = await getActiveSession();
+    const eventCount = await QuizSession.countDocuments();
+    const title = String(req.body?.title || `Live Q/A Event ${eventCount + 1}`)
+      .trim()
+      .slice(0, 120);
+    const eventStartsAt = req.body?.eventStartsAt || null;
+    const eventEndsAt = req.body?.eventEndsAt || null;
+    const raffleRunsAt = req.body?.raffleRunsAt || null;
+
+    const datesToValidate = [
+      ["Event start date and time", eventStartsAt],
+      ["Event end date and time", eventEndsAt],
+      ["Raffle date and time", raffleRunsAt],
+    ];
+
+    for (const [label, value] of datesToValidate) {
+      if (value && Number.isNaN(new Date(value).getTime())) {
+        return res.status(400).json({
+          success: false,
+          message: `${label} must be valid`,
+        });
+      }
+    }
+
+    if (
+      eventStartsAt &&
+      eventEndsAt &&
+      new Date(eventEndsAt).getTime() <= new Date(eventStartsAt).getTime()
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Event end date and time must be after the event start time",
+      });
+    }
+
+    await QuizSession.updateMany({ active: true }, { $set: { active: false } });
+    const session = await QuizSession.create(
+      copySessionSettingsForNewEvent(activeSession, {
+        title,
+        eventStartsAt,
+        eventStartsAtLabel: req.body?.eventStartsAtLabel,
+        eventEndsAt,
+        raffleRunsAt,
+        meetingLinks: req.body?.meetingLinks,
+      })
+    );
+
+    return res.status(201).json({
+      ...(await buildSessionPayload(session, {
+        includePrivateMeetingLinks: true,
+      })),
+      events: await getQuizEventSummaries(),
+      message: `${session.title} created and activated.`,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const updateQuizEvent = async (req, res, next) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ success: false, message: "Admin access required" });
+    }
+
+    const session = await QuizSession.findById(req.params.eventId);
+    if (!session) {
+      return res.status(404).json({ success: false, message: "Quiz event not found" });
+    }
+
+    const {
+      title,
+      questionTimerSeconds,
+      welcomeSeconds,
+      rulesSeconds,
+      contestantsSeconds,
+      questionLimitPerContestant,
+      questionPoolSize,
+      questionDisplayStart,
+      questionDisplayEnd,
+      firstPlaceMinPoints,
+      secondPlaceMinPoints,
+      firstPlacePrize,
+      secondPlacePrize,
+      maxSelectedContestants,
+      eventStartsAt,
+      eventStartsAtLabel,
+      eventEndsAt,
+      raffleRunsAt,
+      meetingLinks,
+      welcomeNote,
+      rules,
+    } = req.body;
+
+    if (title !== undefined) {
+      const nextTitle = String(title || "").trim().slice(0, 120);
+      if (!nextTitle) {
+        return res.status(400).json({ success: false, message: "Event title is required" });
+      }
+      session.title = nextTitle;
+    }
+
+    if (questionTimerSeconds !== undefined) {
+      if (questionTimerSeconds < 5 || questionTimerSeconds > 300) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Question timer must be between 5 and 300 seconds" });
+      }
+      session.questionTimerSeconds = questionTimerSeconds;
+    }
+
+    if (welcomeSeconds !== undefined) {
+      if (welcomeSeconds < 10 || welcomeSeconds > 600) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Welcome timer must be between 10 and 600 seconds" });
+      }
+      session.welcomeSeconds = welcomeSeconds;
+    }
+
+    if (rulesSeconds !== undefined) {
+      if (rulesSeconds < 10 || rulesSeconds > 600) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Rules timer must be between 10 and 600 seconds" });
+      }
+      session.rulesSeconds = rulesSeconds;
+    }
+
+    if (contestantsSeconds !== undefined) {
+      if (contestantsSeconds < 5 || contestantsSeconds > 600) {
+        return res.status(400).json({
+          success: false,
+          message: "Contestants timer must be between 5 and 600 seconds",
+        });
+      }
+      session.contestantsSeconds = contestantsSeconds;
+    }
+
+    if (questionLimitPerContestant !== undefined) {
+      if (questionLimitPerContestant < 1 || questionLimitPerContestant > 100) {
+        return res.status(400).json({
+          success: false,
+          message: "Question limit per contestant must be between 1 and 100",
+        });
+      }
+      session.questionLimitPerContestant = questionLimitPerContestant;
+    }
+
+    if (questionPoolSize !== undefined) {
+      if (questionPoolSize < 1 || questionPoolSize > 200) {
+        return res.status(400).json({
+          success: false,
+          message: "Question pool size must be between 1 and 200",
+        });
+      }
+      session.questionPoolSize = questionPoolSize;
+    }
+
+    if (questionDisplayStart !== undefined || questionDisplayEnd !== undefined) {
+      const poolSize = Number(session.questionPoolSize || questionPoolSize || 20);
+      const nextStart =
+        questionDisplayStart !== undefined
+          ? Number(questionDisplayStart)
+          : Number(session.questionDisplayStart || 1);
+      const nextEnd =
+        questionDisplayEnd !== undefined
+          ? Number(questionDisplayEnd)
+          : Number(session.questionDisplayEnd || poolSize);
+
+      if (!Number.isInteger(nextStart) || nextStart < 1 || nextStart > poolSize) {
+        return res.status(400).json({
+          success: false,
+          message: `Display from must be between 1 and ${poolSize}`,
+        });
+      }
+
+      if (!Number.isInteger(nextEnd) || nextEnd < nextStart || nextEnd > poolSize) {
+        return res.status(400).json({
+          success: false,
+          message: `Display to must be between ${nextStart} and ${poolSize}`,
+        });
+      }
+
+      session.questionDisplayStart = nextStart;
+      session.questionDisplayEnd = nextEnd;
+    }
+
+    if (firstPlaceMinPoints !== undefined) {
+      if (firstPlaceMinPoints < 0 || firstPlaceMinPoints > 10000) {
+        return res.status(400).json({
+          success: false,
+          message: "1st place points must be between 0 and 10000",
+        });
+      }
+      session.firstPlaceMinPoints = firstPlaceMinPoints;
+    }
+
+    if (secondPlaceMinPoints !== undefined) {
+      if (secondPlaceMinPoints < 0 || secondPlaceMinPoints > 10000) {
+        return res.status(400).json({
+          success: false,
+          message: "2nd place points must be between 0 and 10000",
+        });
+      }
+      session.secondPlaceMinPoints = secondPlaceMinPoints;
+    }
+
+    if (firstPlacePrize !== undefined) {
+      if (typeof firstPlacePrize !== "string") {
+        return res.status(400).json({
+          success: false,
+          message: "1st place prize must be a string",
+        });
+      }
+      session.firstPlacePrize = firstPlacePrize.trim().slice(0, 120);
+    }
+
+    if (secondPlacePrize !== undefined) {
+      if (typeof secondPlacePrize !== "string") {
+        return res.status(400).json({
+          success: false,
+          message: "2nd place prize must be a string",
+        });
+      }
+      session.secondPlacePrize = secondPlacePrize.trim().slice(0, 120);
+    }
+
+    if (maxSelectedContestants !== undefined) {
+      if (maxSelectedContestants < 1 || maxSelectedContestants > 100) {
+        return res.status(400).json({
+          success: false,
+          message: "Selected contestants must be between 1 and 100",
+        });
+      }
+      session.maxSelectedContestants = maxSelectedContestants;
+    }
+
+    if (eventStartsAt !== undefined) {
+      if (eventStartsAt === null || eventStartsAt === "") {
+        session.eventStartsAt = null;
+        session.eventStartsAtLabel = "";
+        if (session.phase === "scheduled") {
+          session.phase = "welcome";
+          session.phaseStartedAt = new Date();
+        }
+      } else {
+        const scheduledStart = new Date(eventStartsAt);
+        if (Number.isNaN(scheduledStart.getTime())) {
+          return res.status(400).json({
+            success: false,
+            message: "Event start date and time must be valid",
+          });
+        }
+
+        const currentStartTime = session.eventStartsAt
+          ? new Date(session.eventStartsAt).getTime()
+          : null;
+        const nextStartTime = scheduledStart.getTime();
+        const startTimeChanged =
+          currentStartTime === null || Math.abs(currentStartTime - nextStartTime) >= 60000;
+
+        session.eventStartsAt = scheduledStart;
+        session.eventStartsAtLabel = String(eventStartsAtLabel || "").trim().slice(0, 120);
+
+        if (startTimeChanged) {
+          session.phase = scheduledStart.getTime() > Date.now() ? "scheduled" : "welcome";
+          session.phaseStartedAt = new Date();
+          session.currentQuestionNumber = null;
+          if (scheduledStart.getTime() > Date.now() && hasPlayedCompetitionData(session)) {
+            resetSessionCompetitionData(session);
+            await QuizAnswer.deleteMany({ session: session._id });
+          }
+        }
+      }
+    }
+
+    if (eventEndsAt !== undefined) {
+      if (eventEndsAt === null || eventEndsAt === "") {
+        session.eventEndsAt = null;
+      } else {
+        const scheduledEnd = new Date(eventEndsAt);
+        if (Number.isNaN(scheduledEnd.getTime())) {
+          return res.status(400).json({
+            success: false,
+            message: "Event end date and time must be valid",
+          });
+        }
+
+        if (session.eventStartsAt && scheduledEnd.getTime() <= session.eventStartsAt.getTime()) {
+          return res.status(400).json({
+            success: false,
+            message: "Event end date and time must be after the event start time",
+          });
+        }
+
+        session.eventEndsAt = scheduledEnd;
+      }
+    }
+
+    if (raffleRunsAt !== undefined) {
+      if (raffleRunsAt === null || raffleRunsAt === "") {
+        session.raffleRunsAt = null;
+      } else {
+        const scheduledRaffle = new Date(raffleRunsAt);
+        if (Number.isNaN(scheduledRaffle.getTime())) {
+          return res.status(400).json({
+            success: false,
+            message: "Raffle date and time must be valid",
+          });
+        }
+        session.raffleRunsAt = scheduledRaffle;
+      }
+    }
+
+    if (meetingLinks !== undefined) {
+      const zoom = String(meetingLinks?.zoom || "").trim();
+      if (zoom && !/^https:\/\/([\w-]+\.)?zoom\.us\/.+/i.test(zoom)) {
+        return res.status(400).json({
+          success: false,
+          message: "Zoom meeting URL must be a valid zoom.us link",
+        });
+      }
+
+      session.meetingLinks = {
+        ...(session.meetingLinks?.toObject?.() ?? session.meetingLinks ?? {}),
+        zoom,
+      };
+    }
+
+    if (welcomeNote !== undefined) {
+      if (typeof welcomeNote !== "string") {
+        return res.status(400).json({ success: false, message: "Welcome note must be a string" });
+      }
+      session.welcomeNote = welcomeNote.trim();
+    }
+
+    if (rules !== undefined) {
+      if (typeof rules !== "string") {
+        return res.status(400).json({ success: false, message: "Rules must be a string" });
+      }
+      session.rules = rules.trim();
+    }
+
+    await session.save();
+
+    const activeSession = await syncSessionPhase(await getActiveSession());
+    return res.status(200).json({
+      ...(await buildSessionPayload(activeSession, {
+        includePrivateMeetingLinks: true,
+      })),
+      events: await getQuizEventSummaries(),
+      message: `${session.title || "Quiz event"} updated successfully.`,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const activateQuizEvent = async (req, res, next) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ success: false, message: "Admin access required" });
+    }
+
+    const session = await QuizSession.findById(req.params.eventId);
+    if (!session) {
+      return res.status(404).json({ success: false, message: "Quiz event not found" });
+    }
+
+    await QuizSession.updateMany({ active: true }, { $set: { active: false } });
+    session.active = true;
+    await session.save();
+    await syncSessionPhase(session);
+
+    return res.status(200).json({
+      ...(await buildSessionPayload(session, {
+        includePrivateMeetingLinks: true,
+      })),
+      events: await getQuizEventSummaries(),
+      message: `${session.title || "Quiz event"} is now active.`,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const deleteQuizEvent = async (req, res, next) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ success: false, message: "Admin access required" });
+    }
+
+    const session = await QuizSession.findById(req.params.eventId);
+    if (!session) {
+      return res.status(404).json({ success: false, message: "Quiz event not found" });
+    }
+
+    const eventCount = await QuizSession.countDocuments();
+    if (eventCount <= 1) {
+      return res.status(400).json({
+        success: false,
+        message: "At least one quiz event must remain.",
+      });
+    }
+
+    const wasActive = Boolean(session.active);
+    await QuizAnswer.deleteMany({ session: session._id });
+    await session.deleteOne();
+
+    let nextSession = await QuizSession.findOne({ active: true }).sort({
+      updatedAt: -1,
+      createdAt: -1,
+    });
+
+    if (wasActive || !nextSession) {
+      nextSession = await QuizSession.findOne().sort({ eventStartsAt: -1, createdAt: -1 });
+      nextSession.active = true;
+      await nextSession.save();
+      await syncSessionPhase(nextSession);
+    }
+
+    return res.status(200).json({
+      ...(await buildSessionPayload(nextSession, {
+        includePrivateMeetingLinks: true,
+      })),
+      events: await getQuizEventSummaries(),
+      message: "Quiz event deleted successfully.",
+    });
   } catch (error) {
     return next(error);
   }
@@ -1469,6 +2074,7 @@ const updateQuizSessionSettings = async (req, res, next) => {
     }
 
     const {
+      title,
       questionTimerSeconds,
       welcomeSeconds,
       rulesSeconds,
@@ -1493,6 +2099,14 @@ const updateQuizSessionSettings = async (req, res, next) => {
     const session = await syncSessionPhase(await getActiveSession());
 
     // Validate and update fields
+    if (title !== undefined) {
+      const nextTitle = String(title || "").trim().slice(0, 120);
+      if (!nextTitle) {
+        return res.status(400).json({ success: false, message: "Event title is required" });
+      }
+      session.title = nextTitle;
+    }
+
     if (questionTimerSeconds !== undefined) {
       if (questionTimerSeconds < 5 || questionTimerSeconds > 300) {
         return res
@@ -2102,7 +2716,7 @@ const setQuizQuestion = async (req, res, next) => {
 /** Register a new contestant for the quiz session */
 const registerContestant = async (req, res, next) => {
   try {
-    const { name, email, country, profilePhoto } = req.body;
+    const { name, email, country, profilePhoto, eventId } = req.body;
 
     const requestedEmail = String(req.user.email || email || "")
       .trim()
@@ -2118,10 +2732,28 @@ const registerContestant = async (req, res, next) => {
       });
     }
 
-    const session = await syncSessionPhase(await getActiveSession());
+    let session = null;
+    if (eventId) {
+      session = await QuizSession.findById(eventId);
+      if (!session) {
+        logQuizSecurityEvent("registration_denied", req, {
+          reason: "event_not_found",
+          eventId,
+        });
+        return res.status(404).json({
+          success: false,
+          message: "The selected Q/A event was not found.",
+        });
+      }
+      await syncSessionPhase(session);
+    } else {
+      session = await syncSessionPhase(await getActiveSession());
+    }
+
     if (!session.eventStartsAt) {
       logQuizSecurityEvent("registration_denied", req, {
         reason: "event_not_scheduled",
+        eventId: session._id?.toString(),
       });
       return res.status(403).json({
         success: false,
@@ -2132,6 +2764,7 @@ const registerContestant = async (req, res, next) => {
     if (hasRaffleRun(session)) {
       logQuizSecurityEvent("registration_denied", req, {
         reason: "raffle_already_run",
+        eventId: session._id?.toString(),
       });
       return res.status(403).json({
         success: false,
@@ -2163,6 +2796,8 @@ const registerContestant = async (req, res, next) => {
         success: true,
         alreadyRegistered: true,
         message: "You have already registered for this event.",
+        session: serializePublicEventSummary(session, req.user),
+        events: await getPublicQuizEventSummaries(req.user),
         contestants: await sortContestants(session),
         registeredContestants: await sortRegisteredContestants(session),
       });
@@ -2192,6 +2827,8 @@ const registerContestant = async (req, res, next) => {
       alreadyRegistered: false,
       message:
         "Contestant registered successfully. Please check Profile > Contact Messages for confirmation.",
+      session: serializePublicEventSummary(session, req.user),
+      events: await getPublicQuizEventSummaries(req.user),
       contestants: await sortContestants(session),
       registeredContestants: await sortRegisteredContestants(session),
     });
@@ -2230,6 +2867,12 @@ const getAllQuizQuestions = async (req, res, next) => {
 
 module.exports = {
   getQuizSession,
+  getPublicQuizEvents,
+  getQuizEvents,
+  createQuizEvent,
+  updateQuizEvent,
+  activateQuizEvent,
+  deleteQuizEvent,
   advanceExpiredQuizSession,
   getQuizQuestions,
   getQuizQuestionByNumber,

@@ -1,6 +1,12 @@
 const express = require("express");
 const {
   getQuizSession,
+  getPublicQuizEvents,
+  getQuizEvents,
+  createQuizEvent,
+  updateQuizEvent,
+  activateQuizEvent,
+  deleteQuizEvent,
   advanceExpiredQuizSession,
   getQuizQuestions,
   getQuizQuestionByNumber,
@@ -23,12 +29,14 @@ const {
   validateContestantRegistration,
 } = require("../middlewares/validation");
 const auth = require("../middlewares/auth");
+const optionalAuth = require("../middlewares/optionalAuth");
 const { strictLimiter } = require("../middlewares/rateLimiter");
 
 const router = express.Router();
 
 // Public routes
 router.get("/session", getQuizSession);
+router.get("/events", optionalAuth, getPublicQuizEvents);
 router.post("/session/advance-expired", advanceExpiredQuizSession);
 router.get("/questions", getQuizQuestions);
 router.get(
@@ -50,6 +58,11 @@ router.get("/contestants", getQuizContestants);
 
 // Admin-only routes
 router.put("/admin/settings", auth, updateQuizSessionSettings);
+router.get("/admin/events", auth, getQuizEvents);
+router.post("/admin/events", auth, createQuizEvent);
+router.put("/admin/events/:eventId", auth, updateQuizEvent);
+router.post("/admin/events/:eventId/activate", auth, activateQuizEvent);
+router.delete("/admin/events/:eventId", auth, deleteQuizEvent);
 router.post("/admin/raffle", auth, strictLimiter, executeQuizRaffle);
 router.post("/admin/restart", auth, restartQuizSession);
 router.post("/admin/end", auth, endQuizSession);
