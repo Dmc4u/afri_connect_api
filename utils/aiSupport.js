@@ -1,6 +1,9 @@
-const HUGGING_FACE_API_KEY = process.env.HUGGING_FACE_API_KEY;
-const HUGGING_FACE_MODEL = process.env.HUGGING_FACE_MODEL || "mistralai/Mistral-7B-Instruct-v0.2";
-const FALLBACK_URL = process.env.AI_SUPPORT_FALLBACK_URL || "https://afrionet.com/contact";
+const {
+  HUGGING_FACE_API_KEY,
+  HUGGING_FACE_MODEL = "mistralai/Mistral-7B-Instruct-v0.2",
+  AI_SUPPORT_FALLBACK_URL,
+} = process.env;
+const FALLBACK_URL = AI_SUPPORT_FALLBACK_URL || "https://afrionet.com/contact";
 
 const { getClientFeatureFlags, getClientFaqJson } = require("./appContent");
 
@@ -80,9 +83,9 @@ function tokenize(text) {
   // Handle common concatenations/missing spaces for brand keywords.
   // Example: "isafrionet" -> include "afrionet" so retrieval can match.
   const expanded = new Set(tokens);
-  for (const t of tokens) {
+  tokens.forEach((t) => {
     if (t.includes("afrionet")) expanded.add("afrionet");
-  }
+  });
 
   return Array.from(expanded);
 }
@@ -91,30 +94,30 @@ let cachedFaqIndex = null;
 let cachedFaqIndexMtimeMs = null;
 
 function buildFaqIndexFromJson(faqSections) {
-  const items = [];
-  if (!Array.isArray(faqSections)) return items;
+  if (!Array.isArray(faqSections)) return [];
 
-  for (const section of faqSections) {
+  return faqSections.flatMap((section) => {
     const category = safeString(section?.category);
     const questions = Array.isArray(section?.questions) ? section.questions : [];
-    for (const qa of questions) {
-      const q = safeString(qa?.q);
-      const a = safeString(qa?.a);
-      if (!q || !a) continue;
 
-      const searchable = `${category} ${q} ${a}`;
-      const tokens = tokenize(searchable);
-      items.push({
-        category,
-        q,
-        a,
-        anchor: safeString(qa?.anchor),
-        tokens,
-      });
-    }
-  }
+    return questions
+      .map((qa) => {
+        const q = safeString(qa?.q);
+        const a = safeString(qa?.a);
+        if (!q || !a) return null;
 
-  return items;
+        const searchable = `${category} ${q} ${a}`;
+        const tokens = tokenize(searchable);
+        return {
+          category,
+          q,
+          a,
+          anchor: safeString(qa?.anchor),
+          tokens,
+        };
+      })
+      .filter(Boolean);
+  });
 }
 
 function getFaqIndex() {
@@ -130,10 +133,7 @@ function scoreFaqItem(queryTokens, item) {
   if (!queryTokens.length) return 0;
   const tokenSet = new Set(item.tokens);
 
-  let score = 0;
-  for (const t of queryTokens) {
-    if (tokenSet.has(t)) score += 2;
-  }
+  let score = queryTokens.reduce((total, t) => total + (tokenSet.has(t) ? 2 : 0), 0);
 
   // Phrase-ish boosts
   const qNorm = normalizeText(item.q);
@@ -173,15 +173,14 @@ function getRelevantFaqPairs(userMessage, { topK = 5, minScore = 2 } = {}) {
 function formatRelevantFaqForPrompt(relevantItems, { maxChars = 4500 } = {}) {
   if (!Array.isArray(relevantItems) || relevantItems.length === 0) return "";
 
-  let out = "RELEVANT FAQ (authoritative excerpts)\n";
-  for (const item of relevantItems) {
-    if (out.length >= maxChars) break;
+  let out = relevantItems.reduce((acc, item) => {
+    if (acc.length >= maxChars) return acc;
     const category = safeString(item?.category);
-    if (category) out += `\n[${category}]\n`;
-    out += `Q: ${safeString(item?.q)}\nA: ${safeString(item?.a)}\n`;
-  }
+    const categoryText = category ? `\n[${category}]\n` : "";
+    return `${acc}${categoryText}Q: ${safeString(item?.q)}\nA: ${safeString(item?.a)}\n`;
+  }, "RELEVANT FAQ (authoritative excerpts)\n");
 
-  if (out.length > maxChars) out = out.slice(0, maxChars - 3) + "...";
+  if (out.length > maxChars) out = `${out.slice(0, maxChars - 3)}...`;
   return out.trim();
 }
 
@@ -237,6 +236,7 @@ ${faqText || "(No highly relevant FAQ matches found for this question.)"}
  * @param {Array} conversationHistory - Previous messages for context
  * @returns {Promise<string>} AI response
  */
+/* eslint-disable no-use-before-define */
 async function queryHuggingFace(userMessage, conversationHistory = []) {
   try {
     if (!HUGGING_FACE_API_KEY || HUGGING_FACE_API_KEY === "your_huggingface_token_here") {
@@ -281,12 +281,14 @@ async function queryHuggingFace(userMessage, conversationHistory = []) {
     }
 
     const data = await response.json();
+    const [firstResult] = data || [];
 
-    if (data && data[0] && data[0].generated_text) {
-      let aiResponse = data[0].generated_text.trim();
+    if (firstResult?.generated_text) {
+      let aiResponse = firstResult.generated_text.trim();
 
       // Clean up the response
-      aiResponse = aiResponse.split("\n")[0]; // Take first paragraph
+      const [firstParagraph] = aiResponse.split("\n");
+      aiResponse = firstParagraph;
       aiResponse = aiResponse.replace(/User:|Assistant:/gi, "").trim();
 
       return aiResponse || getFallbackResponse(userMessage);
@@ -304,6 +306,7 @@ async function queryHuggingFace(userMessage, conversationHistory = []) {
     return getFallbackResponse(userMessage);
   }
 }
+/* eslint-enable no-use-before-define */
 
 /**
  * Fallback responses when AI is unavailable
@@ -350,6 +353,19 @@ function getFallbackResponse(userMessage) {
   // Who can join
   if (message.includes("who can join") || message.includes("can i join")) {
     return `Anyone can join AfriOnet! Whether you're a small business owner, freelancer, professional, or talented individual based in Africa or serving African markets, AfriOnet is built for you. You can list your business, participate in talent showcases, compete for prizes, and connect with opportunities.`;
+  }
+
+  // Short event/watch questions should answer the public Q/A Quiz viewing rule.
+  if (
+    message.trim() === "event" ||
+    message.trim() === "events" ||
+    message.includes("watch the q/a") ||
+    message.includes("watch q/a") ||
+    message.includes("watch the qa") ||
+    message.includes("watch qa") ||
+    message.includes("everyone watch")
+  ) {
+    return `Yes. Everyone can watch the Q/A Quiz Event live without registering or logging in. Registration is only required if you want to join the event as a registered participant.`;
   }
 
   // Pricing questions
