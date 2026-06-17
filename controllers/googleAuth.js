@@ -162,15 +162,11 @@ const googleAuthCallback = (req, res, next) => {
       // Generate JWT token
       const token = jwt.sign({ _id: user._id }, JWT_SECRET, { expiresIn: "7d" });
 
-      // Prepare user object (remove sensitive data)
-      const userObj = user.toObject();
-      delete userObj.password;
-
-      // Redirect to frontend with token and user data
+      // Keep the callback URL small. The frontend fetches the current user
+      // with this token after redirecting back from Google.
       const frontendURL = PUBLIC_APP_URL || "http://localhost:3001";
-      const userData = encodeURIComponent(JSON.stringify(userObj));
 
-      return res.redirect(`${frontendURL}/?auth=success&token=${token}&user=${userData}`);
+      return res.redirect(`${frontendURL}/?auth=success&token=${token}`);
     } catch (error) {
       console.error("Token generation error:", error);
       const frontendURL = PUBLIC_APP_URL || "http://localhost:3001";
