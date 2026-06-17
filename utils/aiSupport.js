@@ -365,7 +365,7 @@ function getFallbackResponse(userMessage) {
     message.includes("watch qa") ||
     message.includes("everyone watch")
   ) {
-    return `Yes. Everyone can watch the Q/A Quiz Event live without registering or logging in. Registration is only required if you want to join the event as a registered participant.`;
+    return `Yes. Everyone can watch the Q/A Quiz Event live on Zoom without registering or logging in. Please have the Zoom app ready before the event. Registration is only required if you want to join the event as a registered participant.`;
   }
 
   // Pricing questions
@@ -467,7 +467,7 @@ function getFallbackResponse(userMessage) {
     message.includes("time's up") ||
     message.includes("times up")
   ) {
-    return `AfriOnet Live Q/A Quiz events let selected contestants answer questions live, usually while joining through Zoom.\n\nHow it works:\n1. Register for the event when registration is open\n2. Join Zoom when the event starts or when your turn is near\n3. When it is your turn, pick an available question number\n4. Answer before the timer ends\n5. Correct answers earn points; wrong answers or time's up earn 0 points\n6. Used questions are disabled so they cannot be picked again\n7. Winners are based on the event's point targets and final leaderboard\n\nOn the quiz page, watch the Current stage, Current turn, timer, and leaderboard so you know when to pick or answer.`;
+    return `AfriOnet Live Q/A Quiz events run on Zoom and let selected contestants answer questions live.\n\nHow it works:\n1. Register for the event when registration is open\n2. Install or open the Zoom app before the event\n3. Join Zoom when the button opens or when your turn is near\n4. When it is your turn, share your screen on Zoom and pick an available question number\n5. Answer before the timer ends\n6. Correct answers earn points; wrong answers or time's up earn 0 points\n7. Used questions are disabled so they cannot be picked again\n8. Winners are based on the event's point targets and final leaderboard\n\nOn the quiz page, watch the Current stage, Current turn, timer, and leaderboard so you know when to pick or answer.`;
   }
 
   // Live events

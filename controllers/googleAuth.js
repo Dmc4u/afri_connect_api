@@ -61,11 +61,11 @@ const configureGoogleStrategy = () => {
               avatar,
               // Google users don't need password-based auth
               password: null,
-              // Set default values for required fields
-              phone: "",
-              city: "",
-              country: "",
-              location: "",
+              // Do not store an empty phone. The sparse unique phone index only
+              // works correctly when missing phone numbers are omitted.
+              city: null,
+              country: null,
+              location: null,
               role: isProvisionedAdmin ? "admin" : "user",
               tier: isProvisionedAdmin ? "Pro" : "Free",
               adminProvisioned: isProvisionedAdmin,
