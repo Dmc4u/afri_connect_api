@@ -30,6 +30,9 @@ const DEFAULT_EVENT_RULES = [
 const DEFAULT_EVENT_RULES_TEXT = DEFAULT_EVENT_RULES.join("\n");
 const LEGACY_RULES_PLACEHOLDER =
   "Rules are presented for about 1-3 minutes. Read carefully before answering.";
+const ZOOM_EVENT_REMINDER =
+  "Important Reminder: This event will be held on Zoom. Please make sure you have the Zoom application installed and working on your device before the event date.\n\n" +
+  "To avoid any last-minute issues, we recommend testing Zoom in advance and ensuring you have a stable internet connection.";
 
 const getConfiguredAdminEmails = () =>
   String(process.env.ADMIN_EMAILS || process.env.ADMIN_EMAIL || "")
@@ -89,7 +92,8 @@ async function sendQuizRegistrationMessage(contestant, session) {
     `Hi ${name},\n\n` +
     "You have registered for the AfriOnet Live Q/A Event.\n\n" +
     `Event start: ${eventStart}\n\n` +
-    "Please install or open the Zoom app before the event. Zoom is required to watch the live event, and selected contestants must be ready to share their screen when it is their turn.\n\n" +
+    `${ZOOM_EVENT_REMINDER}\n\n` +
+    "Share the event once it is your turn to pick a number to reveal the next question on Zoom.\n\n" +
     "You will receive another message here immediately after the raffle is run if you are selected as a contestant.\n\n" +
     "If you need any additional information, you can reply to this message here or visit https://afrionet.com/contact.\n\n" +
     "Best regards,\nThe AfriOnet Team";
@@ -119,7 +123,8 @@ async function sendQuizSelectionMessages(registeredContestants, session) {
           `Hi ${name},\n\n` +
           "Thank you for registering for the AfriOnet Live Q/A Event.\n\n" +
           "The raffle has now been completed, and you were not selected as one of the contestants for this event.\n\n" +
-          "You can still join the live event on Zoom, support the contestants, and watch for the next opportunity. Please install or open the Zoom app before joining.\n\n" +
+          "You can still join the live event on Zoom, support the contestants, and watch for the next opportunity.\n\n" +
+          `${ZOOM_EVENT_REMINDER}\n\n` +
           "Best regards,\nThe AfriOnet Team";
 
         return createQuizProfileMessage({
@@ -137,7 +142,8 @@ async function sendQuizSelectionMessages(registeredContestants, session) {
         "Congratulations! You were selected for the AfriOnet Live Q/A Event raffle.\n\n" +
         `Your contestant number: ${contestantNumber}.\n\n` +
         `Event start: ${eventStart}\n\n` +
-        "Join Zoom when the button opens 5 minutes before the event. Please use the Zoom app and be ready when your contestant number is called.\n\n" +
+        `${ZOOM_EVENT_REMINDER}\n\n` +
+        "Join Zoom when the button opens 5 minutes before the event. Please be ready when your contestant number is called.\n\n" +
         "When it is your turn, share your screen on Zoom, then pick a number to reveal the next question.\n\n" +
         "If you need any additional information, you can reply to this message here or visit https://afrionet.com/contact.\n\n" +
         "Best regards,\nThe AfriOnet Team";
