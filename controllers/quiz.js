@@ -48,12 +48,46 @@ function normalizeSessionRules(rules) {
   return savedRules;
 }
 
+function formatEventTimeForMessage(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const formatInTimeZone = (timeZone, label) => {
+    try {
+      const formatted = new Intl.DateTimeFormat("en-US", {
+        dateStyle: "medium",
+        timeStyle: "short",
+        timeZone,
+      }).format(date);
+      return `${formatted} (${label})`;
+    } catch {
+      return "";
+    }
+  };
+
+  const israelTime = formatInTimeZone("Asia/Jerusalem", "Israel time");
+  const nigeriaTime = formatInTimeZone("Africa/Lagos", "Nigeria time");
+  const fallbackTime = date.toLocaleString();
+
+  return [israelTime, nigeriaTime].filter(Boolean).join(" / ") || fallbackTime;
+}
+
 function getEventStartLabel(session) {
-  return (
-    String(session.eventStartsAtLabel || "").trim() ||
-    (session.eventStartsAt ? new Date(session.eventStartsAt).toLocaleString() : "") ||
-    "the scheduled event time"
-  );
+  if (session.eventStartsAt) {
+    return formatEventTimeForMessage(session.eventStartsAt);
+  }
+
+  return String(session.eventStartsAtLabel || "").trim() || "the scheduled event time";
+}
+
+function getRaffleTimeLine(session) {
+  if (!session.raffleRunsAt) {
+    return "";
+  }
+
+  return `Raffle time: ${formatEventTimeForMessage(session.raffleRunsAt)}\n\n`;
 }
 
 async function createQuizProfileMessage({ contestant, title, body }) {
@@ -87,16 +121,21 @@ async function createQuizProfileMessage({ contestant, title, body }) {
 
 async function sendQuizRegistrationMessage(contestant, session) {
   const eventStart = getEventStartLabel(session);
+  const raffleTimeLine = getRaffleTimeLine(session);
   const name = contestant.name || "Contestant";
-  const body =
-    `Hi ${name},\n\n` +
-    "You have registered for the AfriOnet Live Q/A Event.\n\n" +
-    `Event start: ${eventStart}\n\n` +
-    `${ZOOM_EVENT_REMINDER}\n\n` +
-    "Share the event once it is your turn to pick a number to reveal the next question on Zoom.\n\n" +
-    "You will receive another message here immediately after the raffle is run if you are selected as a contestant.\n\n" +
-    "If you need any additional information, you can reply to this message here or visit https://afrionet.com/contact.\n\n" +
-    "Best regards,\nThe AfriOnet Team";
+  const body = [
+    `Hi ${name},`,
+    "You have registered for the AfriOnet Live Q/A Event.",
+    `Event start: ${eventStart}`,
+    raffleTimeLine.trim(),
+    ZOOM_EVENT_REMINDER,
+    "Share the event once it is your turn to pick a number to reveal the next question on Zoom.",
+    "You will receive another message here immediately after the raffle is run if you are selected as a contestant.",
+    "If you need any additional information, you can reply to this message here or visit https://afrionet.com/contact.",
+    "Best regards,\nThe AfriOnet Team",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
   await createQuizProfileMessage({
     contestant,
@@ -114,6 +153,7 @@ function getOrdinalNumber(number) {
 
 async function sendQuizSelectionMessages(registeredContestants, session) {
   const eventStart = getEventStartLabel(session);
+  const raffleTimeLine = getRaffleTimeLine(session);
 
   await Promise.all(
     registeredContestants.map((contestant) => {
@@ -137,16 +177,20 @@ async function sendQuizSelectionMessages(registeredContestants, session) {
       const contestantNumber = contestant.rafflePosition
         ? `${contestant.rafflePosition} (${getOrdinalNumber(contestant.rafflePosition)} contestant)`
         : "assigned on the raffle list";
-      const body =
-        `Hi ${name},\n\n` +
-        "Congratulations! You were selected for the AfriOnet Live Q/A Event raffle.\n\n" +
-        `Your contestant number: ${contestantNumber}.\n\n` +
-        `Event start: ${eventStart}\n\n` +
-        `${ZOOM_EVENT_REMINDER}\n\n` +
-        "Join Zoom when the button opens 5 minutes before the event. Please be ready when your contestant number is called.\n\n" +
-        "When it is your turn, share your screen on Zoom, then pick a number to reveal the next question.\n\n" +
-        "If you need any additional information, you can reply to this message here or visit https://afrionet.com/contact.\n\n" +
-        "Best regards,\nThe AfriOnet Team";
+      const body = [
+        `Hi ${name},`,
+        "Congratulations! You were selected for the AfriOnet Live Q/A Event raffle.",
+        `Your contestant number: ${contestantNumber}.`,
+        `Event start: ${eventStart}`,
+        raffleTimeLine.trim(),
+        ZOOM_EVENT_REMINDER,
+        "Join Zoom when the button opens 5 minutes before the event. Please be ready when your contestant number is called.",
+        "When it is your turn, share your screen on Zoom, then pick a number to reveal the next question.",
+        "If you need any additional information, you can reply to this message here or visit https://afrionet.com/contact.",
+        "Best regards,\nThe AfriOnet Team",
+      ]
+        .filter(Boolean)
+        .join("\n\n");
 
       return createQuizProfileMessage({
         contestant,

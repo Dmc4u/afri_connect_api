@@ -8,7 +8,6 @@ const {
   FROM_EMAIL,
   APP_NAME,
   FRONTEND_URL,
-  BRAND_LOGO_URL,
 } = require("./config");
 
 // Create reusable transporter object using SMTP transport
@@ -68,6 +67,7 @@ const emailTemplates = {
             <li><a href="${FRONTEND_URL}/profile" style="color: #007bff; text-decoration: none;">Complete your profile</a> to showcase your expertise</li>
             <li><a href="${FRONTEND_URL}/profile#businesses/create-business" style="color: #007bff; text-decoration: none;">Create your first business listing</a> to reach potential customers</li>
             <li><a href="${FRONTEND_URL}/profile#businesses/create-talent" style="color: #007bff; text-decoration: none;">Create your first talent listing</a> to showcase your skills</li>
+            <li><a href="${FRONTEND_URL}/events" style="color: #007bff; text-decoration: none;">Explore live events</a> and join upcoming showcases</li>
             <li><a href="${FRONTEND_URL}/forum" style="color: #007bff; text-decoration: none;">Connect with other entrepreneurs</a> in our community forum</li>
             <li><a href="${FRONTEND_URL}/advertise" style="color: #007bff; text-decoration: none;">Promote your business</a> with targeted advertising</li>
           </ul>
@@ -690,7 +690,7 @@ const sendEmail = async (to, templateOrSubject, dataOrHtml = {}) => {
 
     const mailOptions = {
       from: `"${APP_NAME}" <${FROM_EMAIL || SMTP_USER}>`,
-      to: to,
+      to,
       subject,
       html,
     };
@@ -710,95 +710,95 @@ const notifications = {
   sendWelcomeEmail: async (user) => {
     if (isEmailOptedOut(user))
       return { success: true, skipped: true, reason: "emailNotifications disabled" };
-    return await sendEmail(user.email, "welcome", user);
+    return sendEmail(user.email, "welcome", user);
   },
 
   // Send password reset email
   sendPasswordResetEmail: async (user, resetToken) => {
-    return await sendEmail(user.email, "passwordReset", { user, resetToken });
+    return sendEmail(user.email, "passwordReset", { user, resetToken });
   },
 
   // Send payment confirmation email
   sendPaymentConfirmation: async (user, payment) => {
     if (isEmailOptedOut(user))
       return { success: true, skipped: true, reason: "emailNotifications disabled" };
-    return await sendEmail(user.email, "paymentConfirmation", { user, payment });
+    return sendEmail(user.email, "paymentConfirmation", { user, payment });
   },
 
   // Send subscription expiring warning
   sendSubscriptionExpiringWarning: async (user, payment) => {
     if (isEmailOptedOut(user))
       return { success: true, skipped: true, reason: "emailNotifications disabled" };
-    return await sendEmail(user.email, "subscriptionExpiring", { user, payment });
+    return sendEmail(user.email, "subscriptionExpiring", { user, payment });
   },
 
   // Send listing approval notification
   sendListingApproved: async (user, listing) => {
     if (isEmailOptedOut(user))
       return { success: true, skipped: true, reason: "emailNotifications disabled" };
-    return await sendEmail(user.email, "listingApproved", { user, listing });
+    return sendEmail(user.email, "listingApproved", { user, listing });
   },
 
   // Send new saved search results
   sendSavedSearchResults: async (user, savedSearch, newListings) => {
     if (isEmailOptedOut(user))
       return { success: true, skipped: true, reason: "emailNotifications disabled" };
-    return await sendEmail(user.email, "newSavedSearchResults", { user, savedSearch, newListings });
+    return sendEmail(user.email, "newSavedSearchResults", { user, savedSearch, newListings });
   },
 
   // Send bulk notifications (for admin use)
   sendBulkNotification: async (users, template, data) => {
-    const results = [];
-    for (const user of users) {
-      const result = await sendEmail(user.email, template, { user, ...data });
-      results.push({ user: user._id, email: user.email, ...result });
-    }
-    return results;
+    return Promise.all(
+      users.map(async (user) => {
+        const result = await sendEmail(user.email, template, { user, ...data });
+        return { user: user._id, email: user.email, ...result };
+      })
+    );
   },
   // Notify reviewer that their review was approved
   sendReviewApproved: async (user, listing, review) => {
     if (isEmailOptedOut(user))
       return { success: true, skipped: true, reason: "emailNotifications disabled" };
-    return await sendEmail(user.email, "reviewApproved", { user, listing, review });
+    return sendEmail(user.email, "reviewApproved", { user, listing, review });
   },
 
   // Notify listing owner of a new (pending or approved) review
   sendNewReviewOnListing: async (owner, listing, review, reviewer) => {
     if (isEmailOptedOut(owner))
       return { success: true, skipped: true, reason: "emailNotifications disabled" };
-    return await sendEmail(owner.email, "newReviewOnListing", { owner, listing, review, reviewer });
+    return sendEmail(owner.email, "newReviewOnListing", { owner, listing, review, reviewer });
   },
 
   // Advertisement Notification Functions
   sendAdRequestReceived: async (advertiser, ad) => {
     if (isEmailOptedOut(advertiser))
       return { success: true, skipped: true, reason: "emailNotifications disabled" };
-    return await sendEmail(advertiser.email, "adRequestReceived", { advertiser, ad });
+    return sendEmail(advertiser.email, "adRequestReceived", { advertiser, ad });
   },
 
   sendAdApproved: async (advertiser, ad) => {
     if (isEmailOptedOut(advertiser))
       return { success: true, skipped: true, reason: "emailNotifications disabled" };
-    return await sendEmail(advertiser.email, "adApproved", { advertiser, ad });
+    return sendEmail(advertiser.email, "adApproved", { advertiser, ad });
   },
 
   sendAdRejected: async (advertiser, ad, reason) => {
     if (isEmailOptedOut(advertiser))
       return { success: true, skipped: true, reason: "emailNotifications disabled" };
-    return await sendEmail(advertiser.email, "adRejected", { advertiser, ad, reason });
+    return sendEmail(advertiser.email, "adRejected", { advertiser, ad, reason });
   },
 
   sendAdActivated: async (advertiser, ad) => {
     if (isEmailOptedOut(advertiser))
       return { success: true, skipped: true, reason: "emailNotifications disabled" };
-    return await sendEmail(advertiser.email, "adActivated", { advertiser, ad });
+    return sendEmail(advertiser.email, "adActivated", { advertiser, ad });
   },
 
   // Send reminder to users who haven't created a business or talent listing
   sendReminderToCreateListing: async (user) => {
     if (isEmailOptedOut(user))
       return { success: true, skipped: true, reason: "emailNotifications disabled" };
-    return await sendEmail(user.email, "reminderToCreateListing", user);
+    return sendEmail(user.email, "reminderToCreateListing", user);
   },
 };
 
@@ -890,7 +890,7 @@ const utils = {
 
     // Get geolocation from IP
     let location = "Unknown";
-    let network = null;
+    const network = null;
     const lowerIp = String(cleanIp).toLowerCase();
     const isLocal = lowerIp === "::1" || lowerIp === "127.0.0.1" || lowerIp === "localhost";
     if (isLocal) {
