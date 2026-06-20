@@ -48,46 +48,48 @@ function normalizeSessionRules(rules) {
   return savedRules;
 }
 
-function formatEventTimeForMessage(value) {
+function getValidContestantTimeZone(contestant) {
+  const timeZone = String(contestant?.timeZone || "").trim();
+  if (!timeZone) return "UTC";
+
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
+    return timeZone;
+  } catch {
+    return "UTC";
+  }
+}
+
+function formatEventTimeForMessage(value, contestant) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     return "";
   }
 
-  const formatInTimeZone = (timeZone, label) => {
-    try {
-      const formatted = new Intl.DateTimeFormat("en-US", {
-        dateStyle: "medium",
-        timeStyle: "short",
-        timeZone,
-      }).format(date);
-      return `${formatted} (${label})`;
-    } catch {
-      return "";
-    }
-  };
-
-  const israelTime = formatInTimeZone("Asia/Jerusalem", "Israel time");
-  const nigeriaTime = formatInTimeZone("Africa/Lagos", "Nigeria time");
-  const fallbackTime = date.toLocaleString();
-
-  return [israelTime, nigeriaTime].filter(Boolean).join(" / ") || fallbackTime;
+  const timeZone = getValidContestantTimeZone(contestant);
+  const formatted = new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone,
+  }).format(date);
+  const label = timeZone === "UTC" ? "UTC" : `your local time — ${timeZone}`;
+  return `${formatted} (${label})`;
 }
 
-function getEventStartLabel(session) {
+function getEventStartLabel(session, contestant) {
   if (session.eventStartsAt) {
-    return formatEventTimeForMessage(session.eventStartsAt);
+    return formatEventTimeForMessage(session.eventStartsAt, contestant);
   }
 
   return String(session.eventStartsAtLabel || "").trim() || "the scheduled event time";
 }
 
-function getRaffleTimeLine(session) {
+function getRaffleTimeLine(session, contestant) {
   if (!session.raffleRunsAt) {
     return "";
   }
 
-  return `Raffle time: ${formatEventTimeForMessage(session.raffleRunsAt)}\n\n`;
+  return `Raffle time: ${formatEventTimeForMessage(session.raffleRunsAt, contestant)}\n\n`;
 }
 
 async function createQuizProfileMessage({ contestant, title, body }) {
@@ -120,8 +122,8 @@ async function createQuizProfileMessage({ contestant, title, body }) {
 }
 
 async function sendQuizRegistrationMessage(contestant, session) {
-  const eventStart = getEventStartLabel(session);
-  const raffleTimeLine = getRaffleTimeLine(session);
+  const eventStart = getEventStartLabel(session, contestant);
+  const raffleTimeLine = getRaffleTimeLine(session, contestant);
   const name = contestant.name || "Contestant";
   const body = [
     `Hi ${name},`,
@@ -152,11 +154,10 @@ function getOrdinalNumber(number) {
 }
 
 async function sendQuizSelectionMessages(registeredContestants, session) {
-  const eventStart = getEventStartLabel(session);
-  const raffleTimeLine = getRaffleTimeLine(session);
-
   await Promise.all(
     registeredContestants.map((contestant) => {
+      const eventStart = getEventStartLabel(session, contestant);
+      const raffleTimeLine = getRaffleTimeLine(session, contestant);
       const name = contestant.name || "Contestant";
       if (contestant.raffleStatus !== "selected") {
         const body =
@@ -517,6 +518,8 @@ async function runQuizRaffleForSession(session, maxContestants) {
       quizSession.contestants[index].rafflePosition = null;
       quizSession.contestants[index].raffleRandomNumber = null;
     }
+    quizSession.contestants[index].selectionTransferredFromName = "";
+    quizSession.contestants[index].selectionTransferredAt = null;
   });
 
   quizSession.maxSelectedContestants = contestantsNeeded;
@@ -1164,23 +1167,42 @@ async function sortContestants(session) {
   const firstPlaceMinPoints = Number(session.firstPlaceMinPoints || 0);
   const secondPlaceMinPoints = Number(session.secondPlaceMinPoints || 0);
 
-  return [...contestants]
-    .sort((a, b) => {
-      if ((b.score || 0) !== (a.score || 0)) {
-        return (b.score || 0) - (a.score || 0);
-      }
-      const aTime = a.lastAnsweredAt ? new Date(a.lastAnsweredAt).getTime() : 0;
-      const bTime = b.lastAnsweredAt ? new Date(b.lastAnsweredAt).getTime() : 0;
-      return bTime - aTime;
-    })
-    .map((contestant, index) => ({
+  const sortedContestants = [...contestants].sort((a, b) => {
+    if ((b.score || 0) !== (a.score || 0)) {
+      return (b.score || 0) - (a.score || 0);
+    }
+    const aTime = a.lastAnsweredAt ? new Date(a.lastAnsweredAt).getTime() : 0;
+    const bTime = b.lastAnsweredAt ? new Date(b.lastAnsweredAt).getTime() : 0;
+    return bTime - aTime;
+  });
+  const topScore = Number(sortedContestants[0]?.score || 0);
+  const firstPlaceWinnerCount = sortedContestants.filter(
+    (contestant) => Number(contestant.score || 0) === topScore
+  ).length;
+  const secondPlaceScore =
+    firstPlaceWinnerCount === 1
+      ? sortedContestants.find((contestant) => Number(contestant.score || 0) < topScore)?.score
+      : null;
+
+  return sortedContestants.map((contestant, index) => {
+    const score = Number(contestant.score || 0);
+    const earlierContestants = sortedContestants.slice(0, index);
+    const competitionPosition =
+      earlierContestants.filter((entry) => Number(entry.score || 0) > score).length + 1;
+    const awardPosition =
+      (score === topScore && score >= firstPlaceMinPoints && 1) ||
+      (secondPlaceScore !== null &&
+        score === Number(secondPlaceScore) &&
+        score >= secondPlaceMinPoints &&
+        2) ||
+      null;
+
+    return {
       ...(contestant.toObject?.() ?? contestant),
-      position: index + 1,
-      awardPosition:
-        (index === 0 && (contestant.score || 0) >= firstPlaceMinPoints && 1) ||
-        (index === 1 && (contestant.score || 0) >= secondPlaceMinPoints && 2) ||
-        null,
-    }));
+      position: competitionPosition,
+      awardPosition,
+    };
+  });
 }
 
 async function sortRegisteredContestants(session) {
@@ -2632,6 +2654,142 @@ const deleteQuizContestant = async (req, res, next) => {
   }
 };
 
+const getQuizContestantWhatsAppLink = async (req, res, next) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ success: false, message: "Admin access required" });
+    }
+
+    const session = await getActiveSession();
+    const contestant = session.contestants.id(String(req.params.contestantId || "").trim());
+    if (!contestant) {
+      return res.status(404).json({ success: false, message: "Registered user not found" });
+    }
+    if (!contestant.user) {
+      return res.status(400).json({
+        success: false,
+        message: "This registration is not linked to a user profile.",
+      });
+    }
+
+    const user = await User.findById(contestant.user).select("phone").lean();
+    const rawPhone = String(user?.phone || "").trim();
+    if (!rawPhone) {
+      return res.status(400).json({
+        success: false,
+        message: `${contestant.name || "This user"} has no registered phone number.`,
+      });
+    }
+
+    const digits = rawPhone.replace(/\D/g, "").replace(/^00/, "");
+    const hasCountryCode =
+      rawPhone.startsWith("+") || rawPhone.startsWith("00") || !digits.startsWith("0");
+    if (!hasCountryCode || digits.length < 8 || digits.length > 15) {
+      return res.status(400).json({
+        success: false,
+        message: `${contestant.name || "This user"}'s phone number needs an international country code before it can be opened in WhatsApp.`,
+      });
+    }
+
+    const message = `Hi ${contestant.name || "there"}, this is AfriOnet regarding the ${session.title || "Live Q/A Event"}.`;
+    res.set("Cache-Control", "no-store");
+    return res.status(200).json({
+      success: true,
+      whatsappUrl: `https://wa.me/${digits}?text=${encodeURIComponent(message)}`,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const replaceSelectedQuizContestant = async (req, res, next) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ success: false, message: "Admin access required" });
+    }
+
+    const session = await syncSessionPhase(await getActiveSession());
+    const selectedContestantId = String(req.params.contestantId || "").trim();
+    const replacementContestantId = String(req.body?.replacementContestantId || "").trim();
+    const selectedContestant = session.contestants.id(selectedContestantId);
+    const replacementContestant = session.contestants.id(replacementContestantId);
+
+    if (!hasRaffleRun(session)) {
+      return res.status(400).json({
+        success: false,
+        message: "Run the raffle before transferring a selected slot.",
+      });
+    }
+
+    if (!selectedContestant || selectedContestant.raffleStatus !== "selected") {
+      return res.status(400).json({
+        success: false,
+        message: "The user giving up the slot must currently be selected.",
+      });
+    }
+
+    if (!replacementContestant || replacementContestant.raffleStatus !== "not-selected") {
+      return res.status(400).json({
+        success: false,
+        message: "Choose a currently not-selected user as the replacement.",
+      });
+    }
+
+    const competitionStarted =
+      (session.askedNumbers || []).length > 0 ||
+      (session.contestants || []).some(
+        (contestant) =>
+          (contestant.score || 0) > 0 || (contestant.answeredQuestions || []).length > 0
+      );
+    if (competitionStarted) {
+      return res.status(409).json({
+        success: false,
+        message: "A selected slot cannot be transferred after quiz play has started.",
+      });
+    }
+
+    const transferredPosition = selectedContestant.rafflePosition;
+    const wasCurrentTurn = getCurrentTurnContestantId(session) === selectedContestantId;
+
+    selectedContestant.raffleStatus = "not-selected";
+    selectedContestant.rafflePosition = null;
+    selectedContestant.raffleRandomNumber = null;
+    selectedContestant.selectionTransferredFromName = "";
+    selectedContestant.selectionTransferredAt = null;
+    replacementContestant.raffleStatus = "selected";
+    replacementContestant.rafflePosition = transferredPosition;
+    replacementContestant.raffleRandomNumber = null;
+    replacementContestant.selectionTransferredFromName = selectedContestant.name || "Contestant";
+    replacementContestant.selectionTransferredAt = new Date();
+
+    if (wasCurrentTurn) {
+      session.currentTurnContestant = replacementContestant._id;
+    }
+
+    await session.save();
+
+    await Promise.all([
+      createQuizProfileMessage({
+        contestant: selectedContestant,
+        title: "Q/A event contestant slot transferred",
+        body: `Hi ${selectedContestant.name || "Contestant"},\n\nYour selected contestant slot #${transferredPosition} has been transferred by the event administrator. You can still join the live event on Zoom and watch the competition.\n\nBest regards,\nThe AfriOnet Team`,
+      }),
+      createQuizProfileMessage({
+        contestant: replacementContestant,
+        title: "You were selected for the Q/A event",
+        body: `Hi ${replacementContestant.name || "Contestant"},\n\nA selected contestant slot has been transferred to you by the event administrator. Your contestant number is ${transferredPosition}. Please be ready when your number is called.\n\nBest regards,\nThe AfriOnet Team`,
+      }),
+    ]);
+
+    return res.status(200).json({
+      ...(await buildSessionPayload(session)),
+      message: `Slot #${transferredPosition} transferred from ${selectedContestant.name} to ${replacementContestant.name}.`,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 const contactQuizContestants = async (req, res, next) => {
   try {
     if (req.user.role !== "admin") {
@@ -2769,7 +2927,7 @@ const setQuizQuestion = async (req, res, next) => {
 /** Register a new contestant for the quiz session */
 const registerContestant = async (req, res, next) => {
   try {
-    const { name, email, country, profilePhoto, eventId } = req.body;
+    const { name, email, country, profilePhoto, eventId, timeZone } = req.body;
 
     const requestedEmail = String(req.user.email || email || "")
       .trim()
@@ -2831,6 +2989,7 @@ const registerContestant = async (req, res, next) => {
     const profileAvatar = String(
       req.user.profilePhoto || req.user.avatar || profilePhoto || ""
     ).trim();
+    const contestantTimeZone = getValidContestantTimeZone({ timeZone });
     const contestant = session.contestants.find(
       (entry) =>
         (entry.user && entry.user.toString() === req.user._id.toString()) ||
@@ -2843,6 +3002,7 @@ const registerContestant = async (req, res, next) => {
       contestant.email = normalizedEmail;
       contestant.country = profileCountry;
       contestant.profilePhoto = profileAvatar;
+      contestant.timeZone = contestantTimeZone;
       contestant.registeredAt = contestant.registeredAt || new Date();
       await session.save();
       return res.status(200).json({
@@ -2862,6 +3022,7 @@ const registerContestant = async (req, res, next) => {
       email: normalizedEmail,
       country: profileCountry,
       profilePhoto: profileAvatar,
+      timeZone: contestantTimeZone,
       registeredAt: new Date(),
       raffleStatus: "registered",
       rafflePosition: null,
@@ -2937,6 +3098,8 @@ module.exports = {
   endQuizSession,
   skipCurrentQuizContestant,
   deleteQuizContestant,
+  getQuizContestantWhatsAppLink,
+  replaceSelectedQuizContestant,
   contactQuizContestants,
   setQuizQuestion,
   registerContestant,

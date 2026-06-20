@@ -18,6 +18,8 @@ const {
   endQuizSession,
   skipCurrentQuizContestant,
   deleteQuizContestant,
+  getQuizContestantWhatsAppLink,
+  replaceSelectedQuizContestant,
   contactQuizContestants,
   setQuizQuestion,
   registerContestant,
@@ -68,6 +70,12 @@ router.post("/admin/restart", auth, restartQuizSession);
 router.post("/admin/end", auth, endQuizSession);
 router.post("/admin/skip-current", auth, skipCurrentQuizContestant);
 router.delete("/admin/contestants/:contestantId", auth, deleteQuizContestant);
+router.get("/admin/contestants/:contestantId/whatsapp", auth, getQuizContestantWhatsAppLink);
+router.post(
+  "/admin/contestants/:contestantId/replace-selection",
+  auth,
+  replaceSelectedQuizContestant
+);
 router.post("/admin/contestants/message", auth, contactQuizContestants);
 router.post("/admin/questions", auth, setQuizQuestion);
 router.get("/admin/questions", auth, getAllQuizQuestions);

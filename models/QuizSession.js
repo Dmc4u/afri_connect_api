@@ -149,6 +149,7 @@ const quizSessionSchema = new mongoose.Schema(
           name: { type: String, required: true, trim: true },
           email: { type: String, lowercase: true, trim: true },
           country: { type: String, trim: true },
+          timeZone: { type: String, trim: true, default: "UTC" },
           profilePhoto: { type: String, trim: true },
           registeredAt: { type: Date, default: Date.now },
           raffleStatus: {
@@ -158,6 +159,8 @@ const quizSessionSchema = new mongoose.Schema(
           },
           rafflePosition: { type: Number, default: null },
           raffleRandomNumber: { type: Number, default: null },
+          selectionTransferredFromName: { type: String, trim: true, default: "" },
+          selectionTransferredAt: { type: Date, default: null },
           score: { type: Number, default: 0 },
           bonusPoints: { type: Number, default: 0 },
           answeredQuestions: { type: [Number], default: [] },
