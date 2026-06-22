@@ -780,17 +780,9 @@ router.get(
 // Get pending listings
 router.get("/listings/pending", async (req, res, next) => {
   try {
-    const pendingListings = await Listing.find({ status: "pending" })
+    const listings = await Listing.find({ status: "pending" })
       .populate("owner", "_id name email tier")
       .sort({ createdAt: -1 });
-
-    // Keep legacy/incomplete two-step submissions out of admin review too.
-    const { isTalentCategory } = require("../utils/categories");
-    const listings = pendingListings.filter((listing) =>
-      isTalentCategory(listing.category)
-        ? listing.mediaFiles.some((media) => ["video", "youtube"].includes(media.type))
-        : listing.mediaFiles.some((media) => media.type === "image")
-    );
 
     res.json({
       success: true,
