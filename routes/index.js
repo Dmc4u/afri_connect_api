@@ -31,6 +31,7 @@ const talentFellowsRouter = require("./talentFellows");
 const adminTalentFellowsRouter = require("./adminTalentFellows");
 const testimonyRouter = require("./testimony");
 const quizRouter = require("./quiz");
+const rewardsRouter = require("./rewards");
 const { NotFoundError } = require("../utils/errors");
 
 const router = express.Router();
@@ -72,6 +73,7 @@ router.use("/talent-showcase", talentShowcaseRouter);
 router.use("/", pricingRouter);
 router.use("/featured", featuredRouter);
 router.use("/reviews", reviewsRouter);
+router.use("/rewards", rewardsRouter);
 router.use("/testimonies", testimonyRouter);
 router.use("/proxy", proxyRouter);
 

@@ -1,10 +1,12 @@
 const Listing = require("../models/Listing");
+const ListingView = require("../models/ListingView");
 const User = require("../models/User");
 const { BadRequestError, NotFoundError, ForbiddenError } = require("../utils/errors");
 const { TALENT_CATEGORIES, isTalentCategory } = require("../utils/categories");
 const path = require("path");
 const fs = require("fs").promises;
 const gcs = require("../utils/gcs");
+const { recordEngagementReward } = require("../utils/rewards");
 
 // --- Slug helpers (mirror model logic) ---
 function slugify(text = "") {
@@ -186,8 +188,31 @@ const getListingById = async (req, res, next) => {
       }
     }
 
-    // Increment views (don't await to avoid slowing response)
-    Listing.findByIdAndUpdate(id, { $inc: { views: 1 } }).exec();
+    const shouldTrackView = String(req.query.trackView || "").toLowerCase() === "true";
+    let viewWasAdded = false;
+
+    if (shouldTrackView) {
+      if (userId) {
+        // The compound unique index makes this race-safe even if React sends
+        // concurrent requests for the same account and listing.
+        try {
+          await ListingView.create({ listing: id, user: userId });
+          const viewUpdate = await Listing.updateOne({ _id: id }, { $inc: { views: 1 } });
+          viewWasAdded = viewUpdate.modifiedCount === 1;
+        } catch (error) {
+          if (error?.code !== 11000) throw error;
+        }
+      } else {
+        // Anonymous requests are de-duplicated by the browser before this
+        // tracked request is sent.
+        const viewUpdate = await Listing.updateOne({ _id: id }, { $inc: { views: 1 } });
+        viewWasAdded = viewUpdate.modifiedCount === 1;
+      }
+    }
+
+    if (viewWasAdded) {
+      listing.views = Number(listing.views || 0) + 1;
+    }
 
     res.json({
       success: true,
@@ -289,27 +314,27 @@ const createListing = async (req, res, next) => {
       const businessCount = allUserListings.filter((l) => !isTalentCategory(l.category)).length;
       const talentCount = allUserListings.filter((l) => isTalentCategory(l.category)).length;
 
-      // Enforce separate limits: Free tier = 4 business + 2 talent
+      // Enforce separate membership limits for business and talent listings.
       const userTier = user.tier || "Free";
 
       // Business listing limits
       const businessLimits = {
-        Free: 4,
-        Starter: 10,
+        Free: 1,
+        Starter: 5,
         Premium: Infinity,
         Pro: Infinity,
       };
 
       // Talent showcase limits
       const talentLimits = {
-        Free: 2,
+        Free: 1,
         Starter: 5,
         Premium: Infinity,
         Pro: Infinity,
       };
 
-      const businessLimit = businessLimits[userTier] ?? 4;
-      const talentLimit = talentLimits[userTier] ?? 2;
+      const businessLimit = businessLimits[userTier] ?? 1;
+      const talentLimit = talentLimits[userTier] ?? 1;
 
       console.log(
         `[Listing Creation] User: ${user.email}, Category: ${category}, IsTalent: ${isTalent}, Business: ${businessCount}/${businessLimit}, Talent: ${talentCount}/${talentLimit}`
@@ -348,7 +373,6 @@ const createListing = async (req, res, next) => {
         "Please provide a valid URL (e.g., https://yourbusiness.com, https://facebook.com/yourbusiness, https://wa.me/234812345678)"
       );
     }
-
     const listingData = {
       title,
       description,
@@ -360,7 +384,9 @@ const createListing = async (req, res, next) => {
       email,
       owner: req.user._id,
       tier: user.tier || "Free",
-      status: isAdmin ? "active" : "pending", // Admins' listings are auto-approved
+      // Media is uploaded in a second request. Keep a new listing out of the
+      // admin review queue until the required media actually reaches the API.
+      status: isAdmin ? "active" : "draft",
     };
 
     // NOTE: Media validation happens on the frontend before submission
@@ -478,6 +504,13 @@ const createListing = async (req, res, next) => {
       });
 
       listingData.mediaFiles = await Promise.all(uploadPromises);
+
+      const hasRequiredMedia = isTalentCategory(category)
+        ? listingData.mediaFiles.some((media) => media.type === "video")
+        : listingData.mediaFiles.some((media) => media.type === "image");
+      if (!isAdmin && hasRequiredMedia) {
+        listingData.status = "pending";
+      }
     }
 
     const listing = await Listing.create(listingData);
@@ -512,6 +545,8 @@ const updateListing = async (req, res, next) => {
 
     // Remove fields that shouldn't be updated directly
     delete updates.owner;
+    delete updates.tier;
+    delete updates.status;
     delete updates.views;
     delete updates.createdAt;
 
@@ -531,6 +566,7 @@ const updateListing = async (req, res, next) => {
           "Please provide a valid URL (e.g., https://yourbusiness.com, https://facebook.com/yourbusiness, https://wa.me/234812345678)"
         );
       }
+
     }
 
     const updatedListing = await Listing.findByIdAndUpdate(
@@ -580,6 +616,16 @@ const deleteListingMedia = async (req, res, next) => {
 
     // Remove from database
     listing.mediaFiles.pull(mediaId);
+
+    if (listing.status === "pending") {
+      const isTalent = isTalentCategory(listing.category);
+      const hasRequiredMedia = isTalent
+        ? listing.mediaFiles.some((media) => ["video", "youtube"].includes(media.type))
+        : listing.mediaFiles.some((media) => media.type === "image");
+      if (!hasRequiredMedia) {
+        listing.status = "draft";
+      }
+    }
     await listing.save();
 
     res.json({
@@ -769,6 +815,15 @@ const uploadMedia = async (req, res, next) => {
     };
 
     listing.mediaFiles.push(mediaFile);
+
+    // A draft becomes reviewable only after its route-specific required media
+    // exists: an image for business, or a video for talent.
+    if (
+      listing.status === "draft" &&
+      ((isTalent && isVideoUpload) || (!isTalent && isImageUpload))
+    ) {
+      listing.status = "pending";
+    }
     await listing.save();
 
     res.status(201).json({
@@ -821,6 +876,12 @@ const toggleLikeListing = async (req, res, next) => {
     if (!listing || listing.status === "deleted") {
       throw new NotFoundError("Listing not found");
     }
+    if (String(listing.owner) === String(userId)) {
+      throw new BadRequestError("You cannot like your own listing");
+    }
+    if (!(await Listing.exists({ owner: userId, status: "active" }))) {
+      throw new ForbiddenError("Create an approved business or talent listing before liking listings");
+    }
 
     const likeIndex = (listing.likedBy || []).findIndex(
       (like) => String(like.user) === String(userId)
@@ -834,6 +895,7 @@ const toggleLikeListing = async (req, res, next) => {
     }
 
     await listing.save();
+    await recordEngagementReward({ listing, actorId: userId, type: "like", active: isLiked });
 
     res.json({
       success: true,
@@ -858,6 +920,12 @@ const toggleFollowListing = async (req, res, next) => {
     if (!listing || listing.status === "deleted") {
       throw new NotFoundError("Listing not found");
     }
+    if (String(listing.owner) === String(userId)) {
+      throw new BadRequestError("You cannot follow your own listing");
+    }
+    if (!(await Listing.exists({ owner: userId, status: "active" }))) {
+      throw new ForbiddenError("Create an approved business or talent listing before following listings");
+    }
 
     const followIndex = (listing.followers || []).findIndex(
       (follow) => String(follow.user) === String(userId)
@@ -871,6 +939,7 @@ const toggleFollowListing = async (req, res, next) => {
     }
 
     await listing.save();
+    await recordEngagementReward({ listing, actorId: userId, type: "follow", active: isFollowing });
 
     res.json({
       success: true,

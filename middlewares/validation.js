@@ -72,6 +72,8 @@ module.exports.validateUserBody = celebrate({
       "string.empty": 'The "password" field must be filled in',
       "string.min": 'The minimum length of the "password" field is 6',
     }),
+    referralCode: Joi.string().trim().uppercase().max(20).allow("").optional(),
+    referralCode: Joi.string().trim().uppercase().max(20).allow("").optional(),
   }),
 });
 

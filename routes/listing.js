@@ -18,6 +18,7 @@ const auth = require("../middlewares/auth");
 const optionalAuth = require("../middlewares/optionalAuth");
 const upload = require("../middlewares/upload");
 const { requireFeatureAccess } = require("../middlewares/tierCheck");
+const { BadRequestError } = require("../utils/errors");
 
 const router = express.Router();
 
@@ -49,8 +50,6 @@ const updateListingValidation = celebrate({
       businessHours: Joi.string().trim().allow(""),
       phoneNumber: Joi.string().trim().allow(""),
       email: Joi.string().email().trim().allow(""),
-      tier: Joi.string().valid("Free", "Starter", "Premium", "Pro"),
-      status: Joi.string().valid("active", "pending", "suspended"),
     })
     .min(1),
 });
@@ -87,7 +86,7 @@ const queryValidation = celebrate({
     search: Joi.string().trim(),
     page: Joi.number().integer().min(1).default(1),
     limit: Joi.number().integer().min(1).max(50).default(20),
-    status: Joi.string().valid("active", "pending", "suspended", "deleted", "all").default("all"),
+    status: Joi.string().valid("draft", "active", "pending", "suspended", "deleted", "all").default("all"),
     excludeWinners: Joi.string().valid("true", "false"),
   }),
 });
@@ -137,6 +136,14 @@ router.post(
           .json({ success: false, message: "You can only add media to your own listings" });
       }
 
+      const isTalent = require("../utils/categories").isTalentCategory(listing.category);
+      if (!isTalent && type !== "image") {
+        throw new BadRequestError("Business listings require image media");
+      }
+      if (isTalent && !["video", "youtube"].includes(type)) {
+        throw new BadRequestError("Talent listings require video media");
+      }
+
       // Add the URL-based media
       listing.mediaFiles.push({
         filename: name,
@@ -148,6 +155,13 @@ router.post(
         description: description || "",
         uploadedAt: new Date(),
       });
+
+      if (
+        listing.status === "draft" &&
+        ((isTalent && ["video", "youtube"].includes(type)) || (!isTalent && type === "image"))
+      ) {
+        listing.status = "pending";
+      }
 
       await listing.save();
 

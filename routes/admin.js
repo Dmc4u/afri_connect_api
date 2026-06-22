@@ -780,9 +780,17 @@ router.get(
 // Get pending listings
 router.get("/listings/pending", async (req, res, next) => {
   try {
-    const listings = await Listing.find({ status: "pending" })
+    const pendingListings = await Listing.find({ status: "pending" })
       .populate("owner", "_id name email tier")
       .sort({ createdAt: -1 });
+
+    // Keep legacy/incomplete two-step submissions out of admin review too.
+    const { isTalentCategory } = require("../utils/categories");
+    const listings = pendingListings.filter((listing) =>
+      isTalentCategory(listing.category)
+        ? listing.mediaFiles.some((media) => ["video", "youtube"].includes(media.type))
+        : listing.mediaFiles.some((media) => media.type === "image")
+    );
 
     res.json({
       success: true,
@@ -796,14 +804,34 @@ router.get("/listings/pending", async (req, res, next) => {
 // Approve listing
 router.patch("/listings/:id/approve", listingIdValidation, async (req, res, next) => {
   try {
-    const listing = await Listing.findByIdAndUpdate(
-      req.params.id,
-      { status: "active" },
-      { new: true, runValidators: true }
-    ).populate("owner", "name email tier settings");
+    let listing = await Listing.findById(req.params.id).populate(
+      "owner",
+      "name email tier settings"
+    );
 
     if (!listing) {
       throw new NotFoundError("Listing not found");
+    }
+
+    const { isTalentCategory } = require("../utils/categories");
+    const hasRequiredMedia = isTalentCategory(listing.category)
+      ? listing.mediaFiles.some((media) => ["video", "youtube"].includes(media.type))
+      : listing.mediaFiles.some((media) => media.type === "image");
+    if (!hasRequiredMedia) {
+      throw new BadRequestError(
+        isTalentCategory(listing.category)
+          ? "A talent listing must have at least one video before approval"
+          : "A business listing must have at least one image before approval"
+      );
+    }
+
+    listing.status = "active";
+    await listing.save();
+    const { qualifyReferralForListing } = require("../utils/rewards");
+    try {
+      await qualifyReferralForListing(listing);
+    } catch (rewardError) {
+      console.error("Referral qualification failed after listing approval:", rewardError);
     }
 
     // Log activity

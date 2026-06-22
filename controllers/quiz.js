@@ -448,13 +448,17 @@ function findContestantByUser(session, user) {
     .trim()
     .toLowerCase();
 
-  return session.contestants.find((entry) => {
+  const matches = session.contestants.filter((entry) => {
     const entryUserId = entry.user?.toString();
     const entryEmail = String(entry.email || "")
       .trim()
       .toLowerCase();
     return entryUserId === userId || (userEmail && entryEmail === userEmail);
   });
+
+  // A transferred raffle slot may belong to a newer duplicate registration.
+  // Always resolve the selected entry so that contestant can take their turn.
+  return matches.find((entry) => entry.raffleStatus === "selected") || matches[0] || null;
 }
 
 function hasRaffleRun(session) {
@@ -946,6 +950,7 @@ async function getNonAdminContestants(session) {
       .trim()
       .toLowerCase();
   const getCompletenessScore = (contestant) =>
+    Number(contestant.raffleStatus === "selected") * 100 +
     Number(Boolean(contestant.user)) +
     Number(Boolean(contestant.email)) +
     Number(Boolean(contestant.country)) +

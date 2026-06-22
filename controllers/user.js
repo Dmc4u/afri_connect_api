@@ -28,6 +28,12 @@ const OTP_TTL_MS = 10 * 60 * 1000;
 const OTP_RESEND_COOLDOWN_MS = 30 * 1000;
 const OTP_MAX_ATTEMPTS = 5;
 
+const createReferralCode = () => crypto.randomBytes(5).toString("hex").toUpperCase();
+const findReferrer = (code) => {
+  const normalized = String(code || "").trim().toUpperCase();
+  return normalized ? User.findOne({ referralCode: normalized }).select("_id") : null;
+};
+
 const maskEmail = (email) => {
   const raw = String(email || "");
   const at = raw.indexOf("@");
@@ -72,7 +78,7 @@ const getCurrentUser = (req, res, next) =>
 
 // POST /signup - Create user
 const createUser = (req, res, next) => {
-  const { name, email, phone, city, country, password } = req.body;
+  const { name, email, phone, city, country, password, referralCode } = req.body;
 
   if (!name || !email || !phone || !city || !country || !password) {
     return next(
@@ -96,9 +102,9 @@ const createUser = (req, res, next) => {
           );
         }
       }
-      return bcrypt.hash(password, 10);
+      return Promise.all([bcrypt.hash(password, 10), findReferrer(referralCode)]);
     })
-    .then((hash) => {
+    .then(([hash, referrer]) => {
       // Create location string from city and country
       const location = city && country ? `${city}, ${country}` : country || city || null;
       const isProvisionedAdmin = isAdminEmail(email);
@@ -114,6 +120,8 @@ const createUser = (req, res, next) => {
         role: isProvisionedAdmin ? "admin" : "user",
         tier: isProvisionedAdmin ? "Pro" : "Free",
         adminProvisioned: isProvisionedAdmin,
+        referralCode: createReferralCode(),
+        referredBy: referrer?._id || null,
         settings: {
           emailNotifications: true,
           profileVisibility: true,
@@ -172,7 +180,7 @@ const createUser = (req, res, next) => {
 
 // POST /auth/quick-signup - Quick signup with just email and password
 const quickSignup = (req, res, next) => {
-  const { email, password } = req.body;
+  const { email, password, referralCode } = req.body;
 
   if (!email || !password) {
     return next(new BadRequestError("Email and password are required"));
@@ -200,9 +208,9 @@ const quickSignup = (req, res, next) => {
         throw new ConflictError("An account with this email already exists");
       }
       console.log(`[Quick Signup] Proceeding to create user for: ${email}`);
-      return bcrypt.hash(password, 10);
+      return Promise.all([bcrypt.hash(password, 10), findReferrer(referralCode)]);
     })
-    .then((hash) => {
+    .then(([hash, referrer]) => {
       const isProvisionedAdmin = isAdminEmail(email);
 
       // Use generic placeholder name that users must replace during onboarding
@@ -217,6 +225,8 @@ const quickSignup = (req, res, next) => {
         tier: isProvisionedAdmin ? "Pro" : "Free",
         adminProvisioned: isProvisionedAdmin,
         profileComplete: isProvisionedAdmin ? true : false, // Admins don't need onboarding
+        referralCode: createReferralCode(),
+        referredBy: referrer?._id || null,
         accountType: isProvisionedAdmin ? "business" : null, // Set default for admins
         settings: {
           emailNotifications: true,

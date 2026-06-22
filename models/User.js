@@ -95,6 +95,28 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    referralCode: {
+      type: String,
+      unique: true,
+      sparse: true,
+      uppercase: true,
+      trim: true,
+    },
+    referredBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    referralQualifiedAt: { type: Date, default: null },
+    referralQualifiedListing: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Listing",
+      default: null,
+    },
+    rewardCredits: {
+      featured: { type: Number, default: 0 },
+      advertising: { type: Number, default: 0 },
+    },
 
     // Agent system fields
     isAgent: {
