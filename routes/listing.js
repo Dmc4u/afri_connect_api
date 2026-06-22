@@ -36,6 +36,8 @@ const createListingValidation = celebrate({
     phoneNumber: Joi.string().trim().allow("").optional(),
     email: Joi.string().email().trim().allow("").optional(),
     tier: Joi.string().valid("Free", "Starter", "Premium", "Pro").optional(),
+    urlMedia: Joi.string().allow("").optional(),
+    fileMetadata: Joi.string().allow("").optional(),
   }),
 });
 
@@ -101,7 +103,7 @@ router.get("/my-listings", auth, queryValidation, getMyListings);
 router.get("/:id", optionalAuth, listingIdValidation, getListingById);
 
 // Other protected routes
-router.post("/", auth, upload.array("mediaFiles", 10), createListingValidation, createListing);
+router.post("/", auth, upload.array("mediaFiles", 20), createListingValidation, createListing);
 router.post("/:id/upload", auth, upload.single("file"), listingIdValidation, uploadMedia);
 router.post("/:id/like", auth, listingIdValidation, toggleLikeListing);
 router.post("/:id/follow", auth, listingIdValidation, toggleFollowListing);

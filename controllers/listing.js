@@ -298,6 +298,7 @@ const createListing = async (req, res, next) => {
 
     // Admin bypass: Allow admins to create listings at any tier
     const isAdmin = user.role === "admin";
+    const isTalentListing = isTalentCategory(category);
 
     if (!isAdmin) {
       // Determine if this is a talent or business listing
@@ -373,6 +374,57 @@ const createListing = async (req, res, next) => {
         "Please provide a valid URL (e.g., https://yourbusiness.com, https://facebook.com/yourbusiness, https://wa.me/234812345678)"
       );
     }
+
+    let urlMedia = [];
+    let fileMetadata = [];
+    try {
+      urlMedia = req.body.urlMedia ? JSON.parse(req.body.urlMedia) : [];
+      fileMetadata = req.body.fileMetadata ? JSON.parse(req.body.fileMetadata) : [];
+    } catch {
+      throw new BadRequestError("Invalid media information");
+    }
+    if (!Array.isArray(urlMedia) || !Array.isArray(fileMetadata)) {
+      throw new BadRequestError("Invalid media information");
+    }
+
+    const uploadedFiles = req.files || [];
+    const hasRequiredUpload = isTalentListing
+      ? uploadedFiles.some((file) => file.mimetype?.startsWith("video/"))
+      : uploadedFiles.some((file) => file.mimetype?.startsWith("image/"));
+    const hasRequiredUrl = isTalentListing
+      ? urlMedia.some(
+          (media) => ["video", "youtube"].includes(media.type) && media.url
+        )
+      : urlMedia.some((media) => media.type === "image" && media.url);
+
+    if (!isAdmin && !hasRequiredUpload && !hasRequiredUrl) {
+      throw new BadRequestError(
+        isTalentListing
+          ? "At least one video is required for talent listings"
+          : "At least one image is required for business listings"
+      );
+    }
+
+    for (const media of urlMedia) {
+      if (!media?.url || !["youtube", "image", "video"].includes(media.type)) {
+        throw new BadRequestError("Invalid URL media");
+      }
+      try {
+        const parsedMediaUrl = new URL(media.url);
+        if (!["http:", "https:"].includes(parsedMediaUrl.protocol)) {
+          throw new Error("Unsupported protocol");
+        }
+      } catch {
+        throw new BadRequestError("Please provide a valid media URL");
+      }
+      if (!isTalentListing && media.type !== "image") {
+        throw new BadRequestError("Business listings can only have images");
+      }
+      if (isTalentListing && !["video", "youtube"].includes(media.type)) {
+        throw new BadRequestError("Talent listings require video media");
+      }
+    }
+
     const listingData = {
       title,
       description,
@@ -387,12 +439,24 @@ const createListing = async (req, res, next) => {
       // Media is uploaded in a second request. Keep a new listing out of the
       // admin review queue until the required media actually reaches the API.
       status: isAdmin ? "active" : "draft",
+      mediaFiles: urlMedia.map((media) => ({
+        filename: media.name || "External media",
+        originalname: media.name || "External media",
+        name: media.name || "External media",
+        mimetype:
+          media.type === "youtube"
+            ? "video/youtube"
+            : media.type === "image"
+              ? "image/url"
+              : "video/url",
+        url: media.url,
+        type: media.type,
+        description: media.description || "",
+      })),
     };
 
-    // NOTE: Media validation happens on the frontend before submission
-    // Files are uploaded separately via /listings/:id/upload endpoint after listing creation
-    // This matches the current two-step architecture: create listing → upload media
-
+    // New listings submit their required media atomically with the listing.
+    // The separate upload route remains available only for later edits.
     // Enforce per-tier media limits and types
     // Business (Free): 15 images, Talent (Free): 10 videos
     // Business (Starter): 20 images, Talent (Starter): 15 videos
@@ -503,14 +567,23 @@ const createListing = async (req, res, next) => {
         };
       });
 
-      listingData.mediaFiles = await Promise.all(uploadPromises);
+      listingData.mediaFiles = [
+        ...listingData.mediaFiles,
+        ...(await Promise.all(uploadPromises)).map((media, index) => ({
+          ...media,
+          name: fileMetadata[index]?.name || media.name,
+          description: fileMetadata[index]?.description || media.description,
+        })),
+      ];
+    }
 
-      const hasRequiredMedia = isTalentCategory(category)
-        ? listingData.mediaFiles.some((media) => media.type === "video")
-        : listingData.mediaFiles.some((media) => media.type === "image");
-      if (!isAdmin && hasRequiredMedia) {
-        listingData.status = "pending";
-      }
+    const hasRequiredMedia = isTalentListing
+      ? listingData.mediaFiles.some((media) =>
+          ["video", "youtube"].includes(media.type)
+        )
+      : listingData.mediaFiles.some((media) => media.type === "image");
+    if (!isAdmin && hasRequiredMedia) {
+      listingData.status = "pending";
     }
 
     const listing = await Listing.create(listingData);
