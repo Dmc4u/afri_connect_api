@@ -1792,7 +1792,7 @@ const advanceExpiredQuizSession = async (req, res, next) => {
       requestedPhase === session.phase &&
       durationSeconds > 0 &&
       nextPhase !== session.phase &&
-      elapsedSeconds >= durationSeconds - 1
+      elapsedSeconds >= durationSeconds
     ) {
       if (session.phase === "question") {
         timeoutResult = await completeExpiredQuestion(session);
@@ -1801,7 +1801,7 @@ const advanceExpiredQuizSession = async (req, res, next) => {
         await session.save();
       }
     } else if (durationSeconds > 0 && nextPhase !== session.phase && session.phaseStartedAt) {
-      if (elapsedSeconds >= durationSeconds - 1) {
+      if (elapsedSeconds >= durationSeconds) {
         if (session.phase === "question") {
           timeoutResult = await completeExpiredQuestion(session);
           await session.save();
@@ -1968,15 +1968,44 @@ const getQuizQuestionByNumber = async (req, res, next) => {
       });
     }
 
-    session.phase = "question";
-    session.phaseStartedAt = new Date();
-    session.currentQuestionNumber = questionNumber;
-    await session.save();
+    const activatedSession = await QuizSession.findOneAndUpdate(
+      {
+        _id: session._id,
+        phase: "pick-number",
+        currentQuestionNumber: null,
+        askedNumbers: { $ne: questionNumber },
+      },
+      {
+        $set: {
+          phase: "question",
+          phaseStartedAt: new Date(),
+          currentQuestionNumber: questionNumber,
+        },
+      },
+      { new: true }
+    );
+
+    let activeSession = activatedSession;
+    if (!activeSession) {
+      const latestSession = await syncSessionPhase(
+        await QuizSession.findById(session._id)
+      );
+      if (
+        latestSession.phase !== "question" ||
+        latestSession.currentQuestionNumber !== questionNumber
+      ) {
+        return res.status(409).json({
+          success: false,
+          message: "Another question is already active. Please wait for the next pick.",
+        });
+      }
+      activeSession = latestSession;
+    }
 
     res.set("Cache-Control", "no-store");
     return res.status(200).json({
       success: true,
-      session: serializeSession(session),
+      session: serializeSession(activeSession),
       question: {
         number: question.number,
         text: question.text,
