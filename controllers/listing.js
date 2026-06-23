@@ -200,12 +200,18 @@ const getListingById = async (req, res, next) => {
 
     if (shouldTrackView) {
       if (userId) {
-        // The compound unique index makes this race-safe even if React sends
-        // concurrent requests for the same account and listing.
+        // Upsert makes repeated requests idempotent even before the unique
+        // index rejects a concurrent duplicate.
         try {
-          await ListingView.create({ listing: id, user: userId });
-          const viewUpdate = await Listing.updateOne({ _id: id }, { $inc: { views: 1 } });
-          viewWasAdded = viewUpdate.modifiedCount === 1;
+          const viewRecord = await ListingView.updateOne(
+            { listing: id, user: userId },
+            { $setOnInsert: { listing: id, user: userId } },
+            { upsert: true }
+          );
+          if (viewRecord.upsertedCount === 1) {
+            const viewUpdate = await Listing.updateOne({ _id: id }, { $inc: { views: 1 } });
+            viewWasAdded = viewUpdate.modifiedCount === 1;
+          }
         } catch (error) {
           if (error?.code !== 11000) throw error;
         }
@@ -213,9 +219,15 @@ const getListingById = async (req, res, next) => {
         // A persistent anonymous visitor ID prevents refreshes, repeat visits,
         // and concurrent tabs from inflating the count.
         try {
-          await ListingVisitorView.create({ listing: id, visitorId });
-          const viewUpdate = await Listing.updateOne({ _id: id }, { $inc: { views: 1 } });
-          viewWasAdded = viewUpdate.modifiedCount === 1;
+          const viewRecord = await ListingVisitorView.updateOne(
+            { listing: id, visitorId },
+            { $setOnInsert: { listing: id, visitorId } },
+            { upsert: true }
+          );
+          if (viewRecord.upsertedCount === 1) {
+            const viewUpdate = await Listing.updateOne({ _id: id }, { $inc: { views: 1 } });
+            viewWasAdded = viewUpdate.modifiedCount === 1;
+          }
         } catch (error) {
           if (error?.code !== 11000) throw error;
         }
