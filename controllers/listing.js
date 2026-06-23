@@ -1,5 +1,6 @@
 const Listing = require("../models/Listing");
 const ListingView = require("../models/ListingView");
+const ListingVisitorView = require("../models/ListingVisitorView");
 const User = require("../models/User");
 const { BadRequestError, NotFoundError, ForbiddenError } = require("../utils/errors");
 const { TALENT_CATEGORIES, isTalentCategory } = require("../utils/categories");
@@ -189,6 +190,12 @@ const getListingById = async (req, res, next) => {
     }
 
     const shouldTrackView = String(req.query.trackView || "").toLowerCase() === "true";
+    const requestedVisitorId = String(req.query.visitorId || "").trim();
+    const visitorId = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      requestedVisitorId
+    )
+      ? requestedVisitorId
+      : "";
     let viewWasAdded = false;
 
     if (shouldTrackView) {
@@ -202,11 +209,16 @@ const getListingById = async (req, res, next) => {
         } catch (error) {
           if (error?.code !== 11000) throw error;
         }
-      } else {
-        // Anonymous requests are de-duplicated by the browser before this
-        // tracked request is sent.
-        const viewUpdate = await Listing.updateOne({ _id: id }, { $inc: { views: 1 } });
-        viewWasAdded = viewUpdate.modifiedCount === 1;
+      } else if (visitorId) {
+        // A persistent anonymous visitor ID prevents refreshes, repeat visits,
+        // and concurrent tabs from inflating the count.
+        try {
+          await ListingVisitorView.create({ listing: id, visitorId });
+          const viewUpdate = await Listing.updateOne({ _id: id }, { $inc: { views: 1 } });
+          viewWasAdded = viewUpdate.modifiedCount === 1;
+        } catch (error) {
+          if (error?.code !== 11000) throw error;
+        }
       }
     }
 
