@@ -52,6 +52,9 @@ const updateListingValidation = celebrate({
       businessHours: Joi.string().trim().allow(""),
       phoneNumber: Joi.string().trim().allow(""),
       email: Joi.string().email().trim().allow(""),
+      // Older clients included the owner's tier in edit payloads. Accept it
+      // for compatibility; the controller removes it before updating.
+      tier: Joi.string().valid("Free", "Starter", "Premium", "Pro"),
     })
     .min(1),
 });
