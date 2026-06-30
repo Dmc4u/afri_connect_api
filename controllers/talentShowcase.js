@@ -964,17 +964,87 @@ exports.updateShowcase = async (req, res) => {
       });
     }
 
-    // Calculate and update status automatically if not manually set to cancelled or completed
-    if (showcase.status !== "cancelled" && showcase.status !== "completed") {
+    const eventTime = new Date(showcase.eventDate).getTime();
+    const isFutureEventDate = Number.isFinite(eventTime) && eventTime > Date.now();
+    const scheduleFields = [
+      "eventDate",
+      "welcomeDuration",
+      "welcomeMessageDuration",
+      "rulesDuration",
+      "contestantsIntroDuration",
+      "performanceDuration",
+      "commercialDuration",
+      "votingDisplayDuration",
+      "winnerDisplayDuration",
+      "thankYouDuration",
+      "countdownDuration",
+    ];
+    const scheduleChanged = scheduleFields.some((field) =>
+      Object.prototype.hasOwnProperty.call(req.body || {}, field)
+    );
+    let structuredTimeline = null;
+
+    // If a completed structured event is moved to a future date, the saved timeline
+    // must stop saying "completed" or the public live page/admin controls will still
+    // treat the rescheduled event as ended.
+    if (
+      showcase.showcaseType === "structured" &&
+      isFutureEventDate &&
+      (scheduleChanged || showcase.status === "completed")
+    ) {
+      structuredTimeline = await ShowcaseEventTimeline.findOne({ showcase: showcase._id });
+
+      if (structuredTimeline && !structuredTimeline.isLive) {
+        structuredTimeline.eventStatus = "scheduled";
+        structuredTimeline.isPaused = false;
+        structuredTimeline.pausedAt = undefined;
+        structuredTimeline.actualStartTime = undefined;
+        structuredTimeline.actualEndTime = undefined;
+        structuredTimeline.currentPhase = "welcome";
+        structuredTimeline.currentPhaseStartTime = undefined;
+        structuredTimeline.currentPerformer = undefined;
+
+        if (Array.isArray(structuredTimeline.phases) && structuredTimeline.phases.length > 0) {
+          let phaseCursor = new Date(showcase.eventDate);
+
+          structuredTimeline.phases.forEach((phase) => {
+            phase.status = "pending";
+            phase.startTime = new Date(phaseCursor);
+
+            const durationMinutes = Number(phase.duration) || 0;
+            phase.endTime = new Date(phaseCursor.getTime() + durationMinutes * 60000);
+            phaseCursor = new Date(phase.endTime);
+          });
+        }
+
+        if (Array.isArray(structuredTimeline.performances)) {
+          structuredTimeline.performances.forEach((performance) => {
+            performance.status = "pending";
+            performance.startTime = undefined;
+            performance.endTime = undefined;
+            performance.timeRemaining = undefined;
+          });
+        }
+
+        await structuredTimeline.save();
+      }
+    }
+
+    // Calculate and update status automatically unless manually cancelled.
+    // Completed events can become scheduled/upcoming again when the admin reschedules
+    // them to a future date.
+    if (showcase.status !== "cancelled") {
       let newStatus = null;
 
       if (showcase.showcaseType === "structured") {
-        const timeline = await ShowcaseEventTimeline.findOne({
-          showcase: showcase._id,
-        }).select("eventStatus isLive currentPhase");
+        const timeline =
+          structuredTimeline ||
+          (await ShowcaseEventTimeline.findOne({
+            showcase: showcase._id,
+          }).select("eventStatus isLive currentPhase"));
 
         if (timeline) {
-          if (timeline.eventStatus === "completed") {
+          if (timeline.eventStatus === "completed" && !isFutureEventDate) {
             newStatus = "completed";
           } else if (timeline.isLive) {
             newStatus = timeline.currentPhase === "voting" ? "voting" : "live";
@@ -5308,7 +5378,7 @@ exports.getLiveEventControl = async (req, res) => {
     const ShowcaseEventTimeline = require("../models/ShowcaseEventTimeline");
 
     const showcase = await TalentShowcase.findById(id).select(
-      "title status eventDate showcaseType contestants musicUrl musicPlaying"
+      "title status eventDate registrationStartDate registrationEndDate raffleScheduledDate showcaseType contestants musicUrl musicPlaying"
     );
 
     if (!showcase) {
@@ -5320,11 +5390,36 @@ exports.getLiveEventControl = async (req, res) => {
 
     // Check if this is a structured event with timeline
     const timeline = await ShowcaseEventTimeline.findOne({ showcase: id });
+    const eventTime = new Date(showcase.eventDate).getTime();
+    const isFutureReschedule = Number.isFinite(eventTime) && Date.now() < eventTime;
 
     if (timeline) {
       // Auto-update showcase status if timeline has ended
-      if (timeline.eventStatus === "completed" && showcase.status !== "completed") {
+      if (
+        timeline.eventStatus === "completed" &&
+        !isFutureReschedule &&
+        showcase.status !== "completed"
+      ) {
         showcase.status = "completed";
+        await showcase.save();
+      }
+
+      const dateBasedStatus = calculateShowcaseStatus(showcase);
+      let controlStatus = showcase.status;
+
+      if (timeline.eventStatus === "completed" && !isFutureReschedule) {
+        controlStatus = "completed";
+      } else if (timeline.isLive) {
+        controlStatus = timeline.currentPhase === "voting" ? "voting" : "live";
+      } else {
+        // If the clock says the event should be live but the timeline has not been
+        // started yet, return "upcoming" so the admin sees the manual start controls
+        // instead of a closed/ended control panel.
+        controlStatus = dateBasedStatus === "live" ? "upcoming" : dateBasedStatus;
+      }
+
+      if (isFutureReschedule && showcase.status === "completed") {
+        showcase.status = controlStatus;
         await showcase.save();
       }
 
@@ -5334,7 +5429,7 @@ exports.getLiveEventControl = async (req, res) => {
         showcase: {
           _id: showcase._id,
           title: showcase.title,
-          status: timeline.eventStatus === "completed" ? "completed" : showcase.status,
+          status: controlStatus,
           eventDate: showcase.eventDate,
           showcaseType: "structured",
           musicUrl: showcase.musicUrl,

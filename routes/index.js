@@ -31,6 +31,7 @@ const talentFellowsRouter = require("./talentFellows");
 const adminTalentFellowsRouter = require("./adminTalentFellows");
 const testimonyRouter = require("./testimony");
 const quizRouter = require("./quiz");
+const debateRouter = require("./debate");
 const rewardsRouter = require("./rewards");
 const { NotFoundError } = require("../utils/errors");
 
@@ -40,6 +41,7 @@ const router = express.Router();
 router.use("/api/live-talent-event", liveTalentEventRouter);
 router.use("/api/admin/live-event", adminLiveEventRouter);
 router.use("/api/quiz", quizRouter);
+router.use("/api/debate", debateRouter);
 router.use("/api/ai-support", aiSupportRouter);
 router.use("/api/app-status", appStatusRouter);
 router.use("/api/faq", faqRouter);

@@ -96,19 +96,26 @@ router.get("/", async (req, res) => {
     const serverTime = now.toISOString();
     const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000); // 24 hours ago
 
-    // Find the next showcase (or recent one within 24h) for public display.
-    // NOTE: This endpoint backs `/live-talent-event` which should reflect newly created
-    // showcases in nomination/upcoming stages; do not hard-require a title pattern.
+    // Find the live/current showcase first, then the next future showcase.
+    // A rescheduled showcase can temporarily keep an old "completed" status/timeline,
+    // so future-dated events must still be eligible for display.
     let showcase = await TalentShowcase.findOne({
-      eventDate: { $gte: oneDayAgo }, // Include events from the last 24 hours
-      status: { $nin: ["draft", "cancelled", "completed"] },
+      status: { $in: ["live", "voting"] },
     }).sort({ eventDate: 1 });
 
-    // If no upcoming event found, check if there's one in progress
     if (!showcase) {
       showcase = await TalentShowcase.findOne({
-        status: "live",
-      });
+        eventDate: { $gte: now },
+        status: { $nin: ["draft", "cancelled"] },
+      }).sort({ eventDate: 1 });
+    }
+
+    // If no upcoming event found, check for a recent event within 24h
+    if (!showcase) {
+      showcase = await TalentShowcase.findOne({
+        eventDate: { $gte: oneDayAgo, $lt: now },
+        status: { $nin: ["draft", "cancelled", "completed"] },
+      }).sort({ eventDate: -1 });
     }
 
     // Fetch actual contestants with videoDuration for accurate calculations
@@ -133,22 +140,24 @@ router.get("/", async (req, res) => {
     if (showcase) {
       timeline = await ShowcaseEventTimeline.findOne({ showcase: showcase._id });
       // NOTE: This endpoint is intentionally read-only. Timeline creation/starting is handled by the scheduler.
+      const showcaseEventTime = new Date(showcase.eventDate).getTime();
+      const isFutureReschedule = Number.isFinite(showcaseEventTime) && Date.now() < showcaseEventTime;
 
       if (showcase.showcaseType === "structured" && timeline) {
-        if (timeline.eventStatus === "completed") {
+        if (timeline.eventStatus === "completed" && !isFutureReschedule) {
           computedShowcaseStatus = "completed";
         } else if (timeline.isLive) {
           computedShowcaseStatus = timeline.currentPhase === "voting" ? "voting" : "live";
-        } else if (showcase.status !== "cancelled" && showcase.status !== "completed") {
+        } else if (showcase.status !== "cancelled") {
           computedShowcaseStatus = calculateShowcaseStatus(showcase);
         }
-      } else if (showcase.status !== "cancelled" && showcase.status !== "completed") {
+      } else if (showcase.status !== "cancelled") {
         computedShowcaseStatus = calculateShowcaseStatus(showcase);
       }
 
       // Determine status based on timeline phases if available
       if (timeline && timeline.phases && timeline.phases.length > 0) {
-        const now = Date.now();
+        const currentTime = Date.now();
 
         // Check if any phase is currently active
         const hasActivePhase = timeline.phases.some((p) => p.status === "active");
@@ -166,13 +175,17 @@ router.get("/", async (req, res) => {
         const lastPhase = timeline.phases[timeline.phases.length - 1];
         const lastPhaseEndTime = lastPhase ? new Date(lastPhase.endTime).getTime() : 0;
 
-        if (allPhasesCompleted || now >= lastPhaseEndTime) {
+        if (Number.isFinite(showcaseEventTime) && currentTime < showcaseEventTime) {
+          // The event was rescheduled forward; old completed phase times should not
+          // make the public page say the new event has ended.
+          eventStatus = "scheduled";
+        } else if (allPhasesCompleted || currentTime >= lastPhaseEndTime) {
           // Event has ended
           eventStatus = "ended";
-        } else if (hasActivePhase && now >= firstPhaseStartTime) {
+        } else if (hasActivePhase && currentTime >= firstPhaseStartTime) {
           // Event is live ONLY if there's an active phase AND we're past the start time
           eventStatus = "live";
-        } else if (now < firstPhaseStartTime) {
+        } else if (currentTime < firstPhaseStartTime) {
           // Before the scheduled start time - still scheduled
           eventStatus = "scheduled";
         } else {
@@ -202,7 +215,7 @@ router.get("/", async (req, res) => {
       // First, check if there's already a next showcase scheduled in the database
       const nextShowcase = await TalentShowcase.findOne({
         eventDate: { $gt: new Date(showcase.eventDate) }, // After current event
-        status: { $nin: ["cancelled", "completed", "draft"] }, // Exclude cancelled/completed/draft
+        status: { $nin: ["cancelled", "draft"] }, // Exclude cancelled/draft
       })
         .sort({ eventDate: 1 })
         .limit(1);

@@ -340,17 +340,6 @@ async function ensureDefaultQuestions() {
   await QuizQuestion.insertMany(DEFAULT_QUESTIONS);
 }
 
-async function getActiveSession() {
-  let session = await QuizSession.findOne({ active: true }).sort({ updatedAt: -1, createdAt: -1 });
-  if (!session) {
-    session = await QuizSession.create(getFreshSessionFields());
-  } else if (!session.phaseStartedAt) {
-    session.phaseStartedAt = new Date();
-    await session.save();
-  }
-  return session;
-}
-
 function getFreshSessionFields(overrides = {}) {
   return {
     title: "Live Q/A Event",
@@ -386,6 +375,17 @@ function getFreshSessionFields(overrides = {}) {
     rules: DEFAULT_EVENT_RULES_TEXT,
     ...overrides,
   };
+}
+
+async function getActiveSession() {
+  let session = await QuizSession.findOne({ active: true }).sort({ updatedAt: -1, createdAt: -1 });
+  if (!session) {
+    session = await QuizSession.create(getFreshSessionFields());
+  } else if (!session.phaseStartedAt) {
+    session.phaseStartedAt = new Date();
+    await session.save();
+  }
+  return session;
 }
 
 function getPhaseDurationSeconds(session) {
@@ -789,6 +789,8 @@ function serializeSession(session, options = {}) {
 }
 
 async function serializeEventSummary(session) {
+  // sortRegisteredContestants is declared later with the contestant helper group.
+  // eslint-disable-next-line no-use-before-define
   const registeredContestants = await sortRegisteredContestants(session);
 
   return {
@@ -820,8 +822,9 @@ async function serializeEventSummary(session) {
       zoom: session.meetingLinks?.zoom || "",
     },
     registeredCount: registeredContestants.length,
-    selectedCount:
-      registeredContestants.filter((contestant) => contestant.raffleStatus === "selected").length,
+    selectedCount: registeredContestants.filter(
+      (contestant) => contestant.raffleStatus === "selected"
+    ).length,
     registeredContestants,
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
@@ -880,10 +883,13 @@ function copySessionSettingsForNewEvent(sourceSession, overrides = {}) {
     title: overrides.title || sourceSession?.title || "Live Q/A Event",
     phase: nextStart && nextStart.getTime() > Date.now() ? "scheduled" : "welcome",
     eventStartsAt: nextStart,
-    eventStartsAtLabel: String(overrides.eventStartsAtLabel || "").trim().slice(0, 120),
+    eventStartsAtLabel: String(overrides.eventStartsAtLabel || "")
+      .trim()
+      .slice(0, 120),
     eventEndsAt: nextEnd,
     raffleRunsAt: nextRaffle,
-    questionTimerSeconds: overrides.questionTimerSeconds || sourceSession?.questionTimerSeconds || 30,
+    questionTimerSeconds:
+      overrides.questionTimerSeconds || sourceSession?.questionTimerSeconds || 30,
     welcomeSeconds: overrides.welcomeSeconds || sourceSession?.welcomeSeconds || 90,
     rulesSeconds: overrides.rulesSeconds || sourceSession?.rulesSeconds || 80,
     contestantsSeconds: overrides.contestantsSeconds || sourceSession?.contestantsSeconds || 10,
@@ -893,9 +899,11 @@ function copySessionSettingsForNewEvent(sourceSession, overrides = {}) {
     questionDisplayStart:
       overrides.questionDisplayStart || sourceSession?.questionDisplayStart || 1,
     questionDisplayEnd:
-      overrides.questionDisplayEnd || sourceSession?.questionDisplayEnd || sourceSession?.questionPoolSize || 20,
-    firstPlaceMinPoints:
-      overrides.firstPlaceMinPoints ?? sourceSession?.firstPlaceMinPoints ?? 0,
+      overrides.questionDisplayEnd ||
+      sourceSession?.questionDisplayEnd ||
+      sourceSession?.questionPoolSize ||
+      20,
+    firstPlaceMinPoints: overrides.firstPlaceMinPoints ?? sourceSession?.firstPlaceMinPoints ?? 0,
     secondPlaceMinPoints:
       overrides.secondPlaceMinPoints ?? sourceSession?.secondPlaceMinPoints ?? 0,
     firstPlacePrize: overrides.firstPlacePrize ?? sourceSession?.firstPlacePrize ?? "",
@@ -905,7 +913,8 @@ function copySessionSettingsForNewEvent(sourceSession, overrides = {}) {
     meetingLinks: {
       zoom: String(overrides.meetingLinks?.zoom ?? sourceSession?.meetingLinks?.zoom ?? "").trim(),
     },
-    welcomeNote: overrides.welcomeNote ?? sourceSession?.welcomeNote ?? getFreshSessionFields().welcomeNote,
+    welcomeNote:
+      overrides.welcomeNote ?? sourceSession?.welcomeNote ?? getFreshSessionFields().welcomeNote,
     rules: normalizeSessionRules(overrides.rules ?? sourceSession?.rules),
   });
 }
@@ -1290,6 +1299,13 @@ function normalizeCorrectAnswer(correctAnswer, choices = []) {
   return matchingChoice ? getChoiceLabel(matchingChoice) : directLabel;
 }
 
+function normalizeTextAnswer(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase();
+}
+
 const getQuizSession = async (req, res, next) => {
   try {
     await ensureDefaultQuestions();
@@ -1355,13 +1371,15 @@ const createQuizEvent = async (req, res, next) => {
       ["Raffle date and time", raffleRunsAt],
     ];
 
-    for (const [label, value] of datesToValidate) {
-      if (value && Number.isNaN(new Date(value).getTime())) {
-        return res.status(400).json({
-          success: false,
-          message: `${label} must be valid`,
-        });
-      }
+    const invalidDate = datesToValidate.find(
+      ([, value]) => value && Number.isNaN(new Date(value).getTime())
+    );
+
+    if (invalidDate) {
+      return res.status(400).json({
+        success: false,
+        message: `${invalidDate[0]} must be valid`,
+      });
     }
 
     if (
@@ -1435,7 +1453,9 @@ const updateQuizEvent = async (req, res, next) => {
     } = req.body;
 
     if (title !== undefined) {
-      const nextTitle = String(title || "").trim().slice(0, 120);
+      const nextTitle = String(title || "")
+        .trim()
+        .slice(0, 120);
       if (!nextTitle) {
         return res.status(400).json({ success: false, message: "Event title is required" });
       }
@@ -1603,7 +1623,9 @@ const updateQuizEvent = async (req, res, next) => {
           currentStartTime === null || Math.abs(currentStartTime - nextStartTime) >= 60000;
 
         session.eventStartsAt = scheduledStart;
-        session.eventStartsAtLabel = String(eventStartsAtLabel || "").trim().slice(0, 120);
+        session.eventStartsAtLabel = String(eventStartsAtLabel || "")
+          .trim()
+          .slice(0, 120);
 
         if (startTimeChanged) {
           session.phase = scheduledStart.getTime() > Date.now() ? "scheduled" : "welcome";
@@ -1987,9 +2009,7 @@ const getQuizQuestionByNumber = async (req, res, next) => {
 
     let activeSession = activatedSession;
     if (!activeSession) {
-      const latestSession = await syncSessionPhase(
-        await QuizSession.findById(session._id)
-      );
+      const latestSession = await syncSessionPhase(await QuizSession.findById(session._id));
       if (
         latestSession.phase !== "question" ||
         latestSession.currentQuestionNumber !== questionNumber
@@ -2120,6 +2140,11 @@ const submitQuizAnswer = async (req, res, next) => {
         points = 5;
       }
       answerResult = isCorrect ? "correct" : "wrong";
+    } else if (question.type === "text" && question.correctAnswer) {
+      isCorrect =
+        normalizeTextAnswer(trimmedAnswer) === normalizeTextAnswer(question.correctAnswer);
+      points = isCorrect ? 5 : 0;
+      answerResult = isCorrect ? "correct" : "wrong";
     }
 
     await completeQuestionForContestant(session, contestant, question, {
@@ -2209,7 +2234,9 @@ const updateQuizSessionSettings = async (req, res, next) => {
 
     // Validate and update fields
     if (title !== undefined) {
-      const nextTitle = String(title || "").trim().slice(0, 120);
+      const nextTitle = String(title || "")
+        .trim()
+        .slice(0, 120);
       if (!nextTitle) {
         return res.status(400).json({ success: false, message: "Event title is required" });
       }
@@ -2924,6 +2951,16 @@ const setQuizQuestion = async (req, res, next) => {
       }
     }
 
+    if (
+      type === "text" &&
+      (!correctAnswer || typeof correctAnswer !== "string" || !correctAnswer.trim())
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Correct answer is required for text questions",
+      });
+    }
+
     // Find or create question
     let question = await QuizQuestion.findOne({ number });
 
@@ -2936,7 +2973,9 @@ const setQuizQuestion = async (req, res, next) => {
     question.text = text.trim();
     question.type = type;
     question.correctAnswer =
-      type === "multiple-choice" ? normalizeCorrectAnswer(correctAnswer, trimmedChoices) : null;
+      type === "multiple-choice"
+        ? normalizeCorrectAnswer(correctAnswer, trimmedChoices)
+        : correctAnswer.trim();
     question.choices = trimmedChoices;
     question.active = true;
 
@@ -2950,7 +2989,7 @@ const setQuizQuestion = async (req, res, next) => {
         text: question.text,
         type: question.type,
         choices: question.choices,
-        correctAnswer: question.type === "multiple-choice" ? question.correctAnswer : undefined,
+        correctAnswer: question.correctAnswer,
       },
     });
   } catch (error) {
@@ -3074,7 +3113,7 @@ const registerContestant = async (req, res, next) => {
       success: true,
       alreadyRegistered: false,
       message:
-        "Contestant registered successfully. Please check Profile > Contact Messages for confirmation.",
+        "Contestant registered successfully. Please click: https://afrionet.com/profile#contact-messages",
       session: serializePublicEventSummary(session, req.user),
       events: await getPublicQuizEventSummaries(req.user),
       contestants: await sortContestants(session),
@@ -3104,7 +3143,7 @@ const getAllQuizQuestions = async (req, res, next) => {
         text: q.text,
         type: q.type,
         choices: q.choices,
-        correctAnswer: q.type === "multiple-choice" ? q.correctAnswer : undefined,
+        correctAnswer: q.correctAnswer,
         active: q.active,
       })),
     });

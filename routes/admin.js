@@ -362,8 +362,12 @@ router.get(
 // Get recent users (must be before /:id route)
 router.get("/users/recent", async (req, res, next) => {
   try {
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
     const limit = Math.min(Math.max(parseInt(req.query.limit) || 10, 1), 100);
+    const skip = (page - 1) * limit;
     const timeRange = req.query.timeRange || "week";
+    const tier = String(req.query.tier || "").trim();
+    const search = String(req.query.search || "").trim();
 
     // Build query - only add date filter if not "all"
     const query = {};
@@ -387,14 +391,39 @@ router.get("/users/recent", async (req, res, next) => {
       query.createdAt = { $gte: dateThreshold };
     }
 
+    if (tier && tier !== "all") {
+      query.tier = new RegExp(`^${tier}$`, "i");
+    }
+
+    if (search) {
+      const searchRegex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      query.$or = [
+        { name: searchRegex },
+        { email: searchRegex },
+        { phone: searchRegex },
+        { country: searchRegex },
+        { location: searchRegex },
+      ];
+    }
+
+    const total = await User.countDocuments(query);
     const users = await User.find(query)
       .select("name email phone tier role createdAt profilePhoto country location")
       .sort({ createdAt: -1 })
+      .skip(skip)
       .limit(limit);
 
     res.json({
       success: true,
       users,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        hasNext: skip + users.length < total,
+        hasPrev: page > 1,
+      },
     });
   } catch (error) {
     next(error);
