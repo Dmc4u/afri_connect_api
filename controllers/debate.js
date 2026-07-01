@@ -276,6 +276,22 @@ async function sendDebateSelectionMessages(participants, event) {
       });
     })
   );
+
+  // Emit real-time socket event for selected users (immediate popup)
+  const io = require("../utils/socket").getIO?.();
+  if (io && event) {
+    const selectedParticipants = participants.filter(
+      (p) => p.raffleStatus === "selected" && p.user
+    );
+    selectedParticipants.forEach((participant) => {
+      const userId = participant.user._id || participant.user;
+      io.to(userId.toString()).emit("raffle-selected", {
+        showcaseId: event._id.toString(),
+        showcaseTitle: event.title || "Debate Event",
+        eventType: "debate",
+      });
+    });
+  }
 }
 
 async function runDebateRaffleForEvent(event, requestedMaxParticipants) {

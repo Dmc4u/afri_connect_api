@@ -200,6 +200,22 @@ async function sendQuizSelectionMessages(registeredContestants, session) {
       });
     })
   );
+
+  // Emit real-time socket event for selected users (immediate popup)
+  const io = require("../utils/socket").getIO?.();
+  if (io && session) {
+    const selectedContestants = registeredContestants.filter(
+      (c) => c.raffleStatus === "selected" && c.user
+    );
+    selectedContestants.forEach((contestant) => {
+      const userId = contestant.user._id || contestant.user;
+      io.to(userId.toString()).emit("raffle-selected", {
+        showcaseId: session._id.toString(),
+        showcaseTitle: session.title || "Q/A Event",
+        eventType: "quiz",
+      });
+    });
+  }
 }
 
 const DEFAULT_QUESTIONS = [
