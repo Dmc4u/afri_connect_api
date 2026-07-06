@@ -27,7 +27,7 @@ const paymentSchema = new mongoose.Schema(
         required: true,
         default: "USD",
         uppercase: true,
-  enum: ["USD", "EUR", "GBP", "CAD", "AUD", "ILS"],
+        enum: ["USD", "EUR", "GBP", "CAD", "AUD", "ILS"],
       },
       value: {
         type: Number,
@@ -43,7 +43,16 @@ const paymentSchema = new mongoose.Schema(
     },
     paymentType: {
       type: String,
-      enum: ["membership", "showcase", "advertising", "donation", "listing", "featured"],
+      enum: [
+        "membership",
+        "showcase",
+        "advertising",
+        "donation",
+        "listing",
+        "featured",
+        "digital-wallet",
+        "digital-funding-wallet",
+      ],
       default: "membership",
       index: true,
     },

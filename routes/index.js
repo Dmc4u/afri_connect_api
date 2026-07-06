@@ -33,6 +33,7 @@ const testimonyRouter = require("./testimony");
 const quizRouter = require("./quiz");
 const debateRouter = require("./debate");
 const rewardsRouter = require("./rewards");
+const digitalServicesRouter = require("./digitalServices");
 const { NotFoundError } = require("../utils/errors");
 
 const router = express.Router();
@@ -45,6 +46,7 @@ router.use("/api/debate", debateRouter);
 router.use("/api/ai-support", aiSupportRouter);
 router.use("/api/app-status", appStatusRouter);
 router.use("/api/faq", faqRouter);
+router.use("/api", digitalServicesRouter);
 
 // Public content routes
 router.use("/business-leaders", businessLeadersRouter);

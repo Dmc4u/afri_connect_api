@@ -7,6 +7,8 @@
     "lint": "eslint .",
     "dev": "nodemon app.js",
     "start": "node app.js",
+    "backfill:digital-services-pricing": "node scripts/backfill-digital-service-pricing.js",
+    "trace:digital-services-pricing": "node scripts/trace-digital-service-pricing.js",
     "cleanup:orphan-timelines": "node scripts/cleanupOrphanTimelines.js",
     "format": "prettier --write ."
   },

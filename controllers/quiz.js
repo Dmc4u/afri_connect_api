@@ -2059,6 +2059,24 @@ const submitQuizAnswer = async (req, res, next) => {
     const { questionNumber, answer } = req.body;
     const trimmedAnswer = String(answer || "").trim();
 
+    if (req.user.role === "admin") {
+      logQuizSecurityEvent("answer_submit_denied", req, {
+        questionNumber,
+        reason: "admin_cannot_answer",
+      });
+      return res.status(403).json({
+        success: false,
+        message: "Admins cannot submit contestant answers.",
+      });
+    }
+
+    if (!trimmedAnswer) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide an answer before submitting.",
+      });
+    }
+
     const question = await QuizQuestion.findOne({ number: questionNumber, active: true });
     if (!question) {
       return res.status(404).json({ success: false, message: "Question not found" });

@@ -29,7 +29,7 @@ const userSchema = new mongoose.Schema(
           if (!value) return true;
           // More lenient validation - just check for reasonable phone format
           // Allow numbers with optional +, spaces, hyphens, parentheses
-          const phoneRegex = /^[\d\s\-\+\(\)]+$/;
+          const phoneRegex = /^[\d\s+()-]+$/;
           return phoneRegex.test(value) && value.replace(/\D/g, "").length >= 5;
         },
         message: "Invalid phone number - please enter a valid phone number",
@@ -116,6 +116,11 @@ const userSchema = new mongoose.Schema(
     rewardCredits: {
       featured: { type: Number, default: 0 },
       advertising: { type: Number, default: 0 },
+    },
+    digitalWallet: {
+      balance: { type: Number, default: 0, min: 0 },
+      currency: { type: String, default: "USD", uppercase: true },
+      updatedAt: { type: Date, default: null },
     },
 
     // Agent system fields

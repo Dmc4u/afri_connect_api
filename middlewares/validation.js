@@ -185,8 +185,9 @@ module.exports.validateQuizSubmission = celebrate({
       "number.max": "The question number must be between 1 and 100",
       "any.required": 'The "questionNumber" field is required',
     }),
-    answer: Joi.string().required().max(500).messages({
+    answer: Joi.string().trim().min(1).max(500).required().messages({
       "string.empty": 'The "answer" field must be filled in',
+      "string.min": 'The "answer" field must be filled in',
       "string.max": 'The maximum length of the "answer" field is 500',
     }),
   }),

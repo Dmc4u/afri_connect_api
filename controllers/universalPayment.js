@@ -5,7 +5,10 @@
 
 const Payment = require("../models/Payment");
 const PaypalTransaction = require("../models/PaypalTransaction");
+const PlatformWallet = require("../models/PlatformWallet");
+const PlatformWalletLedger = require("../models/PlatformWalletLedger");
 const User = require("../models/User");
+const WalletLedger = require("../models/WalletLedger");
 const PricingSettings = require("../models/PricingSettings");
 const { createOrder, captureOrder, getOrder } = require("../utils/paypal");
 
@@ -90,8 +93,11 @@ const VALID_PAYMENT_TYPES = [
   "donation",
   "listing",
   "featured",
+  "digital-wallet",
+  "digital-funding-wallet",
 ];
 const SUPPORTED_CURRENCIES = ["USD", "EUR", "GBP", "CAD", "AUD", "ILS"];
+const DIGITAL_FUNDING_WALLET_KEY = "digital-services";
 
 const normalizeTier = (tier) => {
   if (!tier) return null;
@@ -268,6 +274,32 @@ const createUniversalOrder = async (req, res) => {
         basePlanAmount: pricing.basePlanAmount,
         videoDurationAddon: pricing.videoDurationAddon,
         totalAmount: pricing.totalAmount,
+      };
+    } else if (type === "digital-wallet" || type === "digital-funding-wallet") {
+      const parsed = toFiniteNumber(amount);
+      if (!parsed || parsed <= 0) {
+        return res.status(400).json({ error: "Invalid wallet top-up amount" });
+      }
+      if (type === "digital-funding-wallet" && req.user?.role !== "admin") {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+      if (requestedCurrency !== "USD") {
+        return res.status(400).json({
+          error: "Only USD wallet top-ups are currently supported",
+        });
+      }
+      const maxWalletTopUp = type === "digital-funding-wallet" ? 50000 : 5000;
+      if (parsed > maxWalletTopUp) {
+        return res.status(400).json({ error: "Wallet top-up exceeds maximum" });
+      }
+      authoritativeAmount = Math.round(parsed * 100) / 100;
+      authoritativeCurrency = "USD";
+      context.wallet = {
+        purpose:
+          type === "digital-funding-wallet"
+            ? "digital-services-funding"
+            : "digital-services",
+        creditAmount: authoritativeAmount,
       };
     } else {
       // Donation/showcase/listing/featured: accept client amount but validate strictly.
@@ -792,6 +824,95 @@ async function applyPaymentEffects(payment, user, metadata) {
       // Handle donation effects
       console.log("✅ Donation processed");
       break;
+
+    case "digital-wallet": {
+      if (!user) {
+        throw new Error("Authenticated user required for wallet top-ups");
+      }
+
+      const currency = String(payment.amount?.currency || "USD").toUpperCase();
+      if (currency !== "USD") {
+        throw new Error("Only USD wallet top-ups are currently supported");
+      }
+
+      const creditAmount = Math.round(Number(payment.amount?.value || 0) * 100) / 100;
+      if (!Number.isFinite(creditAmount) || creditAmount <= 0) {
+        throw new Error("Invalid wallet top-up amount");
+      }
+
+      const previousBalance = Number(user.digitalWallet?.balance || 0);
+      const nextBalance = Math.round((previousBalance + creditAmount) * 100) / 100;
+
+      await User.updateOne(
+        { _id: user._id },
+        {
+          $set: {
+            digitalWallet: {
+              balance: nextBalance,
+              currency,
+              updatedAt: new Date(),
+            },
+          },
+        }
+      );
+
+      await WalletLedger.create({
+        user: user._id,
+        type: "credit",
+        amount: creditAmount,
+        currency,
+        balanceAfter: nextBalance,
+        reference: `payment_${payment.orderId}`,
+        note: metadata?.note || "Digital services wallet top-up by card",
+        createdBy: user._id,
+      });
+
+      console.log(`Digital wallet credited for ${user.email}: ${currency} ${creditAmount}`);
+      break;
+    }
+
+    case "digital-funding-wallet": {
+      if (!user || user.role !== "admin") {
+        throw new Error("Admin user required for funding wallet top-ups");
+      }
+
+      const currency = String(payment.amount?.currency || "USD").toUpperCase();
+      if (currency !== "USD") {
+        throw new Error("Only USD funding wallet top-ups are currently supported");
+      }
+
+      const creditAmount = Math.round(Number(payment.amount?.value || 0) * 100) / 100;
+      if (!Number.isFinite(creditAmount) || creditAmount <= 0) {
+        throw new Error("Invalid funding wallet top-up amount");
+      }
+
+      const wallet = await PlatformWallet.findOneAndUpdate(
+        { key: DIGITAL_FUNDING_WALLET_KEY },
+        {
+          $inc: { balance: creditAmount },
+          $set: {
+            name: "AfriOnet digital services funding wallet",
+            currency,
+            updatedAt: new Date(),
+          },
+        },
+        { new: true, upsert: true }
+      );
+
+      await PlatformWalletLedger.create({
+        walletKey: DIGITAL_FUNDING_WALLET_KEY,
+        type: "credit",
+        amount: creditAmount,
+        currency,
+        balanceAfter: Number(wallet.balance || 0),
+        reference: `payment_${payment.orderId}`,
+        note: metadata?.note || "Funding wallet top-up by card",
+        createdBy: user._id,
+      });
+
+      console.log(`Funding wallet credited by ${user.email}: ${currency} ${creditAmount}`);
+      break;
+    }
 
     default:
       console.log(`✅ ${payment.paymentType} payment processed`);

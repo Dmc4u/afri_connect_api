@@ -14,9 +14,9 @@ async function getAccessToken() {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
-      Authorization:
-        "Basic " +
-        Buffer.from(`${cfg.PAYPAL_CLIENT_ID}:${cfg.PAYPAL_CLIENT_SECRET}`).toString("base64"),
+      Authorization: `Basic ${Buffer.from(
+        `${cfg.PAYPAL_CLIENT_ID}:${cfg.PAYPAL_CLIENT_SECRET}`
+      ).toString("base64")}`,
     },
     body: "grant_type=client_credentials",
   });
@@ -106,7 +106,7 @@ async function createOrder(amount, seatType, currency = "USD", userId = null, co
     delete bodyWithoutVault.payment_source;
     ({ response, data } = await postOrder(bodyWithoutVault));
     if (response.ok && data && typeof data === "object") {
-      data._vaultingFallback = true;
+      data.vaultingFallback = true;
     }
   }
 
@@ -168,4 +168,55 @@ async function getOrder(orderId) {
   return data;
 }
 
-module.exports = { createOrder, captureOrder, getOrder };
+async function createPayout({
+  recipientEmail,
+  amount,
+  currency = "USD",
+  note = "AfriOnet revenue withdrawal",
+  senderBatchId,
+  senderItemId,
+  emailSubject = "AfriOnet payout",
+}) {
+  const accessToken = await getAccessToken();
+  const batchId =
+    senderBatchId || `afrionet-payout-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const itemId =
+    senderItemId || `afrionet-payout-item-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  const response = await fetch(`${baseUrl}/v1/payments/payouts`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      sender_batch_header: {
+        sender_batch_id: batchId,
+        email_subject: emailSubject,
+        email_message: note,
+      },
+      items: [
+        {
+          recipient_type: "EMAIL",
+          amount: {
+            value: Number(amount).toFixed(2),
+            currency,
+          },
+          receiver: recipientEmail,
+          note,
+          sender_item_id: itemId,
+        },
+      ],
+    }),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    console.error("❌ PayPal Payout Error:", data);
+    throw new Error(data?.message || data?.name || "Failed to create PayPal payout");
+  }
+
+  return data;
+}
+
+module.exports = { createOrder, captureOrder, getOrder, createPayout };

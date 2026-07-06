@@ -181,7 +181,14 @@ app.use(
   cors({
     origin: corsOriginFn,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Requested-With",
+      "Accept",
+      "Origin",
+      "Idempotency-Key",
+    ],
     credentials: true,
     exposedHeaders: ["Cross-Origin-Resource-Policy"],
     preflightContinue: false,
