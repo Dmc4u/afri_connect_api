@@ -42,6 +42,14 @@ const {
   PAYPAL_CLIENT_ID,
   PAYPAL_CLIENT_SECRET,
   PAYPAL_MODE, // Will be overridden based on NODE_ENV
+  DIGITAL_SERVICES_PROVIDER = "reloadly",
+  RELOADLY_CLIENT_ID: RELOADLY_CLIENT_ID_RAW,
+  RELOADLY_CLIENT_SECRET: RELOADLY_CLIENT_SECRET_RAW,
+  RELOADLY_API_CLIENT_ID,
+  RELOADLY_API_CLIENT_SECRET,
+  RELOADLY_API_CLIENT_ID_SANDBOX,
+  RELOADLY_API_CLIENT_SECRET_SANDBOX,
+  RELOADLY_ENV: RELOADLY_ENV_RAW,
 
   // ✅ Recent Views Settings
   RECENT_VIEWS_MAX = 10,
@@ -55,6 +63,25 @@ const SMTP_PORT_RESOLVED = SMTP_PORT || EMAIL_PORT;
 const SMTP_USER_RESOLVED = SMTP_USER || EMAIL_USER || ADMIN_EMAIL;
 const SMTP_PASS_RESOLVED = SMTP_PASS || EMAIL_PASS || EMAIL_PASSWORD || ADMIN_EMAIL_PASSWORD;
 const FROM_EMAIL_RESOLVED = FROM_EMAIL || EMAIL_FROM || ADMIN_EMAIL || SMTP_USER_RESOLVED;
+const RELOADLY_REQUESTED_MODE = String(
+  RELOADLY_ENV_RAW || (NODE_ENV === "production" ? "live" : "sandbox")
+).toLowerCase();
+const RELOADLY_MODE =
+  NODE_ENV === "development"
+    ? "sandbox"
+    : RELOADLY_REQUESTED_MODE === "live"
+      ? "live"
+      : "sandbox";
+const RELOADLY_CLIENT_ID_RESOLVED =
+  RELOADLY_MODE === "live"
+    ? RELOADLY_API_CLIENT_ID || RELOADLY_CLIENT_ID_RAW
+    : RELOADLY_API_CLIENT_ID_SANDBOX || RELOADLY_CLIENT_ID_RAW || RELOADLY_API_CLIENT_ID;
+const RELOADLY_CLIENT_SECRET_RESOLVED =
+  RELOADLY_MODE === "live"
+    ? RELOADLY_API_CLIENT_SECRET || RELOADLY_CLIENT_SECRET_RAW
+    : RELOADLY_API_CLIENT_SECRET_SANDBOX ||
+      RELOADLY_CLIENT_SECRET_RAW ||
+      RELOADLY_API_CLIENT_SECRET;
 
 // ✅ PayPal Mode Enforcement (force sandbox in development to prevent real charges)
 const PAYPAL_MODE_ENFORCED = NODE_ENV === "development" ? "sandbox" : PAYPAL_MODE || "sandbox";
@@ -75,6 +102,22 @@ if (NODE_ENV === "production" && PAYPAL_MODE_ENFORCED === "live") {
 }
 
 console.log(`💳 PayPal Mode: ${PAYPAL_MODE_ENFORCED} (Environment: ${NODE_ENV})`);
+
+if (NODE_ENV === "development" && RELOADLY_REQUESTED_MODE === "live") {
+  console.warn(
+    "WARNING: Development detected - forcing Reloadly sandbox mode to prevent real topups"
+  );
+}
+
+if (NODE_ENV === "production" && RELOADLY_MODE === "sandbox") {
+  console.warn("WARNING: Running production with Reloadly sandbox mode.");
+}
+
+if (NODE_ENV === "production" && RELOADLY_MODE === "live") {
+  console.log("Reloadly LIVE mode enabled - real digital service transactions will be processed.");
+}
+
+console.log(`Reloadly Mode: ${RELOADLY_MODE} (Environment: ${NODE_ENV})`);
 
 // ✅ Production safety checks
 if (NODE_ENV === "production" && !(RECAPTCHA_SECRET || RECAPTCHA_SECRET_KEY)) {
@@ -123,6 +166,10 @@ module.exports = {
   PAYPAL_CLIENT_ID,
   PAYPAL_CLIENT_SECRET,
   PAYPAL_MODE: PAYPAL_MODE_ENFORCED,
+  DIGITAL_SERVICES_PROVIDER,
+  RELOADLY_CLIENT_ID: RELOADLY_CLIENT_ID_RESOLVED,
+  RELOADLY_CLIENT_SECRET: RELOADLY_CLIENT_SECRET_RESOLVED,
+  RELOADLY_ENV: RELOADLY_MODE,
 
   // ✅ Recent Views
   RECENT_VIEWS_MAX: Number(RECENT_VIEWS_MAX) || 10,

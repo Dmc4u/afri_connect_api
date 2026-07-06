@@ -93,9 +93,46 @@ const paymentCaptureLimiter =
       })
     : (req, res, next) => next();
 
+const digitalServicesReadLimiter =
+  process.env.NODE_ENV === "production"
+    ? rateLimit({
+        windowMs: 60 * 1000, // 1 minute
+        max: 120,
+        message: "Too many services requests, please slow down",
+        standardHeaders: true,
+        legacyHeaders: false,
+      })
+    : (req, res, next) => next();
+
+const digitalServicesPurchaseIpLimiter =
+  process.env.NODE_ENV === "production"
+    ? rateLimit({
+        windowMs: 60 * 1000, // 1 minute
+        max: 20,
+        message: "Too many services purchase attempts, please try again shortly",
+        standardHeaders: true,
+        legacyHeaders: false,
+      })
+    : (req, res, next) => next();
+
+const digitalServicesPurchaseUserLimiter =
+  process.env.NODE_ENV === "production"
+    ? rateLimit({
+        windowMs: 60 * 1000, // 1 minute
+        max: 6,
+        keyGenerator: (req) => String(req.user?._id || req.ip),
+        message: "Too many services purchase attempts for this account, please try again shortly",
+        standardHeaders: true,
+        legacyHeaders: false,
+      })
+    : (req, res, next) => next();
+
 // Export as named properties while preserving existing exports
 module.exports.paymentCreateLimiter = paymentCreateLimiter;
 module.exports.paymentCaptureLimiter = paymentCaptureLimiter;
+module.exports.digitalServicesReadLimiter = digitalServicesReadLimiter;
+module.exports.digitalServicesPurchaseIpLimiter = digitalServicesPurchaseIpLimiter;
+module.exports.digitalServicesPurchaseUserLimiter = digitalServicesPurchaseUserLimiter;
 
 module.exports.liveEventLimiter = liveEventLimiter;
 module.exports.voteLimiter = voteLimiter;
