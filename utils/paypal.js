@@ -3,9 +3,32 @@ const cfg = require("./config");
 const baseUrl =
   cfg.PAYPAL_MODE === "live" ? "https://api-m.paypal.com" : "https://api-m.sandbox.paypal.com";
 
-// Get correct frontend URL based on environment
+const normalizeUrl = (url) => String(url || "").trim().replace(/\/+$/, "");
+const isLocalUrl = (url) => /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(url);
+
+// Get correct frontend URL based on environment. In production, never let a
+// localhost env value leak into PayPal checkout URLs.
 const getFrontendUrl = () => {
-  return cfg.FRONTEND_URL || cfg.PUBLIC_APP_URL || "http://localhost:3001";
+  const configured = normalizeUrl(cfg.PUBLIC_APP_URL || cfg.FRONTEND_URL);
+
+  if (cfg.NODE_ENV === "production") {
+    return configured && !isLocalUrl(configured) ? configured : "https://afrionet.com";
+  }
+
+  return configured || "http://localhost:3001";
+};
+
+const getSafeCheckoutUrl = (url, fallbackPath = "") => {
+  const candidate = normalizeUrl(url);
+  if (cfg.NODE_ENV !== "production") {
+    return candidate || `${getFrontendUrl()}${fallbackPath}`;
+  }
+
+  if (candidate && !isLocalUrl(candidate)) {
+    return candidate;
+  }
+
+  return `${getFrontendUrl()}${fallbackPath}`;
 };
 
 // Get OAuth2 Access Token
@@ -57,8 +80,8 @@ async function createOrder(amount, seatType, currency = "USD", userId = null, co
     application_context: {
       brand_name: "AfriOnet",
       user_action: "PAY_NOW",
-      return_url: context.returnUrl || `${getFrontendUrl()}/featured?paypal=approved`,
-      cancel_url: context.cancelUrl || `${getFrontendUrl()}/featured?paypal=cancel`,
+      return_url: getSafeCheckoutUrl(context.returnUrl, "/featured?paypal=approved"),
+      cancel_url: getSafeCheckoutUrl(context.cancelUrl, "/featured?paypal=cancel"),
     },
   };
 
@@ -219,4 +242,4 @@ async function createPayout({
   return data;
 }
 
-module.exports = { createOrder, captureOrder, getOrder, createPayout };
+module.exports = { createOrder, captureOrder, getOrder, createPayout, getFrontendUrl };

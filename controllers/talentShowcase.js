@@ -2585,7 +2585,7 @@ exports.getUnreadSponsorshipCount = async (req, res) => {
 exports.createEntryFeePayPalOrder = async (req, res) => {
   try {
     const { showcaseId } = req.body;
-    const { createOrder } = require("../utils/paypal");
+    const { createOrder, getFrontendUrl } = require("../utils/paypal");
 
     const showcase = await TalentShowcase.findById(showcaseId);
 
@@ -2633,14 +2633,15 @@ exports.createEntryFeePayPalOrder = async (req, res) => {
     }
 
     // Create PayPal order (authoritative server amount)
+    const frontendUrl = getFrontendUrl();
     const order = await createOrder(
       amount,
       `showcase-entry-${showcaseId}`,
       currency,
       req.user._id,
       {
-        returnUrl: process.env.PAYPAL_RETURN_URL || "http://localhost:3001",
-        cancelUrl: process.env.PAYPAL_CANCEL_URL || "http://localhost:3001",
+        returnUrl: process.env.PAYPAL_RETURN_URL || frontendUrl,
+        cancelUrl: process.env.PAYPAL_CANCEL_URL || frontendUrl,
       }
     );
 

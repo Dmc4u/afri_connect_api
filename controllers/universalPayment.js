@@ -10,7 +10,7 @@ const PlatformWalletLedger = require("../models/PlatformWalletLedger");
 const User = require("../models/User");
 const WalletLedger = require("../models/WalletLedger");
 const PricingSettings = require("../models/PricingSettings");
-const { createOrder, captureOrder, getOrder } = require("../utils/paypal");
+const { createOrder, captureOrder, getOrder, getFrontendUrl } = require("../utils/paypal");
 
 const normalizeMediaFiles = (mediaFiles = []) => {
   if (!Array.isArray(mediaFiles)) return [];
@@ -389,9 +389,10 @@ const createUniversalOrder = async (req, res) => {
     // 🔒 Normal user flow - create PayPal order
     const seatType =
       type === "membership" && tierUpgrade?.to ? `membership-${tierUpgrade.to}` : type;
+    const frontendUrl = getFrontendUrl();
     const order = await createOrder(authoritativeAmount, seatType, authoritativeCurrency, userId, {
-      returnUrl: process.env.PAYPAL_RETURN_URL || "http://localhost:3001",
-      cancelUrl: process.env.PAYPAL_CANCEL_URL || "http://localhost:3001",
+      returnUrl: process.env.PAYPAL_RETURN_URL || frontendUrl,
+      cancelUrl: process.env.PAYPAL_CANCEL_URL || frontendUrl,
       // Only attempt vaulting when we have an authenticated user to attach it to.
       storeInVaultOnSuccess: Boolean(savePaymentMethod) && Boolean(userId),
     });

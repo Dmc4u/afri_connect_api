@@ -5,7 +5,7 @@ const ShowcaseVote = require("../models/ShowcaseVote");
 const TalentContestant = require("../models/TalentContestant");
 const { ForbiddenError, BadRequestError } = require("../utils/errors");
 const { autoFeatureWinner } = require("../utils/featuredHelper");
-const { createOrder, captureOrder } = require("../utils/paypal");
+const { createOrder, captureOrder, getFrontendUrl } = require("../utils/paypal");
 
 // Pricing configuration & helpers - Matches Advertising Package structure
 const FEATURED_PRICING = {
@@ -190,15 +190,15 @@ exports.initiatePaypal = async (req, res, next) => {
       return res.json({ ok: true, alreadyPaid: true });
     }
     // Create PayPal order using authoritative priceBooked
+    const frontendUrl = getFrontendUrl();
     const order = await createOrder(
       placement.priceBooked || 0,
       placement.offerType,
       placement.currency || "USD",
       req.user._id,
       {
-        returnUrl:
-          process.env.PAYPAL_RETURN_URL || "http://localhost:3001/featured?paypal=approved",
-        cancelUrl: process.env.PAYPAL_CANCEL_URL || "http://localhost:3001/featured?paypal=cancel",
+        returnUrl: process.env.PAYPAL_RETURN_URL || `${frontendUrl}/featured?paypal=approved`,
+        cancelUrl: process.env.PAYPAL_CANCEL_URL || `${frontendUrl}/featured?paypal=cancel`,
       }
     );
     // Extract approval link & store order metadata
