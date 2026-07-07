@@ -11,6 +11,7 @@ const User = require("../models/User");
 const WalletLedger = require("../models/WalletLedger");
 const PricingSettings = require("../models/PricingSettings");
 const { createOrder, captureOrder, getOrder, getFrontendUrl } = require("../utils/paypal");
+const { getExchangeRate } = require("../utils/exchangeRates");
 
 const normalizeMediaFiles = (mediaFiles = []) => {
   if (!Array.isArray(mediaFiles)) return [];
@@ -111,6 +112,176 @@ const toFiniteNumber = (value) => {
   const n = typeof value === "number" ? value : parseFloat(value);
   return Number.isFinite(n) ? n : null;
 };
+
+const normalizeWalletCurrency = (value) => {
+  const currency = String(value || "USD").trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(currency)) {
+    throw new Error("Wallet currency is invalid");
+  }
+  return currency;
+};
+
+const normalizeOptionalCountryCode = (value) => {
+  if (value === undefined || value === null || value === "") return null;
+  const countryCode = String(value).trim().toUpperCase();
+  if (!/^[A-Z]{2,3}$/.test(countryCode)) {
+    throw new Error("Wallet country is invalid");
+  }
+  return countryCode;
+};
+
+async function creditUserDigitalWallet({
+  user,
+  amount,
+  currency,
+  reference,
+  note,
+  country = null,
+}) {
+  const walletCurrency = normalizeWalletCurrency(currency);
+  const walletAmount = Math.round(Number(amount || 0) * 100) / 100;
+  if (!Number.isFinite(walletAmount) || walletAmount <= 0) {
+    throw new Error("Invalid wallet credit amount");
+  }
+
+  const walletCountry = normalizeOptionalCountryCode(country);
+  const now = new Date();
+  const existingUser = await User.findById(user._id).select("digitalWallet digitalWallets");
+  if (!existingUser) {
+    throw new Error("User not found");
+  }
+
+  const wallets = Array.isArray(existingUser.digitalWallets) ? existingUser.digitalWallets : [];
+  if (!wallets.some((entry) => entry.currency === walletCurrency)) {
+    wallets.push({
+      currency: walletCurrency,
+      country: walletCountry,
+      balance: 0,
+      lockedBalance: 0,
+      status: "active",
+      updatedAt: now,
+    });
+    existingUser.digitalWallets = wallets;
+    await existingUser.save();
+  }
+
+  const updatedUser = await User.findOneAndUpdate(
+    { _id: user._id, "digitalWallets.currency": walletCurrency },
+    {
+      $inc: { "digitalWallets.$.balance": walletAmount },
+      $set: {
+        "digitalWallets.$.country": walletCountry,
+        "digitalWallets.$.status": "active",
+        "digitalWallets.$.updatedAt": now,
+      },
+    },
+    { new: true }
+  ).select("digitalWallet digitalWallets email");
+
+  const creditedWallet = updatedUser.digitalWallets.find(
+    (entry) => entry.currency === walletCurrency
+  );
+  updatedUser.digitalWallet = {
+    balance: Number(creditedWallet?.balance || 0),
+    currency: walletCurrency,
+    updatedAt: now,
+  };
+  await updatedUser.save();
+
+  await WalletLedger.create({
+    user: user._id,
+    type: "credit",
+    amount: walletAmount,
+    currency: walletCurrency,
+    country: walletCountry,
+    balanceAfter: Number(creditedWallet?.balance || 0),
+    reference,
+    note,
+    createdBy: user._id,
+  });
+
+  return { user: updatedUser, wallet: creditedWallet };
+}
+
+async function creditPlatformFundingWallet({
+  amount,
+  currency,
+  reference,
+  note,
+  createdBy,
+  country = null,
+}) {
+  const walletCurrency = normalizeWalletCurrency(currency);
+  const walletAmount = Math.round(Number(amount || 0) * 100) / 100;
+  if (!Number.isFinite(walletAmount) || walletAmount <= 0) {
+    throw new Error("Invalid funding wallet credit amount");
+  }
+
+  const walletCountry = normalizeOptionalCountryCode(country);
+  const now = new Date();
+  const existingWallet = await PlatformWallet.findOneAndUpdate(
+    { key: DIGITAL_FUNDING_WALLET_KEY },
+    {
+      $setOnInsert: {
+        key: DIGITAL_FUNDING_WALLET_KEY,
+        name: "AfriOnet digital services funding wallet",
+        balance: 0,
+        currency: "USD",
+      },
+    },
+    { new: true, upsert: true }
+  );
+
+  const balances = Array.isArray(existingWallet.balances) ? existingWallet.balances : [];
+  if (!balances.some((entry) => entry.currency === walletCurrency)) {
+    balances.push({
+      currency: walletCurrency,
+      country: walletCountry,
+      balance: 0,
+      updatedAt: now,
+    });
+    existingWallet.balances = balances;
+    await existingWallet.save();
+  }
+
+  const wallet = await PlatformWallet.findOneAndUpdate(
+    { key: DIGITAL_FUNDING_WALLET_KEY, "balances.currency": walletCurrency },
+    {
+      $inc: { "balances.$.balance": walletAmount },
+      $set: {
+        name: "AfriOnet digital services funding wallet",
+        currency: "USD",
+        "balances.$.country": walletCountry,
+        "balances.$.updatedAt": now,
+        updatedAt: now,
+      },
+    },
+    { new: true }
+  );
+
+  const creditedBalance = Number(
+    wallet.balances?.find((entry) => entry.currency === walletCurrency)?.balance || 0
+  );
+  const usdBalance = Number(wallet.balances?.find((entry) => entry.currency === "USD")?.balance || 0);
+  await PlatformWallet.updateOne(
+    { key: DIGITAL_FUNDING_WALLET_KEY },
+    { $set: { balance: usdBalance, currency: "USD", updatedAt: now } }
+  );
+
+  await PlatformWalletLedger.create({
+    walletKey: DIGITAL_FUNDING_WALLET_KEY,
+    type: "credit",
+    amount: walletAmount,
+    currency: walletCurrency,
+    country: walletCountry,
+    balanceAfter: creditedBalance,
+    reference,
+    note,
+    createdBy,
+  });
+
+  return { wallet, balanceAfter: creditedBalance };
+}
 
 const computeAdvertisingPricing = ({
   placement,
@@ -285,12 +456,29 @@ const createUniversalOrder = async (req, res) => {
       }
       if (requestedCurrency !== "USD") {
         return res.status(400).json({
-          error: "Only USD wallet top-ups are currently supported",
+          error: "Card wallet top-ups must be settled in USD",
         });
       }
       const maxWalletTopUp = type === "digital-funding-wallet" ? 50000 : 5000;
       if (parsed > maxWalletTopUp) {
         return res.status(400).json({ error: "Wallet top-up exceeds maximum" });
+      }
+      const walletCurrency =
+        type === "digital-wallet" || type === "digital-funding-wallet"
+          ? normalizeWalletCurrency(metadata?.walletCurrency || "USD")
+          : "USD";
+      const walletCountry =
+        type === "digital-wallet" || type === "digital-funding-wallet"
+          ? normalizeOptionalCountryCode(metadata?.countryCode)
+          : null;
+      let creditAmount = Math.round(parsed * 100) / 100;
+      let exchangeRate = 1;
+      if (walletCurrency !== "USD") {
+        exchangeRate = Number(await getExchangeRate(walletCurrency));
+        if (!Number.isFinite(exchangeRate) || exchangeRate <= 0) {
+          return res.status(400).json({ error: `Exchange rate unavailable for ${walletCurrency}` });
+        }
+        creditAmount = Math.round(parsed * exchangeRate * 100) / 100;
       }
       authoritativeAmount = Math.round(parsed * 100) / 100;
       authoritativeCurrency = "USD";
@@ -299,7 +487,12 @@ const createUniversalOrder = async (req, res) => {
           type === "digital-funding-wallet"
             ? "digital-services-funding"
             : "digital-services",
-        creditAmount: authoritativeAmount,
+        settlementCurrency: "USD",
+        settlementAmount: authoritativeAmount,
+        creditCurrency: walletCurrency,
+        creditAmount,
+        exchangeRate,
+        countryCode: walletCountry,
       };
     } else {
       // Donation/showcase/listing/featured: accept client amount but validate strictly.
@@ -831,41 +1024,21 @@ async function applyPaymentEffects(payment, user, metadata) {
         throw new Error("Authenticated user required for wallet top-ups");
       }
 
-      const currency = String(payment.amount?.currency || "USD").toUpperCase();
-      if (currency !== "USD") {
-        throw new Error("Only USD wallet top-ups are currently supported");
-      }
-
-      const creditAmount = Math.round(Number(payment.amount?.value || 0) * 100) / 100;
-      if (!Number.isFinite(creditAmount) || creditAmount <= 0) {
-        throw new Error("Invalid wallet top-up amount");
-      }
-
-      const previousBalance = Number(user.digitalWallet?.balance || 0);
-      const nextBalance = Math.round((previousBalance + creditAmount) * 100) / 100;
-
-      await User.updateOne(
-        { _id: user._id },
-        {
-          $set: {
-            digitalWallet: {
-              balance: nextBalance,
-              currency,
-              updatedAt: new Date(),
-            },
-          },
-        }
+      const walletContext = metadata?.wallet || {};
+      const currency = normalizeWalletCurrency(
+        walletContext.creditCurrency || payment.amount?.currency || "USD"
       );
+      const creditAmount = Math.round(
+        Number(walletContext.creditAmount || payment.amount?.value || 0) * 100
+      ) / 100;
 
-      await WalletLedger.create({
-        user: user._id,
-        type: "credit",
+      await creditUserDigitalWallet({
+        user,
         amount: creditAmount,
         currency,
-        balanceAfter: nextBalance,
+        country: walletContext.countryCode || metadata?.countryCode,
         reference: `payment_${payment.orderId}`,
         note: metadata?.note || "Digital services wallet top-up by card",
-        createdBy: user._id,
       });
 
       console.log(`Digital wallet credited for ${user.email}: ${currency} ${creditAmount}`);
@@ -877,39 +1050,22 @@ async function applyPaymentEffects(payment, user, metadata) {
         throw new Error("Admin user required for funding wallet top-ups");
       }
 
-      const currency = String(payment.amount?.currency || "USD").toUpperCase();
-      if (currency !== "USD") {
-        throw new Error("Only USD funding wallet top-ups are currently supported");
-      }
+      const walletContext = metadata?.wallet || {};
+      const currency = normalizeWalletCurrency(walletContext.creditCurrency || "USD");
+      const creditAmount = Math.round(
+        Number(walletContext.creditAmount || payment.amount?.value || 0) * 100
+      ) / 100;
 
-      const creditAmount = Math.round(Number(payment.amount?.value || 0) * 100) / 100;
-      if (!Number.isFinite(creditAmount) || creditAmount <= 0) {
-        throw new Error("Invalid funding wallet top-up amount");
-      }
-
-      const wallet = await PlatformWallet.findOneAndUpdate(
-        { key: DIGITAL_FUNDING_WALLET_KEY },
+      await creditPlatformFundingWallet(
         {
-          $inc: { balance: creditAmount },
-          $set: {
-            name: "AfriOnet digital services funding wallet",
-            currency,
-            updatedAt: new Date(),
-          },
-        },
-        { new: true, upsert: true }
+          amount: creditAmount,
+          currency,
+          country: walletContext.countryCode || metadata?.countryCode,
+          reference: `payment_${payment.orderId}`,
+          note: metadata?.note || "Funding wallet top-up by card",
+          createdBy: user._id,
+        }
       );
-
-      await PlatformWalletLedger.create({
-        walletKey: DIGITAL_FUNDING_WALLET_KEY,
-        type: "credit",
-        amount: creditAmount,
-        currency,
-        balanceAfter: Number(wallet.balance || 0),
-        reference: `payment_${payment.orderId}`,
-        note: metadata?.note || "Funding wallet top-up by card",
-        createdBy: user._id,
-      });
 
       console.log(`Funding wallet credited by ${user.email}: ${currency} ${creditAmount}`);
       break;

@@ -96,6 +96,25 @@ const digitalServiceTransactionSchema = new mongoose.Schema(
         default: null,
       },
     },
+    serviceAgent: {
+      agent: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        default: null,
+        index: true,
+      },
+      commissionPercent: { type: Number, min: 0, default: 0 },
+      discountPercent: { type: Number, min: 0, default: 0 },
+      platformRevenue: { type: Number, min: 0, default: 0 },
+      commissionAmount: { type: Number, min: 0, default: 0 },
+      profitAmount: { type: Number, min: 0, default: 0 },
+      currency: { type: String, uppercase: true, default: "USD" },
+      ledger: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "ServiceWalletLedger",
+        default: null,
+      },
+    },
     product: {
       id: mongoose.Schema.Types.Mixed,
       name: String,
@@ -135,6 +154,7 @@ const digitalServiceTransactionSchema = new mongoose.Schema(
 );
 
 digitalServiceTransactionSchema.index({ user: 1, createdAt: -1 });
+digitalServiceTransactionSchema.index({ "serviceAgent.agent": 1, createdAt: -1 });
 digitalServiceTransactionSchema.index({ serviceType: 1, status: 1, createdAt: -1 });
 digitalServiceTransactionSchema.index(
   { user: 1, idempotencyKey: 1 },

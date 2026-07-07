@@ -1,8 +1,8 @@
 const mongoose = require("mongoose");
 
-const walletLedgerSchema = new mongoose.Schema(
+const serviceWalletLedgerSchema = new mongoose.Schema(
   {
-    user: {
+    agent: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
@@ -10,7 +10,7 @@ const walletLedgerSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ["credit", "debit", "refund", "adjustment"],
+      enum: ["credit", "debit", "refund", "commission", "adjustment"],
       required: true,
       index: true,
     },
@@ -59,8 +59,8 @@ const walletLedgerSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-walletLedgerSchema.index({ user: 1, createdAt: -1 });
-walletLedgerSchema.index({ user: 1, currency: 1, createdAt: -1 });
-walletLedgerSchema.index({ reference: 1, type: 1 });
+serviceWalletLedgerSchema.index({ agent: 1, createdAt: -1 });
+serviceWalletLedgerSchema.index({ agent: 1, currency: 1, createdAt: -1 });
+serviceWalletLedgerSchema.index({ reference: 1, type: 1 });
 
-module.exports = mongoose.model("WalletLedger", walletLedgerSchema);
+module.exports = mongoose.model("ServiceWalletLedger", serviceWalletLedgerSchema);

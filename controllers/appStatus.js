@@ -65,7 +65,7 @@ const getAppStatus = async (req, res, next) => {
             "https://play.google.com/store/apps/details?id=com.afrionet.app",
           title: "Update AfriOnet",
           message:
-            "A new AfriOnet update is available with the latest improvements and fixes.",
+            "New update available. Update now to get the latest AfriOnet improvements from Google Play.",
         },
       },
     });

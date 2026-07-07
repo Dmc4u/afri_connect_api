@@ -24,6 +24,11 @@ const platformWalletLedgerSchema = new mongoose.Schema(
       uppercase: true,
       default: "USD",
     },
+    country: {
+      type: String,
+      uppercase: true,
+      default: null,
+    },
     balanceAfter: {
       type: Number,
       required: true,
@@ -55,5 +60,6 @@ const platformWalletLedgerSchema = new mongoose.Schema(
 );
 
 platformWalletLedgerSchema.index({ walletKey: 1, createdAt: -1 });
+platformWalletLedgerSchema.index({ walletKey: 1, currency: 1, createdAt: -1 });
 
 module.exports = mongoose.model("PlatformWalletLedger", platformWalletLedgerSchema);

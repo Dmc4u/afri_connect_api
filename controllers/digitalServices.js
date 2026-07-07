@@ -4,6 +4,8 @@ const PlatformWallet = require("../models/PlatformWallet");
 const PlatformWalletLedger = require("../models/PlatformWalletLedger");
 const User = require("../models/User");
 const WalletLedger = require("../models/WalletLedger");
+const ServiceWalletLedger = require("../models/ServiceWalletLedger");
+const MessageNotification = require("../models/MessageNotification");
 const { getExchangeRate } = require("../utils/exchangeRates");
 const provider = require("../utils/digitalServicesProvider");
 const config = require("../utils/config");
@@ -11,7 +13,6 @@ const { createPayout } = require("../utils/paypal");
 const { sendEmail } = require("../utils/notifications");
 const { BadRequestError, NotFoundError } = require("../utils/errors");
 
-const SUPPORTED_WALLET_CURRENCIES = new Set(["USD"]);
 const FUNDING_WALLET_KEY = "digital-services";
 const REVENUE_WALLET_KEY = "digital-services-revenue";
 const PROVIDER_SUCCESS_STATUSES = new Set(["SUCCESS", "SUCCESSFUL", "COMPLETED", "COMPLETE"]);
@@ -65,6 +66,13 @@ function getPositiveConfig(name, fallback) {
 const DAILY_SPEND_LIMIT_USD = getPositiveConfig("DIGITAL_SERVICES_DAILY_SPEND_LIMIT_USD", 250);
 const MAX_PURCHASE_AMOUNT_USD = getPositiveConfig("DIGITAL_SERVICES_MAX_PURCHASE_AMOUNT_USD", 100);
 const MAX_GIFT_CARD_QUANTITY = getPositiveConfig("DIGITAL_SERVICES_MAX_GIFT_CARD_QUANTITY", 25);
+const DEFAULT_SERVICE_AGENT_COMMISSION_PERCENT = getPositiveConfig(
+  "SERVICE_AGENT_COMMISSION_PERCENT",
+  0
+);
+const DEFAULT_SERVICE_AGENT_DISCOUNT_PERCENT = Number(
+  process.env.SERVICE_AGENT_DISCOUNT_PERCENT || 0
+);
 const RELOADLY_OPERATOR_PRICING = {
   NG: {
     340: { discountPercent: 6, fxRate: 1206 },
@@ -141,8 +149,8 @@ function normalizeCurrency(value) {
   const currency = String(value || "USD")
     .trim()
     .toUpperCase();
-  if (!SUPPORTED_WALLET_CURRENCIES.has(currency)) {
-    throw new BadRequestError("Only USD wallet purchases are currently supported");
+  if (!/^[A-Z]{3}$/.test(currency)) {
+    throw new BadRequestError("Wallet currency is invalid");
   }
   return currency;
 }
@@ -156,6 +164,13 @@ function normalizeOptionalCurrencyCode(value) {
     throw new BadRequestError("Local currency code is invalid");
   }
   return currency;
+}
+
+function normalizeOptionalCountryCode(value) {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+  return normalizeCountryCode(value);
 }
 
 function normalizeEmail(value, label = "Email") {
@@ -239,6 +254,20 @@ async function convertAmountToUsd(amount, currencyCode) {
   return roundAccountingValue(normalizedAmount / exchangeRate);
 }
 
+async function convertUsdToAmount(amount, currencyCode) {
+  const normalizedCurrencyCode = normalizeOptionalCurrencyCode(currencyCode) || "USD";
+  const normalizedAmount = toMoney(amount, "Amount");
+  if (normalizedCurrencyCode === "USD") {
+    return normalizedAmount;
+  }
+
+  const exchangeRate = Number(await getExchangeRate(normalizedCurrencyCode));
+  if (!Number.isFinite(exchangeRate) || exchangeRate <= 0) {
+    throw new BadRequestError(`Exchange rate unavailable for ${normalizedCurrencyCode}`);
+  }
+  return roundAccountingValue(normalizedAmount * exchangeRate, 2);
+}
+
 function getReloadlyProviderPricing({ countryCode, operatorId }) {
   if (!countryCode) return null;
   const normalizedCountryCode = String(countryCode).trim().toUpperCase();
@@ -258,6 +287,12 @@ function toPercent(value) {
     return 0;
   }
   return normalized;
+}
+
+function clampPercent(value, max = 100) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) return 0;
+  return Math.min(max, number);
 }
 
 function getGiftCardProductId(product) {
@@ -343,12 +378,18 @@ async function buildTransactionPricing({
     );
   }
 
-  const customerAmount = toPurchaseAmount(customerAmountUsd);
+  toPurchaseAmount(customerAmountUsd);
+  const customerAmount =
+    walletCurrency === "USD"
+      ? customerAmountUsd
+      : walletCurrency === normalizedProviderCurrencyCode
+      ? normalizedProviderAmount
+      : await convertUsdToAmount(customerAmountUsd, walletCurrency);
   const appliedProviderDiscountPercent = Number(providerPricing?.discountPercent || 0);
   const platformFeeUsd = roundAccountingValue(
-    customerAmount * (appliedProviderDiscountPercent / 100)
+    customerAmountUsd * (appliedProviderDiscountPercent / 100)
   );
-  const providerCostUsd = roundAccountingValue(customerAmount - platformFeeUsd);
+  const providerCostUsd = roundAccountingValue(customerAmountUsd - platformFeeUsd);
 
   return {
     customerAmount,
@@ -553,6 +594,7 @@ async function getVerifiedUserWalletBalance(userId, currency = "USD") {
     const reference = String(entry.reference || "");
     if (entry.type === "credit") {
       return reference.startsWith("payment_") || fundedReferences.has(reference)
+        || reference.startsWith("agent_profit_")
         ? balance + amount
         : balance;
     }
@@ -565,23 +607,161 @@ async function getVerifiedUserWalletBalance(userId, currency = "USD") {
     return balance;
   }, 0);
 
-  return Math.max(0, Math.round(verifiedBalance * 100) / 100);
+  return Math.max(0, roundAccountingValue(verifiedBalance, 6));
 }
 
 async function syncVerifiedUserWallet(userId, currency = "USD") {
   const walletCurrency = normalizeCurrency(currency);
   const balance = await getVerifiedUserWalletBalance(userId, walletCurrency);
-  await User.updateOne(
-    { _id: userId },
-    {
-      $set: {
-        "digitalWallet.balance": balance,
-        "digitalWallet.currency": walletCurrency,
-        "digitalWallet.updatedAt": new Date(),
-      },
-    }
+  const now = new Date();
+  const user = await User.findById(userId).select("digitalWallet digitalWallets");
+  if (!user) {
+    throw new NotFoundError("User not found");
+  }
+
+  const wallets = Array.isArray(user.digitalWallets) ? user.digitalWallets : [];
+  const existingWallet = wallets.find((entry) => entry.currency === walletCurrency);
+  if (existingWallet) {
+    existingWallet.balance = balance;
+    existingWallet.updatedAt = now;
+    if (!existingWallet.status) existingWallet.status = "active";
+  } else {
+    wallets.push({
+      currency: walletCurrency,
+      balance,
+      lockedBalance: 0,
+      status: "active",
+      updatedAt: now,
+    });
+    user.digitalWallets = wallets;
+  }
+
+  user.digitalWallet = {
+    balance,
+    currency: walletCurrency,
+    updatedAt: now,
+  };
+  await user.save();
+
+  return { balance, currency: walletCurrency, updatedAt: now };
+}
+
+function isServiceAgentUser(user) {
+  return Boolean(
+    user?.isServiceAgent ||
+      user?.role === "serviceAgent" ||
+      user?.serviceAgent?.status === "active"
   );
-  return { balance, currency: walletCurrency, updatedAt: new Date() };
+}
+
+function getServiceAgentConfig(user) {
+  const commissionPercent = Number(
+    user?.serviceAgent?.commissionPercent ?? DEFAULT_SERVICE_AGENT_COMMISSION_PERCENT
+  );
+  const discountPercent = Number(
+    user?.serviceAgent?.discountPercent ?? DEFAULT_SERVICE_AGENT_DISCOUNT_PERCENT
+  );
+
+  return {
+    commissionPercent: clampPercent(commissionPercent),
+    discountPercent: clampPercent(discountPercent),
+  };
+}
+
+function buildServiceAgentPricing({ req, pricing, currency }) {
+  const amount = Number(pricing?.customerAmount || 0);
+  if (!req.body.useAgentWallet) {
+    return {
+      purchaseAmount: amount,
+      serviceAgent: null,
+    };
+  }
+
+  if (!isServiceAgentUser(req.user)) {
+    throw new BadRequestError("Service agent access required");
+  }
+
+  const { commissionPercent, discountPercent } = getServiceAgentConfig(req.user);
+  const platformRevenue = roundAccountingValue(
+    amount * (Number(pricing?.providerDiscountPercent || 0) / 100),
+    6
+  );
+  const requestedDiscount = roundAccountingValue(amount * (discountPercent / 100), 6);
+  const agentDiscount = Math.min(requestedDiscount, platformRevenue);
+  const remainingPlatformRevenue = Math.max(
+    0,
+    roundAccountingValue(platformRevenue - agentDiscount, 6)
+  );
+  const purchaseAmount = Math.max(0.01, roundAccountingValue(amount - agentDiscount, 2));
+  const commissionAmount = roundAccountingValue(
+    remainingPlatformRevenue * (commissionPercent / 100),
+    6
+  );
+
+  return {
+    purchaseAmount,
+    serviceAgent: {
+      agent: req.user._id,
+      commissionPercent,
+      discountPercent,
+      commissionAmount,
+      profitAmount: roundAccountingValue(commissionAmount + agentDiscount, 6),
+      platformRevenue,
+      currency,
+    },
+  };
+}
+
+function getServiceAgentProfit(transaction) {
+  const storedProfit = Number(transaction.serviceAgent?.profitAmount || 0);
+  if (storedProfit > 0) return storedProfit;
+
+  const amount = Number(transaction.amount?.value || transaction.pricing?.customerAmount?.value || 0);
+  const providerDiscountPercent = Number(transaction.pricing?.providerDiscountPercent || 0);
+  const commissionPercent = Number(transaction.serviceAgent?.commissionPercent || 0);
+  const discountPercent = Number(transaction.serviceAgent?.discountPercent || 0);
+  if (!amount || !providerDiscountPercent || (!commissionPercent && !discountPercent)) {
+    return 0;
+  }
+
+  const platformRevenue = roundAccountingValue(amount * (providerDiscountPercent / 100), 6);
+  const requestedDiscount = roundAccountingValue(amount * (discountPercent / 100), 6);
+  const agentDiscount = Math.min(requestedDiscount, platformRevenue);
+  const remainingPlatformRevenue = Math.max(
+    0,
+    roundAccountingValue(platformRevenue - agentDiscount, 6)
+  );
+  const commissionAmount = roundAccountingValue(
+    remainingPlatformRevenue * (commissionPercent / 100),
+    6
+  );
+  return roundAccountingValue(commissionAmount + agentDiscount, 6);
+}
+
+async function createServiceWalletLedger({
+  agentId,
+  type,
+  amount,
+  currency,
+  balanceAfter,
+  reference,
+  transactionId = null,
+  note = "",
+  createdBy = null,
+  country = null,
+}) {
+  return ServiceWalletLedger.create({
+    agent: agentId,
+    type,
+    amount,
+    currency,
+    country,
+    balanceAfter,
+    reference,
+    transaction: transactionId,
+    note,
+    createdBy,
+  });
 }
 
 function getStartOfToday() {
@@ -590,9 +770,9 @@ function getStartOfToday() {
   return today;
 }
 
-async function assertDailySpendLimit({ userId, amount, currency = "USD" }) {
+async function assertDailySpendLimit({ userId, amount, amountUsd = null, currency = "USD" }) {
   const walletCurrency = normalizeCurrency(currency);
-  const walletAmount = toMoney(amount);
+  const limitAmount = toMoney(amountUsd ?? amount);
   const [summary] = await DigitalServiceTransaction.aggregate([
     {
       $match: {
@@ -600,16 +780,15 @@ async function assertDailySpendLimit({ userId, amount, currency = "USD" }) {
         createdAt: { $gte: getStartOfToday() },
         status: { $in: ["processing", "completed", "manual-review"] },
         paymentStatus: "paid",
-        "amount.currency": walletCurrency,
       },
     },
-    { $group: { _id: null, total: { $sum: "$amount.value" } } },
+    { $group: { _id: null, total: { $sum: "$pricing.providerCostUsd" } } },
   ]);
 
   const spentToday = Number(summary?.total || 0);
-  if (spentToday + walletAmount > DAILY_SPEND_LIMIT_USD) {
+  if (spentToday + limitAmount > DAILY_SPEND_LIMIT_USD) {
     throw new BadRequestError(
-      `Daily services spend limit exceeded. Limit is ${walletCurrency} ${DAILY_SPEND_LIMIT_USD.toFixed(
+      `Daily services spend limit exceeded. Limit is USD ${DAILY_SPEND_LIMIT_USD.toFixed(
         2
       )}`
     );
@@ -637,14 +816,14 @@ async function findExistingIdempotentTransaction(req) {
 
 async function getWallet(req, res, next) {
   try {
-    const user = await User.findById(req.user._id).select("digitalWallet").lean();
-    const wallet = await syncVerifiedUserWallet(
-      req.user._id,
-      user?.digitalWallet?.currency || "USD"
-    );
+    const user = await User.findById(req.user._id).select("digitalWallet digitalWallets").lean();
+    const requestedCurrency = req.query.currency || user?.digitalWallet?.currency || "USD";
+    const wallet = await syncVerifiedUserWallet(req.user._id, requestedCurrency);
+    const refreshedUser = await User.findById(req.user._id).select("digitalWallets").lean();
     res.json({
       success: true,
       wallet,
+      wallets: refreshedUser?.digitalWallets || [wallet],
     });
   } catch (error) {
     next(error);
@@ -661,12 +840,14 @@ async function createWalletLedger({
   transactionId = null,
   note = "",
   createdBy = null,
+  country = null,
 }) {
   return WalletLedger.create({
     user: userId,
     type,
     amount,
     currency,
+    country,
     balanceAfter,
     reference,
     transaction: transactionId,
@@ -692,33 +873,63 @@ async function getFundingWallet() {
   const entries = await PlatformWalletLedger.find({
     walletKey: FUNDING_WALLET_KEY,
   })
-    .select("type amount reference")
+    .select("type amount reference currency country")
     .lean();
 
-  const verifiedBalance = entries.reduce((balance, entry) => {
+  const balancesByCurrency = entries.reduce((balances, entry) => {
     const amount = Number(entry.amount || 0);
     const reference = String(entry.reference || "");
+    const currency = normalizeCurrency(entry.currency || "USD");
+    const current = balances.get(currency) || {
+      currency,
+      country: entry.country || null,
+      balance: 0,
+      updatedAt: new Date(),
+    };
     if (entry.type === "credit" && reference.startsWith("payment_")) {
-      return balance + amount;
+      current.balance += amount;
     }
     if (entry.type === "debit") {
-      return balance - amount;
+      current.balance -= amount;
     }
     if (entry.type === "refund") {
-      return balance + amount;
+      current.balance += amount;
     }
-    return balance;
-  }, 0);
+    current.balance = roundAccountingValue(current.balance, 2);
+    if (entry.country) current.country = entry.country;
+    balances.set(currency, current);
+    return balances;
+  }, new Map());
 
-  const balance = Math.max(0, Math.round(verifiedBalance * 100) / 100);
-  if (Number(wallet.balance || 0) !== balance) {
-    await PlatformWallet.updateOne(
-      { key: FUNDING_WALLET_KEY },
-      { $set: { balance, updatedAt: new Date() } }
-    );
+  if (!balancesByCurrency.has("USD")) {
+    balancesByCurrency.set("USD", {
+      currency: "USD",
+      country: null,
+      balance: Number(wallet.balance || 0),
+      updatedAt: new Date(),
+    });
   }
 
-  return { ...wallet, balance };
+  const balances = Array.from(balancesByCurrency.values()).map((entry) => ({
+    ...entry,
+    balance: Math.max(0, roundAccountingValue(entry.balance, 2)),
+    updatedAt: new Date(),
+  }));
+  const usdBalance = balances.find((entry) => entry.currency === "USD")?.balance || 0;
+
+  await PlatformWallet.updateOne(
+    { key: FUNDING_WALLET_KEY },
+    {
+      $set: {
+        balance: usdBalance,
+        currency: "USD",
+        balances,
+        updatedAt: new Date(),
+      },
+    }
+  );
+
+  return { ...wallet, balance: usdBalance, currency: "USD", balances };
 }
 
 async function getRevenueWallet() {
@@ -779,12 +990,15 @@ async function createFundingLedger({
   note = "",
   user = null,
   createdBy = null,
+  country = null,
 }) {
+  const walletCountry = normalizeOptionalCountryCode(country);
   return PlatformWalletLedger.create({
     walletKey: FUNDING_WALLET_KEY,
     type,
     amount,
     currency,
+    country: walletCountry,
     balanceAfter,
     reference,
     note,
@@ -821,20 +1035,30 @@ async function debitFundingWallet({
   note = "",
   user = null,
   createdBy = null,
+  country = null,
 }) {
   const walletCurrency = normalizeCurrency(currency);
   const walletAmount = toMoney(amount);
   await getFundingWallet();
+  const walletCountry = normalizeOptionalCountryCode(country);
 
   const wallet = await PlatformWallet.findOneAndUpdate(
     {
       key: FUNDING_WALLET_KEY,
-      balance: { $gte: walletAmount },
-      currency: walletCurrency,
+      balances: {
+        $elemMatch: {
+          currency: walletCurrency,
+          balance: { $gte: walletAmount },
+        },
+      },
     },
     {
-      $inc: { balance: -walletAmount },
-      $set: { updatedAt: new Date() },
+      $inc: { "balances.$.balance": -walletAmount },
+      $set: {
+        "balances.$.country": walletCountry,
+        "balances.$.updatedAt": new Date(),
+        updatedAt: new Date(),
+      },
     },
     { new: true }
   );
@@ -847,7 +1071,10 @@ async function debitFundingWallet({
     type: "debit",
     amount: walletAmount,
     currency: walletCurrency,
-    balanceAfter: Number(wallet.balance || 0),
+    country: walletCountry,
+    balanceAfter: Number(
+      wallet.balances?.find((entry) => entry.currency === walletCurrency)?.balance || 0
+    ),
     reference,
     note,
     user,
@@ -927,31 +1154,45 @@ async function creditWallet({
   transactionId = null,
   note = "",
   createdBy = null,
+  country = null,
 }) {
   const walletCurrency = normalizeCurrency(currency);
   const walletAmount = toMoney(amount);
-  const user = await User.findByIdAndUpdate(
-    userId,
+  const walletCountry = normalizeOptionalCountryCode(country);
+  await syncVerifiedUserWallet(userId, walletCurrency);
+
+  const user = await User.findOneAndUpdate(
+    { _id: userId, "digitalWallets.currency": walletCurrency },
     {
-      $inc: { "digitalWallet.balance": walletAmount },
+      $inc: { "digitalWallets.$.balance": walletAmount },
       $set: {
-        "digitalWallet.currency": walletCurrency,
-        "digitalWallet.updatedAt": new Date(),
+        "digitalWallets.$.country": walletCountry,
+        "digitalWallets.$.status": "active",
+        "digitalWallets.$.updatedAt": new Date(),
       },
     },
     { new: true }
-  ).select("digitalWallet");
+  ).select("digitalWallet digitalWallets");
 
   if (!user) {
     throw new NotFoundError("User not found");
   }
+
+  const creditedWallet = user.digitalWallets.find((entry) => entry.currency === walletCurrency);
+  user.digitalWallet = {
+    balance: Number(creditedWallet?.balance || 0),
+    currency: walletCurrency,
+    updatedAt: new Date(),
+  };
+  await user.save();
 
   const ledger = await createWalletLedger({
     userId,
     type,
     amount: walletAmount,
     currency: walletCurrency,
-    balanceAfter: Number(user.digitalWallet?.balance || 0),
+    country: walletCountry,
+    balanceAfter: Number(creditedWallet?.balance || 0),
     reference,
     transactionId,
     note,
@@ -961,6 +1202,81 @@ async function creditWallet({
   return { user, ledger };
 }
 
+async function creditAgentProfitToWallet({ transaction }) {
+  if (!transaction?.serviceAgent?.agent || transaction.status !== "completed") {
+    return null;
+  }
+
+  const profitAmount = roundAccountingValue(getServiceAgentProfit(transaction), 6);
+  if (!Number.isFinite(profitAmount) || profitAmount < 0.000001) {
+    return null;
+  }
+
+  const walletCurrency = normalizeCurrency(
+    transaction.serviceAgent?.currency || transaction.amount?.currency || "USD"
+  );
+  const reference = `agent_profit_${transaction.reference}`;
+  const existingLedger = await WalletLedger.findOne({
+    user: transaction.serviceAgent.agent,
+    type: "credit",
+    reference,
+  }).lean();
+  if (existingLedger) {
+    return existingLedger;
+  }
+
+  await syncVerifiedUserWallet(transaction.serviceAgent.agent, walletCurrency);
+  const user = await User.findOneAndUpdate(
+    { _id: transaction.serviceAgent.agent, "digitalWallets.currency": walletCurrency },
+    {
+      $inc: { "digitalWallets.$.balance": profitAmount },
+      $set: {
+        "digitalWallets.$.status": "active",
+        "digitalWallets.$.updatedAt": new Date(),
+      },
+    },
+    { new: true }
+  ).select("digitalWallet digitalWallets");
+
+  if (!user) {
+    throw new NotFoundError("Service agent not found");
+  }
+
+  const creditedWallet = user.digitalWallets.find((entry) => entry.currency === walletCurrency);
+  user.digitalWallet = {
+    balance: Number(creditedWallet?.balance || 0),
+    currency: walletCurrency,
+    updatedAt: new Date(),
+  };
+  await user.save();
+
+  const note = `Agent profit from ${transaction.serviceType} sale`;
+  const ledger = await createWalletLedger({
+    userId: transaction.serviceAgent.agent,
+    type: "credit",
+    amount: profitAmount,
+    currency: walletCurrency,
+    balanceAfter: Number(creditedWallet?.balance || 0),
+    reference,
+    transactionId: transaction._id,
+    note,
+  });
+
+  await createServiceWalletLedger({
+    agentId: transaction.serviceAgent.agent,
+    type: "commission",
+    amount: profitAmount,
+    currency: walletCurrency,
+    balanceAfter: Number(creditedWallet?.balance || 0),
+    reference,
+    transactionId: transaction._id,
+    note,
+    country: transaction.recipient?.countryCode || transaction.product?.countryCode,
+  });
+
+  return ledger;
+}
+
 async function debitWallet({
   userId,
   amount,
@@ -968,40 +1284,52 @@ async function debitWallet({
   reference,
   transactionId,
   note = "",
+  country = null,
 }) {
   const walletCurrency = normalizeCurrency(currency);
   const walletAmount = toMoney(amount);
+  const walletCountry = normalizeOptionalCountryCode(country);
   await syncVerifiedUserWallet(userId, walletCurrency);
   const user = await User.findOneAndUpdate(
     {
       _id: userId,
-      "digitalWallet.balance": { $gte: walletAmount },
-      $or: [
-        { "digitalWallet.currency": walletCurrency },
-        { "digitalWallet.currency": { $exists: false } },
-        { "digitalWallet.currency": null },
-      ],
+      digitalWallets: {
+        $elemMatch: {
+          currency: walletCurrency,
+          balance: { $gte: walletAmount },
+          status: { $ne: "suspended" },
+        },
+      },
     },
     {
-      $inc: { "digitalWallet.balance": -walletAmount },
+      $inc: { "digitalWallets.$.balance": -walletAmount },
       $set: {
-        "digitalWallet.currency": walletCurrency,
-        "digitalWallet.updatedAt": new Date(),
+        "digitalWallets.$.country": walletCountry,
+        "digitalWallets.$.updatedAt": new Date(),
       },
     },
     { new: true }
-  ).select("digitalWallet");
+  ).select("digitalWallet digitalWallets");
 
   if (!user) {
     throw new BadRequestError("Insufficient wallet balance");
   }
+
+  const debitedWallet = user.digitalWallets.find((entry) => entry.currency === walletCurrency);
+  user.digitalWallet = {
+    balance: Number(debitedWallet?.balance || 0),
+    currency: walletCurrency,
+    updatedAt: new Date(),
+  };
+  await user.save();
 
   const ledger = await createWalletLedger({
     userId,
     type: "debit",
     amount: walletAmount,
     currency: walletCurrency,
-    balanceAfter: Number(user.digitalWallet?.balance || 0),
+    country: walletCountry,
+    balanceAfter: Number(debitedWallet?.balance || 0),
     reference,
     transactionId,
     note,
@@ -1030,12 +1358,26 @@ async function refundWallet({ transaction, reason }) {
     reference: `${currentTransaction.reference}_refund`,
     transactionId: currentTransaction._id,
     note: reason,
+    country: currentTransaction.recipient?.countryCode || currentTransaction.product?.countryCode,
   });
 
   currentTransaction.wallet.refunded = toMoney(
     (currentTransaction.wallet.refunded || 0) + refundAmount
   );
   currentTransaction.wallet.refundLedger = ledger._id;
+  if (currentTransaction.serviceAgent?.agent) {
+    await createServiceWalletLedger({
+      agentId: currentTransaction.serviceAgent.agent,
+      type: "refund",
+      amount: refundAmount,
+      currency: currentTransaction.wallet.currency || currentTransaction.amount.currency || "USD",
+      balanceAfter: Number(ledger.balanceAfter || 0),
+      reference: `${currentTransaction.reference}_refund`,
+      transactionId: currentTransaction._id,
+      note: reason,
+      country: currentTransaction.recipient?.countryCode || currentTransaction.product?.countryCode,
+    });
+  }
   currentTransaction.paymentStatus = "refunded";
   return ledger;
 }
@@ -1050,6 +1392,7 @@ async function createPendingTransaction({
   payload,
   recipient,
   product,
+  serviceAgent = null,
 }) {
   const idempotencyKey = getIdempotencyKey(req);
   if (idempotencyKey) {
@@ -1098,6 +1441,7 @@ async function createPendingTransaction({
           minimumFeeUsd: 0,
         },
     wallet: { currency },
+    serviceAgent: serviceAgent || undefined,
     product,
     requestPayload: payload,
     status: "pending",
@@ -1130,6 +1474,7 @@ async function chargeAndRunProvider({ transaction, providerCall, debitNote }) {
       reference: currentTransaction.reference,
       transactionId: currentTransaction._id,
       note: debitNote,
+      country: currentTransaction.recipient?.countryCode || currentTransaction.product?.countryCode,
     }));
   } catch (error) {
     currentTransaction.status = "failed";
@@ -1144,6 +1489,22 @@ async function chargeAndRunProvider({ transaction, providerCall, debitNote }) {
   currentTransaction.wallet.debited = currentTransaction.amount.value;
   currentTransaction.wallet.currency = currentTransaction.amount.currency;
   currentTransaction.wallet.debitLedger = ledger._id;
+
+  if (currentTransaction.serviceAgent?.agent) {
+    const serviceLedger = await createServiceWalletLedger({
+      agentId: currentTransaction.serviceAgent.agent,
+      type: "debit",
+      amount: currentTransaction.amount.value,
+      currency: currentTransaction.amount.currency,
+      balanceAfter: Number(ledger.balanceAfter || 0),
+      reference: currentTransaction.reference,
+      transactionId: currentTransaction._id,
+      note: debitNote,
+      country: currentTransaction.recipient?.countryCode || currentTransaction.product?.countryCode,
+    });
+    currentTransaction.serviceAgent.ledger = serviceLedger._id;
+  }
+
   await currentTransaction.save();
 
   try {
@@ -1164,6 +1525,10 @@ async function chargeAndRunProvider({ transaction, providerCall, debitNote }) {
       error.details = result;
       error.providerFailureHandled = true;
       throw error;
+    }
+
+    if (validation.outcome === "completed") {
+      await creditAgentProfitToWallet({ transaction: currentTransaction });
     }
 
     await currentTransaction.save();
@@ -1246,7 +1611,12 @@ async function sendAirtime(req, res, next) {
       providerCurrencyCode: normalizedLocalCurrencyCode || currency,
       walletCurrency: currency,
     });
-    const purchaseAmount = pricing.customerAmount;
+    const agentPricing = buildServiceAgentPricing({
+      req,
+      pricing,
+      currency,
+    });
+    const purchaseAmount = agentPricing.purchaseAmount;
     const existingTransaction = await findExistingIdempotentTransaction(req);
     if (existingTransaction) {
       return res.status(200).json({
@@ -1258,6 +1628,7 @@ async function sendAirtime(req, res, next) {
     await assertDailySpendLimit({
       userId: req.user._id,
       amount: purchaseAmount,
+      amountUsd: pricing.providerCostUsd + pricing.platformFeeUsd,
       currency,
     });
     await assertWalletCanCover({
@@ -1288,6 +1659,7 @@ async function sendAirtime(req, res, next) {
       currency,
       pricing,
       payload,
+      serviceAgent: agentPricing.serviceAgent,
       recipient: {
         phone: normalizedPhone,
         countryCode: normalizedCountryCode,
@@ -1361,7 +1733,12 @@ async function purchaseData(req, res, next) {
       providerCurrencyCode: normalizedLocalCurrencyCode || currency,
       walletCurrency: currency,
     });
-    const purchaseAmount = pricing.customerAmount;
+    const agentPricing = buildServiceAgentPricing({
+      req,
+      pricing,
+      currency,
+    });
+    const purchaseAmount = agentPricing.purchaseAmount;
     const existingTransaction = await findExistingIdempotentTransaction(req);
     if (existingTransaction) {
       return res.status(200).json({
@@ -1373,6 +1750,7 @@ async function purchaseData(req, res, next) {
     await assertDailySpendLimit({
       userId: req.user._id,
       amount: purchaseAmount,
+      amountUsd: pricing.providerCostUsd + pricing.platformFeeUsd,
       currency,
     });
     await assertWalletCanCover({
@@ -1406,6 +1784,7 @@ async function purchaseData(req, res, next) {
       currency,
       pricing,
       payload,
+      serviceAgent: agentPricing.serviceAgent,
       recipient: {
         phone: normalizedPhone,
         countryCode: normalizedCountryCode,
@@ -1489,6 +1868,7 @@ async function purchaseGiftCard(req, res, next) {
     await assertDailySpendLimit({
       userId: req.user._id,
       amount: purchaseAmount,
+      amountUsd: pricing.providerCostUsd + pricing.platformFeeUsd,
       currency,
     });
     await assertWalletCanCover({
@@ -1543,6 +1923,381 @@ async function listTransactions(req, res, next) {
       .limit(limit)
       .lean();
     res.json({ success: true, transactions });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function getServiceAgentDashboard(req, res, next) {
+  try {
+    if (!isServiceAgentUser(req.user)) {
+      throw new BadRequestError("Service agent access required");
+    }
+
+    const userId = req.user._id;
+    let wallets = [];
+    const existingWallets = Array.isArray(req.user.digitalWallets)
+      ? req.user.digitalWallets
+      : [];
+
+    for (const wallet of existingWallets) {
+      wallets.push(await syncVerifiedUserWallet(userId, wallet.currency || "USD"));
+    }
+
+    if (wallets.length === 0) {
+      wallets.push(await syncVerifiedUserWallet(userId, req.user.digitalWallet?.currency || "USD"));
+    }
+
+    const [transactions, ledger] = await Promise.all([
+      DigitalServiceTransaction.find({ "serviceAgent.agent": userId })
+        .sort({ createdAt: -1 })
+        .limit(100)
+        .lean(),
+      ServiceWalletLedger.find({ agent: userId })
+        .sort({ createdAt: -1 })
+        .limit(100)
+        .lean(),
+    ]);
+
+    const normalizedTransactions = transactions.map((transaction) => {
+      const profitAmount = getServiceAgentProfit(transaction);
+      return {
+        ...transaction,
+        serviceAgent: {
+          ...(transaction.serviceAgent || {}),
+          profitAmount,
+        },
+      };
+    });
+    await Promise.all(
+      normalizedTransactions
+        .filter((transaction) => transaction.status === "completed")
+        .map((transaction) => creditAgentProfitToWallet({ transaction }))
+    );
+
+    const walletCurrencies = new Set(
+      [
+        ...existingWallets.map((wallet) => wallet.currency),
+        ...normalizedTransactions.map((transaction) => transaction.serviceAgent?.currency),
+        req.user.digitalWallet?.currency,
+        "USD",
+      ].filter(Boolean)
+    );
+    wallets = [];
+    for (const currency of walletCurrencies) {
+      wallets.push(await syncVerifiedUserWallet(userId, currency));
+    }
+
+    const totals = normalizedTransactions.reduce(
+      (acc, transaction) => {
+        if (transaction.status === "completed") {
+          acc.sales += 1;
+          acc.volume += Number(transaction.amount?.value || 0);
+          acc.profit += getServiceAgentProfit(transaction);
+        }
+        if (transaction.status === "failed" || transaction.status === "refunded") {
+          acc.failed += 1;
+        }
+        return acc;
+      },
+      { sales: 0, failed: 0, volume: 0, profit: 0 }
+    );
+
+    res.json({
+      success: true,
+      agent: {
+        _id: req.user._id,
+        name: req.user.name,
+        email: req.user.email,
+        serviceAgent: req.user.serviceAgent,
+      },
+      wallets,
+      transactions: normalizedTransactions,
+      ledger,
+      totals,
+      config: getServiceAgentConfig(req.user),
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function requestServiceAgentAccess(req, res, next) {
+  try {
+    if (isServiceAgentUser(req.user)) {
+      return res.json({
+        success: true,
+        status: "active",
+        message: "Your account is already active as a service agent.",
+      });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      req.user._id,
+      {
+        $set: {
+          isServiceAgent: false,
+          "serviceAgent.status": "pending",
+          "serviceAgent.requestedAt": new Date(),
+        },
+      },
+      { new: true }
+    ).select("name email phone role isServiceAgent serviceAgent");
+
+    if (!user) {
+      throw new NotFoundError("User not found");
+    }
+
+    const admins = await User.find({ role: "admin" }).select("_id").lean();
+    const title = "Service agent request";
+    const body = `${user.name || user.email || "A user"} requested service agent activation. Open /admin/services to review and activate.`;
+
+    await Promise.all(
+      admins.map((admin) =>
+        MessageNotification.create({
+          user: admin._id,
+          sender: user._id,
+          type: "contact-form",
+          title,
+          body,
+          deliveryChannels: { inApp: true, email: false, push: false },
+        })
+      )
+    );
+
+    res.status(201).json({
+      success: true,
+      status: "pending",
+      message: "Your service agent request has been sent to admin.",
+      user,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function listPendingServiceAgentRequests(req, res, next) {
+  try {
+    const users = await User.find({ "serviceAgent.status": "pending" })
+      .select("name fullName email phone role isServiceAgent serviceAgent digitalWallet digitalWallets")
+      .sort({ "serviceAgent.requestedAt": -1, createdAt: -1 })
+      .limit(100)
+      .lean();
+
+    res.json({
+      success: true,
+      users,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+function addCurrencyTotal(target, currency, amount) {
+  const normalizedCurrency = normalizeCurrency(currency || "USD");
+  const value = Number(amount || 0);
+  if (!Number.isFinite(value) || value <= 0) return;
+  target[normalizedCurrency] = toMoney(Number(target[normalizedCurrency] || 0) + value);
+}
+
+function normalizeAgentWallets(user) {
+  const wallets = new Map();
+  const addWallet = (wallet) => {
+    if (!wallet?.currency) return;
+    wallets.set(normalizeCurrency(wallet.currency), {
+      currency: normalizeCurrency(wallet.currency),
+      balance: Number(wallet.balance || 0),
+      country: wallet.country || null,
+      updatedAt: wallet.updatedAt || null,
+    });
+  };
+
+  if (Array.isArray(user?.digitalWallets)) {
+    user.digitalWallets.forEach(addWallet);
+  }
+  addWallet(user?.digitalWallet);
+  return Array.from(wallets.values()).sort((a, b) => a.currency.localeCompare(b.currency));
+}
+
+async function listAdminServiceAgents(req, res, next) {
+  try {
+    const transactionLimit = Math.min(Number(req.query.transactionLimit) || 500, 1000);
+    const ledgerLimit = Math.min(Number(req.query.ledgerLimit) || 500, 1000);
+
+    const [serviceUsers, recentTransactions, recentLedger] = await Promise.all([
+      User.find({
+        $or: [
+          { isServiceAgent: true },
+          { role: "serviceAgent" },
+          { "serviceAgent.status": { $in: ["active", "pending", "suspended"] } },
+        ],
+      })
+        .select("name fullName email phone role isServiceAgent serviceAgent digitalWallet digitalWallets")
+        .sort({ "serviceAgent.activatedAt": -1, "serviceAgent.requestedAt": -1, createdAt: -1 })
+        .limit(200)
+        .lean(),
+      DigitalServiceTransaction.find({ "serviceAgent.agent": { $exists: true, $ne: null } })
+        .populate("user", "name email phone")
+        .sort({ createdAt: -1 })
+        .limit(transactionLimit)
+        .lean(),
+      ServiceWalletLedger.find({})
+        .populate("createdBy", "name email")
+        .sort({ createdAt: -1 })
+        .limit(ledgerLimit)
+        .lean(),
+    ]);
+
+    const agentIds = new Set();
+    serviceUsers.forEach((user) => agentIds.add(String(user._id)));
+    recentTransactions.forEach((transaction) => {
+      if (transaction.serviceAgent?.agent) {
+        agentIds.add(String(transaction.serviceAgent.agent));
+      }
+    });
+    recentLedger.forEach((entry) => {
+      if (entry.agent) agentIds.add(String(entry.agent));
+    });
+
+    const knownUserIds = new Set(serviceUsers.map((user) => String(user._id)));
+    const missingAgentIds = Array.from(agentIds).filter((id) => !knownUserIds.has(id));
+    const extraUsers =
+      missingAgentIds.length > 0
+        ? await User.find({ _id: { $in: missingAgentIds } })
+            .select("name fullName email phone role isServiceAgent serviceAgent digitalWallet digitalWallets")
+            .lean()
+        : [];
+
+    const agentsById = new Map(
+      [...serviceUsers, ...extraUsers].map((user) => {
+        const id = String(user._id);
+        return [
+          id,
+          {
+            _id: user._id,
+            name: user.name || user.fullName || "",
+            email: user.email || "",
+            phone: user.phone || "",
+            role: user.role,
+            isServiceAgent: Boolean(user.isServiceAgent),
+            serviceAgent: user.serviceAgent || {},
+            wallets: normalizeAgentWallets(user),
+            totals: {
+              completedSales: 0,
+              failedSales: 0,
+              totalSales: 0,
+              volumeByCurrency: {},
+              profitByCurrency: {},
+              platformRevenueByCurrency: {},
+              creditedByCurrency: {},
+              debitedByCurrency: {},
+            },
+            recentTransactions: [],
+            recentLedger: [],
+            lastActivityAt: user.serviceAgent?.activatedAt || user.serviceAgent?.requestedAt || null,
+          },
+        ];
+      })
+    );
+
+    recentTransactions.forEach((transaction) => {
+      const agentId = String(transaction.serviceAgent?.agent || "");
+      const agent = agentsById.get(agentId);
+      if (!agent) return;
+
+      agent.totals.totalSales += 1;
+      if (transaction.status === "completed") {
+        agent.totals.completedSales += 1;
+        addCurrencyTotal(
+          agent.totals.volumeByCurrency,
+          transaction.amount?.currency,
+          transaction.amount?.value
+        );
+        addCurrencyTotal(
+          agent.totals.profitByCurrency,
+          transaction.serviceAgent?.currency || transaction.amount?.currency,
+          getServiceAgentProfit(transaction)
+        );
+        addCurrencyTotal(
+          agent.totals.platformRevenueByCurrency,
+          transaction.serviceAgent?.currency || transaction.amount?.currency,
+          transaction.serviceAgent?.platformRevenue
+        );
+      }
+      if (transaction.status === "failed" || transaction.status === "refunded") {
+        agent.totals.failedSales += 1;
+      }
+      agent.recentTransactions.push({
+        _id: transaction._id,
+        serviceType: transaction.serviceType,
+        status: transaction.status,
+        amount: transaction.amount,
+        product: transaction.product,
+        recipient: transaction.recipient,
+        reference: transaction.reference,
+        customer: transaction.user,
+        createdAt: transaction.createdAt,
+        serviceAgent: {
+          platformRevenue: transaction.serviceAgent?.platformRevenue || 0,
+          profitAmount: getServiceAgentProfit(transaction),
+          currency: transaction.serviceAgent?.currency || transaction.amount?.currency || "USD",
+        },
+      });
+      if (!agent.lastActivityAt || new Date(transaction.createdAt) > new Date(agent.lastActivityAt)) {
+        agent.lastActivityAt = transaction.createdAt;
+      }
+    });
+
+    recentLedger.forEach((entry) => {
+      const agentId = String(entry.agent || "");
+      const agent = agentsById.get(agentId);
+      if (!agent) return;
+
+      if (entry.type === "credit") {
+        addCurrencyTotal(agent.totals.creditedByCurrency, entry.currency, entry.amount);
+      }
+      if (["debit", "adjustment"].includes(entry.type)) {
+        addCurrencyTotal(agent.totals.debitedByCurrency, entry.currency, entry.amount);
+      }
+      agent.recentLedger.push({
+        _id: entry._id,
+        type: entry.type,
+        amount: entry.amount,
+        currency: entry.currency,
+        balanceAfter: entry.balanceAfter,
+        reference: entry.reference,
+        note: entry.note,
+        createdAt: entry.createdAt,
+        createdBy: entry.createdBy,
+      });
+      if (!agent.lastActivityAt || new Date(entry.createdAt) > new Date(agent.lastActivityAt)) {
+        agent.lastActivityAt = entry.createdAt;
+      }
+    });
+
+    const agents = Array.from(agentsById.values())
+      .map((agent) => ({
+        ...agent,
+        recentTransactions: agent.recentTransactions.slice(0, 5),
+        recentLedger: agent.recentLedger.slice(0, 5),
+      }))
+      .sort((a, b) => new Date(b.lastActivityAt || 0) - new Date(a.lastActivityAt || 0));
+
+    res.json({
+      success: true,
+      agents,
+      totals: agents.reduce(
+        (acc, agent) => {
+          acc.agents += 1;
+          if (agent.serviceAgent?.status === "active" || agent.isServiceAgent || agent.role === "serviceAgent") {
+            acc.activeAgents += 1;
+          }
+          acc.completedSales += agent.totals.completedSales;
+          return acc;
+        },
+        { agents: 0, activeAgents: 0, completedSales: 0 }
+      ),
+    });
   } catch (error) {
     next(error);
   }
@@ -1688,6 +2443,55 @@ async function adminResolveTransaction(req, res, next) {
   }
 }
 
+async function adminDeleteTransactionEntry(req, res, next) {
+  try {
+    const { entryType, entryId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(entryId)) {
+      throw new NotFoundError("Transaction entry not found");
+    }
+
+    let deletedEntry = null;
+    if (entryType === "service") {
+      deletedEntry = await DigitalServiceTransaction.findByIdAndDelete(entryId).lean();
+      if (deletedEntry) {
+        await Promise.all([
+          WalletLedger.deleteMany({ transaction: entryId }),
+          ServiceWalletLedger.deleteMany({ transaction: entryId }),
+          PlatformWalletLedger.deleteMany({ reference: deletedEntry.reference }),
+        ]);
+      }
+    } else if (entryType === "wallet") {
+      deletedEntry = await WalletLedger.findByIdAndDelete(entryId).lean();
+    } else if (entryType === "funding") {
+      deletedEntry = await PlatformWalletLedger.findOneAndDelete({
+        _id: entryId,
+        walletKey: FUNDING_WALLET_KEY,
+      }).lean();
+    } else if (entryType === "revenue") {
+      deletedEntry = await PlatformWalletLedger.findOneAndDelete({
+        _id: entryId,
+        walletKey: REVENUE_WALLET_KEY,
+      }).lean();
+    } else {
+      throw new BadRequestError("Unsupported transaction entry type");
+    }
+
+    if (!deletedEntry) {
+      throw new NotFoundError("Transaction entry not found");
+    }
+
+    res.json({
+      success: true,
+      deleted: {
+        type: entryType,
+        id: entryId,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function adminCreditWallet(req, res, next) {
   try {
     const { userId, amount, currency = "USD", note = "Admin wallet credit" } = req.body;
@@ -1714,6 +2518,7 @@ async function adminCreditWallet(req, res, next) {
       reference,
       note,
       createdBy: req.user._id,
+      country: req.body.countryCode,
     });
 
     res.status(201).json({
@@ -1721,6 +2526,133 @@ async function adminCreditWallet(req, res, next) {
       fundingWallet: sourceDebit.wallet,
       fundingLedger: sourceDebit.ledger,
       wallet: user.digitalWallet,
+      ledger,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function adminSetServiceAgent(req, res, next) {
+  try {
+    const {
+      userId,
+      enabled = true,
+      commissionPercent = DEFAULT_SERVICE_AGENT_COMMISSION_PERCENT,
+      discountPercent = DEFAULT_SERVICE_AGENT_DISCOUNT_PERCENT,
+    } = req.body;
+    required(userId, "User");
+
+    const status = enabled ? "active" : "inactive";
+    const update = {
+      $set: {
+        isServiceAgent: Boolean(enabled),
+        "serviceAgent.status": status,
+        "serviceAgent.commissionPercent": clampPercent(commissionPercent),
+        "serviceAgent.discountPercent": clampPercent(discountPercent),
+        "serviceAgent.activatedAt": enabled ? new Date() : null,
+        "serviceAgent.activatedBy": enabled ? req.user._id : null,
+      },
+    };
+    if (enabled) {
+      update.$unset = { "serviceAgent.requestedAt": "" };
+    }
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      update,
+      { new: true }
+    ).select("name email role isServiceAgent serviceAgent digitalWallet digitalWallets");
+
+    if (!user) {
+      throw new NotFoundError("User not found");
+    }
+
+    if (enabled) {
+      await MessageNotification.deleteMany({
+        sender: user._id,
+        title: "Service agent request",
+      });
+    }
+
+    res.json({ success: true, user });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function adminAdjustServiceAgentWallet(req, res, next) {
+  try {
+    const {
+      userId,
+      amount,
+      currency = "USD",
+      countryCode,
+      type = "credit",
+      note = "Service agent wallet adjustment",
+    } = req.body;
+    required(userId, "User");
+
+    const agent = await User.findById(userId).select("isServiceAgent role serviceAgent");
+    if (!agent) {
+      throw new NotFoundError("User not found");
+    }
+    if (!isServiceAgentUser(agent)) {
+      throw new BadRequestError("User is not an active service agent");
+    }
+
+    const reference = provider.buildReference("agent");
+    const adjustmentType = String(type || "credit").toLowerCase();
+    let walletResult;
+
+    if (adjustmentType === "credit") {
+      await debitFundingWallet({
+        amount,
+        currency,
+        reference,
+        note: `Funded service agent wallet: ${note}`,
+        user: userId,
+        createdBy: req.user._id,
+        country: countryCode,
+      });
+      walletResult = await creditWallet({
+        userId,
+        amount,
+        currency,
+        reference,
+        note,
+        createdBy: req.user._id,
+        country: countryCode,
+      });
+    } else if (adjustmentType === "debit") {
+      walletResult = await debitWallet({
+        userId,
+        amount,
+        currency,
+        reference,
+        note,
+        country: countryCode,
+      });
+    } else {
+      throw new BadRequestError("Adjustment type must be credit or debit");
+    }
+
+    const wallet = walletResult.user.digitalWallet;
+    const ledger = await createServiceWalletLedger({
+      agentId: userId,
+      type: adjustmentType === "credit" ? "credit" : "adjustment",
+      amount: toMoney(amount),
+      currency: normalizeCurrency(currency),
+      country: countryCode,
+      balanceAfter: Number(wallet?.balance || 0),
+      reference,
+      note,
+      createdBy: req.user._id,
+    });
+
+    res.status(201).json({
+      success: true,
+      wallet,
       ledger,
     });
   } catch (error) {
@@ -1774,8 +2706,15 @@ module.exports = {
   listGiftCards,
   purchaseGiftCard,
   listTransactions,
+  getServiceAgentDashboard,
+  requestServiceAgentAccess,
+  listPendingServiceAgentRequests,
+  listAdminServiceAgents,
   listAdminTransactions,
   adminResolveTransaction,
+  adminDeleteTransactionEntry,
+  adminSetServiceAgent,
+  adminAdjustServiceAgentWallet,
   adminCreditWallet,
   adminWithdrawRevenue,
 };

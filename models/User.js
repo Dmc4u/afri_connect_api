@@ -88,8 +88,29 @@ const userSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ["user", "admin"],
+      enum: ["user", "admin", "serviceAgent"],
       default: "user",
+    },
+    isServiceAgent: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    serviceAgent: {
+      status: {
+        type: String,
+        enum: ["inactive", "pending", "active", "suspended"],
+        default: "inactive",
+      },
+      commissionPercent: { type: Number, default: 0, min: 0, max: 100 },
+      discountPercent: { type: Number, default: 0, min: 0, max: 50 },
+      requestedAt: { type: Date, default: null },
+      activatedAt: { type: Date, default: null },
+      activatedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        default: null,
+      },
     },
     adminProvisioned: {
       type: Boolean,
@@ -122,7 +143,20 @@ const userSchema = new mongoose.Schema(
       currency: { type: String, default: "USD", uppercase: true },
       updatedAt: { type: Date, default: null },
     },
-
+    digitalWallets: [
+      {
+        currency: { type: String, required: true, uppercase: true, trim: true },
+        country: { type: String, default: null, uppercase: true, trim: true },
+        balance: { type: Number, default: 0, min: 0 },
+        lockedBalance: { type: Number, default: 0, min: 0 },
+        status: {
+          type: String,
+          enum: ["active", "suspended"],
+          default: "active",
+        },
+        updatedAt: { type: Date, default: Date.now },
+      },
+    ],
     // Agent system fields
     isAgent: {
       type: Boolean,
