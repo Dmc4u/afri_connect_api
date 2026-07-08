@@ -268,13 +268,91 @@ async function convertUsdToAmount(amount, currencyCode) {
   return roundAccountingValue(normalizedAmount * exchangeRate, 2);
 }
 
-function getReloadlyProviderPricing({ countryCode, operatorId }) {
+function getStaticReloadlyProviderPricing({ countryCode, operatorId }) {
   if (!countryCode) return null;
   const normalizedCountryCode = String(countryCode).trim().toUpperCase();
   if (!/^[A-Z]{2,3}$/.test(normalizedCountryCode)) {
     return null;
   }
   return RELOADLY_OPERATOR_PRICING[normalizedCountryCode]?.[String(operatorId)] || null;
+}
+
+function firstPositiveNumber(...values) {
+  return (
+    values
+      .map((value) =>
+        Number(
+          String(value ?? "")
+            .replace(/%/g, "")
+            .trim()
+        )
+      )
+      .find((number) => Number.isFinite(number) && number > 0) || null
+  );
+}
+
+function getOperatorDynamicPricing(operator) {
+  if (!operator || typeof operator !== "object") {
+    return null;
+  }
+
+  const discountPercent = firstPositiveNumber(
+    operator.discountPercentage,
+    operator.discountPercent,
+    operator.discount,
+    operator.senderDiscountPercentage,
+    operator.senderDiscountPercent,
+    operator.senderDiscount,
+    operator.internationalDiscountPercentage,
+    operator.internationalDiscountPercent,
+    operator.internationalDiscount,
+    operator.discounts?.percentage,
+    operator.discounts?.sender,
+    operator.discounts?.international
+  );
+  const fxRate = firstPositiveNumber(
+    operator.fxRate,
+    operator.exchangeRate,
+    operator.rate,
+    operator.fx,
+    operator.fx?.rate,
+    operator.fx?.exchangeRate,
+    operator.senderCurrencyRate,
+    operator.destinationCurrencyRate,
+    operator.localCurrencyRate
+  );
+
+  if (!discountPercent && !fxRate) {
+    return null;
+  }
+
+  return {
+    discountPercent: discountPercent || 0,
+    fxRate,
+  };
+}
+
+async function getReloadlyProviderPricing({ countryCode, operatorId }) {
+  const fallbackPricing = getStaticReloadlyProviderPricing({ countryCode, operatorId });
+  if (!operatorId) {
+    return fallbackPricing;
+  }
+
+  try {
+    const operator = await provider.getOperator(operatorId);
+    const dynamicPricing = getOperatorDynamicPricing(operator);
+    if (!dynamicPricing) {
+      return fallbackPricing;
+    }
+
+    return dynamicPricing;
+  } catch (error) {
+    console.warn(
+      "Reloadly dynamic operator pricing unavailable; using fallback pricing:",
+      error.message
+    );
+    return fallbackPricing;
+  }
 }
 
 function toPercent(value) {
@@ -358,7 +436,7 @@ async function buildTransactionPricing({
   const normalizedProviderCurrencyCode =
     normalizeOptionalCurrencyCode(providerCurrencyCode) || walletCurrency;
   const normalizedProviderAmount = toMoney(providerAmount, "Provider amount");
-  const operatorPricing = getReloadlyProviderPricing({ countryCode, operatorId });
+  const operatorPricing = await getReloadlyProviderPricing({ countryCode, operatorId });
   const providerPricing = operatorPricing || {
     discountPercent: toPercent(providerDiscountPercent),
     fxRate: Number(providerFxRate || 0) || null,

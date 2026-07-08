@@ -165,6 +165,9 @@ function createDigitalServicesProvider() {
     getOperators(countryCode) {
       return reloadlyRequest("topups", `/operators/countries/${encodeURIComponent(countryCode)}`);
     },
+    getOperator(operatorId) {
+      return reloadlyRequest("topups", `/operators/${encodeURIComponent(operatorId)}`);
+    },
     async getDataBundles(operatorId) {
       const encodedOperatorId = encodeURIComponent(operatorId);
       try {

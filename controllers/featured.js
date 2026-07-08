@@ -101,27 +101,6 @@ async function ensurePublicWinnerPlacements(now) {
   }
 }
 
-function computePrice({ offerType, start, end }) {
-  const cfg = FEATURED_PRICING[offerType];
-  if (!cfg) throw new BadRequestError("Invalid offerType");
-  if (cfg.subscription) return { price: cfg.monthly, billingMode: "subscription" };
-  const diffHours = (end - start) / 3600000;
-  let base;
-  if (cfg.basePerWindow && diffHours === cfg.durationHours) {
-    base = cfg.basePerWindow;
-  } else {
-    const baseDayRate =
-      cfg.basePerDay || (cfg.basePerWindow ? cfg.basePerWindow / (cfg.durationHours / 24) : 0);
-    base = (baseDayRate / 24) * diffHours;
-  }
-  const peakApplied = cfg.peakMultiplier && isPeak(start) ? cfg.peakMultiplier : 1;
-  // Gentle off-peak relief: additional 10% off when not peak
-  const relief = peakApplied === 1 ? 0.9 : 1;
-  const priceNoRelief = Math.round(base * peakApplied * 100) / 100;
-  const finalPrice = Math.round(priceNoRelief * relief * 100) / 100;
-  return { price: finalPrice, peakApplied, billingMode: "fixed", base, priceNoRelief };
-}
-
 exports.requestPlacement = async (req, res, next) => {
   try {
     const { listingId, startAt, endAt, notes, offerType = "basic", quotedPrice } = req.body;
