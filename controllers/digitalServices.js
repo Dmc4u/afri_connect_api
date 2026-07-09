@@ -10,7 +10,7 @@ const { getExchangeRate } = require("../utils/exchangeRates");
 const provider = require("../utils/digitalServicesProvider");
 const config = require("../utils/config");
 const { createPayout } = require("../utils/paypal");
-const { sendEmail } = require("../utils/notifications");
+const { renderBrandedEmail, sendEmail } = require("../utils/notifications");
 const { BadRequestError, NotFoundError } = require("../utils/errors");
 
 const FUNDING_WALLET_KEY = "digital-services";
@@ -289,6 +289,49 @@ function firstPositiveNumber(...values) {
       )
       .find((number) => Number.isFinite(number) && number > 0) || null
   );
+}
+
+async function sendWalletCreditReceipt({
+  recipient,
+  amount,
+  currency,
+  reference,
+  note,
+}) {
+  const email = String(recipient?.email || "").trim().toLowerCase();
+  if (!email) {
+    return;
+  }
+
+  const displayName = recipient?.name || recipient?.fullName || "there";
+  const normalizedCurrency = normalizeCurrency(currency);
+  const html = renderBrandedEmail({
+    heading: "Wallet credited",
+    body: [
+      `Hello ${displayName},`,
+      `Your ${config.APP_NAME} digital services wallet has been credited by admin.`,
+      `Amount: ${normalizedCurrency} ${Number(amount || 0).toFixed(2)}`,
+      `Reference: ${reference}`,
+      `Date: ${new Date().toLocaleString()}`,
+      note ? `Note: ${note}` : "",
+      "You can now use this balance for airtime, data, and other digital services.",
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
+  });
+
+  try {
+    const result = await sendEmail(
+      email,
+      `Wallet credited - ${config.APP_NAME}`,
+      html
+    );
+    if (!result?.success) {
+      console.error("Failed to send wallet credit receipt:", result?.error || email);
+    }
+  } catch (error) {
+    console.error("Failed to send wallet credit receipt:", error?.message || email);
+  }
 }
 
 function getOperatorDynamicPricing(operator) {
@@ -2575,7 +2618,9 @@ async function adminCreditWallet(req, res, next) {
     const { userId, amount, currency = "USD", note = "Admin wallet credit" } = req.body;
     required(userId, "User");
     const reference = provider.buildReference("wallet");
-    const recipient = await User.findById(userId).select("_id").lean();
+    const recipient = await User.findById(userId)
+      .select("_id name fullName email")
+      .lean();
     if (!recipient) {
       throw new NotFoundError("User not found");
     }
@@ -2597,6 +2642,14 @@ async function adminCreditWallet(req, res, next) {
       note,
       createdBy: req.user._id,
       country: req.body.countryCode,
+    });
+
+    await sendWalletCreditReceipt({
+      recipient,
+      amount,
+      currency,
+      reference,
+      note,
     });
 
     res.status(201).json({

@@ -7,6 +7,13 @@ const { isAdminEmail } = require("../utils/adminCheck");
 const { syncAdminProvisioning } = require("../utils/adminProvisioning");
 const { logActivity } = require("../utils/activityLogger");
 
+const getAuthSessionVersion = (user) => Number(user?.authSessionVersion) || 0;
+
+const signAuthToken = (user) =>
+  jwt.sign({ _id: user._id, sessionVersion: getAuthSessionVersion(user) }, JWT_SECRET, {
+    expiresIn: "7d",
+  });
+
 // Configure Google OAuth Strategy
 const configureGoogleStrategy = () => {
   const callbackURL =
@@ -139,7 +146,7 @@ const googleAuth = passport.authenticate("google", {
 
 // Middleware to handle Google OAuth callback
 const googleAuthCallback = (req, res, next) => {
-  passport.authenticate("google", { session: false }, (err, user, info) => {
+  passport.authenticate("google", { session: false }, async (err, user, info) => {
     if (err) {
       console.error("Google callback error:", err);
       // Redirect to frontend with error
@@ -159,8 +166,11 @@ const googleAuthCallback = (req, res, next) => {
     }
 
     try {
+      user.authSessionVersion = getAuthSessionVersion(user) + 1;
+      await user.save();
+
       // Generate JWT token
-      const token = jwt.sign({ _id: user._id }, JWT_SECRET, { expiresIn: "7d" });
+      const token = signAuthToken(user);
 
       // Keep the callback URL small. The frontend fetches the current user
       // with this token after redirecting back from Google.

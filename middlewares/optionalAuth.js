@@ -18,7 +18,24 @@ module.exports = async (req, res, next) => {
 
     // Fetch user if token is valid
     const user = await User.findById(decoded._id || decoded.id);
-    req.user = user || null;
+    if (!user) {
+      req.user = null;
+      return next();
+    }
+
+    const userSessionVersion = Number(user.authSessionVersion) || 0;
+    const tokenHasSessionVersion = decoded.sessionVersion !== undefined;
+    const tokenSessionVersion = Number(decoded.sessionVersion);
+
+    if (
+      (tokenHasSessionVersion && tokenSessionVersion !== userSessionVersion) ||
+      (!tokenHasSessionVersion && userSessionVersion > 0)
+    ) {
+      req.user = null;
+      return next();
+    }
+
+    req.user = user;
 
     next();
   } catch (err) {

@@ -11,7 +11,7 @@ const Announcement = require("../models/Announcement");
 const ForumPost = require("../models/ForumPost");
 const MessageNotification = require("../models/MessageNotification");
 const { logActivity } = require("../utils/activityLogger");
-const { sendEmail, emailTemplates } = require("../utils/notifications");
+const { sendEmail, emailTemplates, utils: notificationUtils } = require("../utils/notifications");
 const { BadRequestError, NotFoundError, ForbiddenError } = require("../utils/errors");
 const auth = require("../middlewares/auth");
 
@@ -98,6 +98,38 @@ const announcementIdValidation = celebrate({
     id: Joi.string().hex().length(24).required(),
   }),
 });
+
+const recipientSelectionSchema = Joi.alternatives()
+  .try(
+    Joi.array().items(Joi.string().hex().length(24)),
+    Joi.object().keys({
+      type: Joi.string().valid("tier"),
+      value: Joi.string().valid("Free", "Starter", "Premium", "Pro"),
+    })
+  )
+  .required();
+
+const resolveRecipientUsers = async (recipients, recipientType) => {
+  if (recipientType === "individual" || recipientType === "multiple") {
+    const userIds = (Array.isArray(recipients) ? recipients : [recipients])
+      .filter(Boolean)
+      .map((id) => (id instanceof mongoose.Types.ObjectId ? id : new mongoose.Types.ObjectId(id)));
+
+    return User.find({ _id: { $in: userIds } }).select("_id name email tier role");
+  }
+
+  if (recipientType === "tier") {
+    return User.find({ tier: recipients.value, role: { $ne: "admin" } }).select(
+      "_id name email tier role"
+    );
+  }
+
+  if (recipientType === "all") {
+    return User.find({ role: { $ne: "admin" } }).select("_id name email tier role");
+  }
+
+  return [];
+};
 
 // === DASHBOARD STATISTICS ===
 
@@ -1123,15 +1155,7 @@ router.post(
   "/announcements",
   celebrate({
     body: Joi.object().keys({
-      recipients: Joi.alternatives()
-        .try(
-          Joi.array().items(Joi.string().hex().length(24)),
-          Joi.object().keys({
-            type: Joi.string().valid("tier"),
-            value: Joi.string().valid("Free", "Starter", "Premium", "Pro"),
-          })
-        )
-        .required(),
+      recipients: recipientSelectionSchema,
       recipientType: Joi.string().valid("individual", "tier", "multiple", "all").required(),
       subject: Joi.string().trim().min(1).max(200).required(),
       message: Joi.string().trim().min(1).max(4000).required(),
@@ -1142,27 +1166,8 @@ router.post(
     try {
       const { recipients, recipientType, subject, message, priority } = req.body;
 
-      let userIds = [];
-
-      if (recipientType === "individual" || recipientType === "multiple") {
-        userIds = Array.isArray(recipients) ? recipients : [recipients];
-        // Ensure ObjectId type for proper matching in user queries
-        userIds = userIds
-          .filter(Boolean)
-          .map((id) =>
-            id instanceof mongoose.Types.ObjectId ? id : new mongoose.Types.ObjectId(id)
-          );
-      } else if (recipientType === "tier") {
-        const tierUsers = await User.find({
-          tier: recipients.value,
-          role: { $ne: "admin" },
-        }).select("_id");
-        userIds = tierUsers.map((u) => u._id);
-      } else if (recipientType === "all") {
-        // Exclude admin users from recipient count (they can see via admin panel)
-        const allUsers = await User.find({ role: { $ne: "admin" } }).select("_id");
-        userIds = allUsers.map((u) => u._id);
-      }
+      const recipientUsers = await resolveRecipientUsers(recipients, recipientType);
+      const userIds = recipientUsers.map((user) => user._id);
 
       // Map "multiple" to "individual" for storage to match schema and user queries
       const recipientTypeForStorage =
@@ -1219,6 +1224,81 @@ router.post(
         message: `Announcement sent to ${userIds.length} user${userIds.length !== 1 ? "s" : ""}`,
         recipientCount: userIds.length,
         announcementId: announcement._id,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.post(
+  "/emails",
+  celebrate({
+    body: Joi.object().keys({
+      recipients: recipientSelectionSchema,
+      recipientType: Joi.string().valid("individual", "tier", "multiple", "all").required(),
+      subject: Joi.string().trim().min(1).max(200).required(),
+      message: Joi.string().trim().min(1).max(12000).required(),
+    }),
+  }),
+  async (req, res, next) => {
+    try {
+      const { recipients, recipientType, subject, message } = req.body;
+      const recipientUsers = await resolveRecipientUsers(recipients, recipientType);
+
+      if (!recipientUsers.length) {
+        throw new BadRequestError("No users matched the selected recipients");
+      }
+
+      const html = notificationUtils.renderBrandedEmail({ heading: subject, body: message });
+      const batches = [];
+      const batchSize = 20;
+
+      for (let index = 0; index < recipientUsers.length; index += batchSize) {
+        batches.push(recipientUsers.slice(index, index + batchSize));
+      }
+
+      let sentCount = 0;
+      let failedCount = 0;
+
+      for (const batch of batches) {
+        const results = await Promise.allSettled(
+          batch.map((user) => sendEmail(user.email, subject, html))
+        );
+
+        results.forEach((result) => {
+          if (result.status === "fulfilled" && result.value && result.value.success === true) {
+            sentCount += 1;
+          } else {
+            failedCount += 1;
+          }
+        });
+      }
+
+      await logActivity({
+        userId: req.user._id,
+        type: "announcement_sent",
+        description: `Sent email campaign: ${subject}`,
+        userName: req.user.name || req.user.email,
+        userEmail: req.user.email,
+        action: "send",
+        targetType: "announcement",
+        details: {
+          channel: "email",
+          subject,
+          recipientType,
+          recipientCount: recipientUsers.length,
+          sentCount,
+          failedCount,
+        },
+      });
+
+      res.json({
+        success: true,
+        message: `Email sent to ${sentCount} user${sentCount !== 1 ? "s" : ""}${failedCount ? ` (${failedCount} failed)` : ""}`,
+        recipientCount: recipientUsers.length,
+        sentCount,
+        failedCount,
       });
     } catch (error) {
       next(error);

@@ -193,6 +193,10 @@ const userSchema = new mongoose.Schema(
       attempts: { type: Number, default: 0 },
       lastSentAt: { type: Date, default: null },
     },
+    authSessionVersion: {
+      type: Number,
+      default: 0,
+    },
     // Password reset token (stored hashed; expires in 1 hour)
     passwordResetToken: {
       type: String,

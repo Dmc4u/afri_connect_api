@@ -467,7 +467,44 @@ function getFallbackResponse(userMessage) {
     message.includes("time's up") ||
     message.includes("times up")
   ) {
-    return `AfriOnet Live Q/A Quiz events run on Zoom and let selected contestants answer questions live.\n\nHow it works:\n1. Register for the event when registration is open\n2. Install or open the Zoom app before the event\n3. Join Zoom when the button opens or when your turn is near\n4. When it is your turn, share your screen on Zoom and pick an available question number\n5. Answer before the timer ends\n6. Correct answers earn points; wrong answers or time's up earn 0 points\n7. Used questions are disabled so they cannot be picked again\n8. Winners are based on the event's point targets and final leaderboard\n\nOn the quiz page, watch the Current stage, Current turn, timer, and leaderboard so you know when to pick or answer.`;
+    return `The AfriOnet Q/A Quiz is a live question-and-answer competition where selected contestants answer timed questions to earn points and compete for cash prizes.\n\nHow it works:\n1. Participation is free and anyone can register before the deadline\n2. After registration closes, the AfriOnet Raffle Machine randomly selects contestants based on available slots\n3. Every registered participant is notified whether they were selected or not selected\n4. During the event, each selected contestant takes turns picking a question\n5. Contestants must share their screen on Zoom during their turn to ensure fairness and transparency\n6. Every correct answer earns 5 points\n7. Each question can only be selected once\n8. The first contestant to reach the required winning score is the 1st Place Winner, and the next contestant to reach it is the 2nd Place Winner\n\nEveryone can watch live on Zoom without registering or logging in by visiting the Q/A Quiz page and clicking Join Zoom when it becomes available.`;
+  }
+
+  if (
+    message.includes("debate") ||
+    message.includes("debate event") ||
+    message.includes("final remarks") ||
+    message.includes("self introduction")
+  ) {
+    return `The AfriOnet Debate is a live event where contestants present their views on a selected topic and compete for cash prizes. Participation is free, and anyone can register before the registration deadline.\n\nHow it works:\n1. Registration stays open until the deadline\n2. The AfriOnet Raffle Machine randomly selects contestants based on available slots\n3. All registered participants are notified whether they were selected or not selected\n4. The debate usually runs through Welcome and Rules, Self Introduction, Debate Round, and Final Remarks, with commercial breaks between key stages\n5. After all contestants speak, voting begins and every vote counts as 1 point\n6. AfriOnet sets the target points for 1st and 2nd place winners before the event\n\nEveryone can watch live on Zoom without registering or logging in by visiting https://afrionet.com/debate and clicking Join Zoom when it becomes available shortly before the event starts.`;
+  }
+
+  if (
+    message.includes("service") ||
+    message.includes("services") ||
+    message.includes("platform tools") ||
+    message.includes("digital tools") ||
+    message.includes("airtime") ||
+    message.includes("gift card") ||
+    message.includes("gift cards") ||
+    ((message.includes("data") || message.includes("bundle")) &&
+      !message.includes("personal data") &&
+      !message.includes("privacy") &&
+      !message.includes("share my data") &&
+      !message.includes("share data")) ||
+    message.includes("become an agent") ||
+    message.includes("service agent")
+  ) {
+    return `AfriOnet Services is currently focused on Airtime, Data, and Gift Cards. You can sign in, fund your wallet, and buy any of these directly from the Services page at https://afrionet.com/services . If you want to earn from service activities, use the Become an Agent button on the page to request service agent access and start earning revenue on supported transactions once approved.`;
+  }
+
+  if (
+    message.includes("android app") ||
+    message.includes("mobile app") ||
+    message.includes("play store") ||
+    message.includes("download app")
+  ) {
+    return `Yes. AfriOnet has an Android app you can download from Google Play: https://play.google.com/store/apps/details?id=com.afrionet.app . You can also continue using AfriOnet in your browser on desktop or mobile.`;
   }
 
   // Live events
@@ -584,8 +621,10 @@ function getQuickSuggestions() {
   return [
     { text: "Membership tiers & pricing", type: "membership" },
     { text: "Business listings & features", type: "listings" },
+    { text: "Airtime, data & gift cards", type: "services" },
     { text: "Talent Showcases & entry fees", type: "showcases" },
     { text: "Live Q/A quiz event help", type: "quiz-event" },
+    { text: "AfriOnet debate explained", type: "debate" },
     { text: "How to create a business listing", type: "listing" },
     { text: "How to create a forum post", type: "forum" },
     { text: "Contact support", type: "support" },

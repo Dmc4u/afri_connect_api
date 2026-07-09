@@ -31,6 +31,18 @@ module.exports = async (req, res, next) => {
       return next(new UnauthorizedError("User not found"));
     }
 
+    const userSessionVersion = Number(user.authSessionVersion) || 0;
+    const tokenHasSessionVersion = decoded.sessionVersion !== undefined;
+    const tokenSessionVersion = Number(decoded.sessionVersion);
+
+    if (
+      (tokenHasSessionVersion && tokenSessionVersion !== userSessionVersion) ||
+      (!tokenHasSessionVersion && userSessionVersion > 0)
+    ) {
+      console.log("[Auth] ❌ Session revoked for user:", user.email);
+      return next(new UnauthorizedError("Session expired. Please sign in again."));
+    }
+
     console.log("[Auth] ✅ User authenticated:", user.email, "tier:", user.tier);
     req.user = user; // 👈 now req.user has _id, email, tier, etc.
     next();

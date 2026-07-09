@@ -30,7 +30,9 @@ const OTP_MAX_ATTEMPTS = 5;
 
 const createReferralCode = () => crypto.randomBytes(5).toString("hex").toUpperCase();
 const findReferrer = (code) => {
-  const normalized = String(code || "").trim().toUpperCase();
+  const normalized = String(code || "")
+    .trim()
+    .toUpperCase();
   return normalized ? User.findOne({ referralCode: normalized }).select("_id") : null;
 };
 
@@ -58,6 +60,21 @@ const safeHexEqual = (a, b) => {
   } catch {
     return false;
   }
+};
+
+const getAuthSessionVersion = (user) => Number(user?.authSessionVersion) || 0;
+
+const signAuthToken = (user, extraPayload = {}) =>
+  jwt.sign(
+    { _id: user._id, sessionVersion: getAuthSessionVersion(user), ...extraPayload },
+    JWT_SECRET,
+    { expiresIn: "7d" }
+  );
+
+const rotateAuthSession = async (user) => {
+  user.authSessionVersion = getAuthSessionVersion(user) + 1;
+  await user.save();
+  return user;
 };
 
 // GET /users/me - Get current user
@@ -153,7 +170,7 @@ const createUser = (req, res, next) => {
       });
 
       // Generate token for immediate login after signup
-      const token = jwt.sign({ _id: user._id }, JWT_SECRET, { expiresIn: "7d" });
+      const token = signAuthToken(user);
 
       return res.status(201).send({
         user: userObj,
@@ -256,7 +273,7 @@ const quickSignup = (req, res, next) => {
       });
 
       // Generate token for immediate login (both admin and regular users)
-      const token = jwt.sign({ _id: user._id }, JWT_SECRET, { expiresIn: "7d" });
+      const token = signAuthToken(user);
 
       return res.status(201).send({
         user: userObj,
@@ -492,6 +509,8 @@ const login = (req, res, next) => {
         });
       }
 
+      await rotateAuthSession(user);
+
       const userObj = user.toObject();
       delete userObj.password;
 
@@ -508,7 +527,7 @@ const login = (req, res, next) => {
 
       return res.send({
         user: userObj,
-        token: jwt.sign({ _id: user._id }, JWT_SECRET, { expiresIn: "7d" }),
+        token: signAuthToken(user),
       });
     })
     .catch((err) => {
@@ -569,6 +588,7 @@ const verifyLoginOtp = async (req, res, next) => {
 
     // OTP verified: clear it
     user.loginOtp = { hash: null, expiresAt: null, attempts: 0, lastSentAt: null };
+    user.authSessionVersion = getAuthSessionVersion(user) + 1;
 
     syncAdminProvisioning(user);
 
@@ -588,7 +608,7 @@ const verifyLoginOtp = async (req, res, next) => {
 
     return res.send({
       user: userObj,
-      token: jwt.sign({ _id: user._id, twoFactor: true }, JWT_SECRET, { expiresIn: "7d" }),
+      token: signAuthToken(user, { twoFactor: true }),
     });
   } catch (err) {
     next(err);

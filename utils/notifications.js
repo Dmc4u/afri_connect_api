@@ -48,6 +48,51 @@ const isEmailOptedOut = (userLike) => {
   return userLike && userLike.settings && userLike.settings.emailNotifications === false;
 };
 
+const escapeHtml = (value = "") =>
+  String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+const textToEmailHtml = (value = "") => {
+  const normalized = String(value || "").trim();
+  if (!normalized) return "";
+
+  return normalized
+    .split(/\n\s*\n/)
+    .map(
+      (paragraph) =>
+        `<p style="margin: 0 0 16px 0; line-height: 1.7; color: #1f2937;">${escapeHtml(paragraph).replace(/\n/g, "<br />")}</p>`
+    )
+    .join("");
+};
+
+const renderBrandedEmail = ({
+  heading,
+  body,
+}) => `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f5f5;">
+  <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
+    <div style="background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%); padding: 30px 20px; text-align: center;">
+      <h1 style="color: #ffffff; margin:0; font-size: 32px; font-weight: 700; letter-spacing: 1px;">${APP_NAME}</h1>
+      <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">Connect, Collaborate, Grow</p>
+    </div>
+    <div style="padding: 20px; background: #ffffff;">
+      <h2 style="margin: 0 0 20px 0; color: #111827;">${escapeHtml(heading || APP_NAME)}</h2>
+      ${textToEmailHtml(body)}
+      <p style="margin: 24px 0 0 0; line-height: 1.7; color: #1f2937;">Best regards,<br />The ${APP_NAME} Team</p>
+    </div>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#f8f9fa">
+      <tr>
+        <td style="padding: 10px; text-align: center; font-size: 12px; color: #666;">
+          &copy; ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.
+        </td>
+      </tr>
+    </table>
+  </div>
+</body></html>`;
+
 // Email templates
 const emailTemplates = {
   welcome: (user) => ({
@@ -67,9 +112,11 @@ const emailTemplates = {
             <li><a href="${FRONTEND_URL}/profile" style="color: #007bff; text-decoration: none;">Complete your profile</a> to showcase your expertise</li>
             <li><a href="${FRONTEND_URL}/profile#businesses/create-business" style="color: #007bff; text-decoration: none;">Create your first business listing</a> to reach potential customers</li>
             <li><a href="${FRONTEND_URL}/profile#businesses/create-talent" style="color: #007bff; text-decoration: none;">Create your first talent listing</a> to showcase your skills</li>
+            <li><a href="${FRONTEND_URL}/services" style="color: #007bff; text-decoration: none;">Explore our services</a> to discover digital tools and support options</li>
             <li><a href="${FRONTEND_URL}/events" style="color: #007bff; text-decoration: none;">Explore live events</a> and join upcoming showcases</li>
             <li><a href="${FRONTEND_URL}/forum" style="color: #007bff; text-decoration: none;">Connect with other entrepreneurs</a> in our community forum</li>
             <li><a href="${FRONTEND_URL}/advertise" style="color: #007bff; text-decoration: none;">Promote your business</a> with targeted advertising</li>
+            <li><a href="https://play.google.com/store/apps/details?id=com.afrionet.app" style="color: #007bff; text-decoration: none;">Download the AfriOnet app</a> for quick access on Android</li>
           </ul>
           <div style="text-align: center; margin: 30px 0;">
             <a href="${FRONTEND_URL}/profile" style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">Get Started Now</a>
@@ -206,6 +253,11 @@ const emailTemplates = {
           <div style="background: #ecfeff; border-left: 4px solid #06b6d4; padding: 15px; margin: 20px 0;">
             <p style="margin:0 0 8px 0; font-weight:700;">Wasn't you?</p>
             <p style="margin:0;">Secure your account immediately. <a href="${FRONTEND_URL}/contact" style="color:#0e7490;">Contact support</a></p>
+          </div>
+
+          <p style="margin: 20px 0 10px 0;">Prefer managing your account on mobile?</p>
+          <div style="text-align: center; margin: 0 0 24px 0;">
+            <a href="https://play.google.com/store/apps/details?id=com.afrionet.app" style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">Download the AfriOnet App</a>
           </div>
 
           <p style="color:#666; font-size:12px;">If this was you, you can safely ignore this email.</p>
@@ -861,6 +913,8 @@ const utils = {
     return `${FRONTEND_URL}/unsubscribe?user=${userId}&type=${notificationType}`;
   },
 
+  renderBrandedEmail,
+
   // Extract login details from request
   extractLoginDetails: (req) => {
     const userAgent = req.get("user-agent") || "";
@@ -928,6 +982,7 @@ module.exports = {
   utils,
   sendEmail,
   emailTemplates,
+  renderBrandedEmail,
 
   // Backwards-compatible named exports (some controllers import these directly)
   sendWelcomeEmail: notifications.sendWelcomeEmail,
