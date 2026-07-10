@@ -1841,17 +1841,24 @@ async function purchaseData(req, res, next) {
     const normalizedOperatorId = toPositiveInteger(operatorId, "Operator");
     const normalizedCountryCode = normalizeCountryCode(countryCode);
     const normalizedPhone = normalizePhone(recipientPhone);
-    const providerAmount =
-      localAmount === undefined || localAmount === null || localAmount === ""
-        ? toMoney(amount, "Amount")
-        : toMoney(localAmount, "Local amount");
     const currency = normalizeCurrency(req.body.currency || "USD");
     const normalizedLocalCurrencyCode = normalizeOptionalCurrencyCode(localCurrencyCode);
+    const usesCatalogBundle = Boolean(packageCode);
+    const usesProviderPackage = Boolean(
+      packageCode && !String(packageCode).startsWith("amount:")
+    );
+    const providerAmount = usesCatalogBundle
+      ? toMoney(amount, "Amount")
+      : localAmount === undefined || localAmount === null || localAmount === ""
+        ? toMoney(amount, "Amount")
+        : toMoney(localAmount, "Local amount");
     const pricing = await buildTransactionPricing({
       countryCode: normalizedCountryCode,
       operatorId: normalizedOperatorId,
       providerAmount,
-      providerCurrencyCode: normalizedLocalCurrencyCode || currency,
+      providerCurrencyCode: usesCatalogBundle
+        ? "USD"
+        : normalizedLocalCurrencyCode || currency,
       walletCurrency: currency,
     });
     const agentPricing = buildServiceAgentPricing({
@@ -1884,8 +1891,7 @@ async function purchaseData(req, res, next) {
     const payload = {
       operatorId: normalizedOperatorId,
       amount: providerAmount,
-      useLocalAmount: true,
-      localCurrencyCode: normalizedLocalCurrencyCode,
+      useLocalAmount: !usesCatalogBundle,
       customIdentifier: reference,
       recipientPhone: { countryCode: normalizedCountryCode, number: normalizedPhone },
       senderPhone: {
@@ -1893,8 +1899,10 @@ async function purchaseData(req, res, next) {
         number: senderPhone ? normalizePhone(senderPhone) : normalizedPhone,
       },
     };
-    if (packageCode && !String(packageCode).startsWith("amount:")) {
+    if (usesProviderPackage) {
       payload.data = { packageCode };
+    } else if (!usesCatalogBundle && normalizedLocalCurrencyCode) {
+      payload.localCurrencyCode = normalizedLocalCurrencyCode;
     }
 
     const { transaction, duplicate } = await createPendingTransaction({
