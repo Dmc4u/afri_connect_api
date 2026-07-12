@@ -23,14 +23,14 @@ const getAppStatus = async (req, res, next) => {
     const freeEntryMode = !talentShowcaseEntryFeesEnabled;
     const latestAndroidVersionCode = toPositiveInt(
       process.env.APP_ANDROID_LATEST_VERSION_CODE,
-      11,
+      12,
     );
     const requiredAndroidVersionCode = toPositiveInt(
       process.env.APP_ANDROID_REQUIRED_VERSION_CODE,
       0,
     );
     const latestAndroidVersionName =
-      process.env.APP_ANDROID_LATEST_VERSION_NAME || "1.10";
+      process.env.APP_ANDROID_LATEST_VERSION_NAME || "1.11";
     const androidUpdateEnabled = toBool(
       process.env.APP_ANDROID_UPDATE_ENABLED,
       true,

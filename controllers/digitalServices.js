@@ -1205,6 +1205,41 @@ async function debitFundingWallet({
   return { wallet, ledger };
 }
 
+async function creditFundingWallet({
+  amount,
+  currency = "USD",
+  reference,
+  note = "",
+  user = null,
+  createdBy = null,
+  country = null,
+  type = "refund",
+}) {
+  const walletCurrency = normalizeCurrency(currency);
+  const walletAmount = toMoney(amount);
+  const walletCountry = normalizeOptionalCountryCode(country);
+  const currentWallet = await getFundingWallet();
+  const currentBalance = Number(
+    currentWallet.balances?.find((entry) => entry.currency === walletCurrency)?.balance || 0
+  );
+  const balanceAfter = roundAccountingValue(currentBalance + walletAmount, 2);
+
+  const ledger = await createFundingLedger({
+    type,
+    amount: walletAmount,
+    currency: walletCurrency,
+    country: walletCountry,
+    balanceAfter,
+    reference,
+    note,
+    user,
+    createdBy,
+  });
+
+  const wallet = await getFundingWallet();
+  return { wallet, ledger };
+}
+
 async function withdrawRevenue({
   amount,
   currency = "USD",
@@ -1405,6 +1440,7 @@ async function debitWallet({
   reference,
   transactionId,
   note = "",
+  createdBy = null,
   country = null,
 }) {
   const walletCurrency = normalizeCurrency(currency);
@@ -1454,6 +1490,7 @@ async function debitWallet({
     reference,
     transactionId,
     note,
+    createdBy,
   });
 
   return { user, ledger };
@@ -2743,9 +2780,10 @@ async function adminAdjustServiceAgentWallet(req, res, next) {
     const reference = provider.buildReference("agent");
     const adjustmentType = String(type || "credit").toLowerCase();
     let walletResult;
+    let fundingResult = null;
 
     if (adjustmentType === "credit") {
-      await debitFundingWallet({
+      fundingResult = await debitFundingWallet({
         amount,
         currency,
         reference,
@@ -2770,6 +2808,16 @@ async function adminAdjustServiceAgentWallet(req, res, next) {
         currency,
         reference,
         note,
+        createdBy: req.user._id,
+        country: countryCode,
+      });
+      fundingResult = await creditFundingWallet({
+        amount,
+        currency,
+        reference,
+        note: `Returned from service agent wallet debit: ${note}`,
+        user: userId,
+        createdBy: req.user._id,
         country: countryCode,
       });
     } else {
@@ -2779,7 +2827,7 @@ async function adminAdjustServiceAgentWallet(req, res, next) {
     const wallet = walletResult.user.digitalWallet;
     const ledger = await createServiceWalletLedger({
       agentId: userId,
-      type: adjustmentType === "credit" ? "credit" : "adjustment",
+      type: adjustmentType,
       amount: toMoney(amount),
       currency: normalizeCurrency(currency),
       country: countryCode,
@@ -2793,6 +2841,8 @@ async function adminAdjustServiceAgentWallet(req, res, next) {
       success: true,
       wallet,
       ledger,
+      fundingWallet: fundingResult?.wallet || null,
+      fundingLedger: fundingResult?.ledger || null,
     });
   } catch (error) {
     next(error);

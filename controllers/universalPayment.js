@@ -459,10 +459,6 @@ const createUniversalOrder = async (req, res) => {
           error: "Card wallet top-ups must be settled in USD",
         });
       }
-      const maxWalletTopUp = type === "digital-funding-wallet" ? 50000 : 5000;
-      if (parsed > maxWalletTopUp) {
-        return res.status(400).json({ error: "Wallet top-up exceeds maximum" });
-      }
       const walletCurrency =
         type === "digital-wallet" || type === "digital-funding-wallet"
           ? normalizeWalletCurrency(metadata?.walletCurrency || "USD")
@@ -471,16 +467,32 @@ const createUniversalOrder = async (req, res) => {
         type === "digital-wallet" || type === "digital-funding-wallet"
           ? normalizeOptionalCountryCode(metadata?.countryCode)
           : null;
-      let creditAmount = Math.round(parsed * 100) / 100;
+      const requestedWalletAmount = toFiniteNumber(metadata?.requestedWalletAmount);
+      const hasRequestedWalletAmount = requestedWalletAmount && requestedWalletAmount > 0;
+      let creditAmount = hasRequestedWalletAmount
+        ? Math.round(requestedWalletAmount * 100) / 100
+        : Math.round(parsed * 100) / 100;
       let exchangeRate = 1;
+      let settlementAmount =
+        walletCurrency === "USD" && hasRequestedWalletAmount
+          ? creditAmount
+          : Math.round(parsed * 100) / 100;
       if (walletCurrency !== "USD") {
         exchangeRate = Number(await getExchangeRate(walletCurrency));
         if (!Number.isFinite(exchangeRate) || exchangeRate <= 0) {
           return res.status(400).json({ error: `Exchange rate unavailable for ${walletCurrency}` });
         }
-        creditAmount = Math.round(parsed * exchangeRate * 100) / 100;
+        if (hasRequestedWalletAmount) {
+          settlementAmount = Math.round((creditAmount / exchangeRate) * 100) / 100;
+        } else {
+          creditAmount = Math.round(parsed * exchangeRate * 100) / 100;
+        }
       }
-      authoritativeAmount = Math.round(parsed * 100) / 100;
+      const maxWalletTopUp = type === "digital-funding-wallet" ? 50000 : 5000;
+      if (settlementAmount > maxWalletTopUp) {
+        return res.status(400).json({ error: "Wallet top-up exceeds maximum" });
+      }
+      authoritativeAmount = settlementAmount;
       authoritativeCurrency = "USD";
       context.wallet = {
         purpose:
