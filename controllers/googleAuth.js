@@ -165,6 +165,15 @@ const googleAuthCallback = (req, res, next) => {
       );
     }
 
+    if (user.isActive === false) {
+      const frontendURL = PUBLIC_APP_URL || "http://localhost:3001";
+      return res.redirect(
+        `${frontendURL}/?auth=error&message=${encodeURIComponent(
+          "Account suspended. Contact support."
+        )}`
+      );
+    }
+
     try {
       user.authSessionVersion = getAuthSessionVersion(user) + 1;
       await user.save();

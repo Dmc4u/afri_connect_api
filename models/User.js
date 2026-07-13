@@ -185,6 +185,11 @@ const userSchema = new mongoose.Schema(
         default: false,
       },
     },
+    isActive: {
+      type: Boolean,
+      default: true,
+      index: true,
+    },
 
     // Email OTP for 2FA login (stored hashed; short-lived)
     loginOtp: {

@@ -31,6 +31,11 @@ module.exports = async (req, res, next) => {
       return next(new UnauthorizedError("User not found"));
     }
 
+    if (user.isActive === false) {
+      console.log("[Auth] ❌ Account suspended or inactive:", user.email);
+      return next(new UnauthorizedError("Account suspended. Contact support."));
+    }
+
     const userSessionVersion = Number(user.authSessionVersion) || 0;
     const tokenHasSessionVersion = decoded.sessionVersion !== undefined;
     const tokenSessionVersion = Number(decoded.sessionVersion);

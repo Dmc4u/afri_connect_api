@@ -68,6 +68,18 @@ const updateUserValidation = celebrate({
     .min(1),
 });
 
+const activityIdValidation = celebrate({
+  params: Joi.object().keys({
+    id: Joi.string().hex().length(24).required(),
+  }),
+});
+
+const resolveActivityValidation = celebrate({
+  body: Joi.object().keys({
+    resolutionNote: Joi.string().trim().max(500).allow("", null),
+  }),
+});
+
 const listingIdValidation = celebrate({
   params: Joi.object().keys({
     id: Joi.string().hex().length(24).required(),
@@ -590,7 +602,7 @@ router.get("/users/:id", userIdValidation, async (req, res, next) => {
 // Update user
 router.patch("/users/:id", userIdValidation, updateUserValidation, async (req, res, next) => {
   try {
-    const updates = req.body;
+    const updates = { ...req.body };
 
     // Don't allow updating admin user by non-super-admin
     const targetUser = await User.findById(req.params.id);
@@ -602,6 +614,10 @@ router.patch("/users/:id", userIdValidation, updateUserValidation, async (req, r
       throw new ForbiddenError("Cannot modify admin users");
     }
 
+    if (Object.prototype.hasOwnProperty.call(updates, "isActive") && updates.isActive === false) {
+      updates.authSessionVersion = Number(targetUser.authSessionVersion || 0) + 1;
+    }
+
     const user = await User.findByIdAndUpdate(req.params.id, updates, {
       new: true,
       runValidators: true,
@@ -611,6 +627,22 @@ router.patch("/users/:id", userIdValidation, updateUserValidation, async (req, r
     if (updates.tier) {
       await Listing.updateMany({ owner: req.params.id }, { $set: { tier: updates.tier } });
       console.log(`✅ Synced tier ${updates.tier} to all listings for user ${user.email}`);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(updates, "isActive") && updates.isActive === false) {
+      await logActivity({
+        type: "user_suspended",
+        description: `User account suspended for ${user.email}`,
+        userId: req.user._id,
+        userName: req.user.name,
+        userEmail: req.user.email,
+        action: "suspend",
+        targetType: "user",
+        targetId: user._id,
+        details: {
+          suspendedUserEmail: user.email,
+        },
+      });
     }
 
     res.json({
@@ -1439,6 +1471,7 @@ router.get(
 
       const activities = await ActivityLog.find(filter)
         .sort({ timestamp: -1 })
+        .populate("resolvedBy", "name email")
         .skip(parseInt(skip))
         .limit(parseInt(limit))
         .lean();
@@ -1451,6 +1484,40 @@ router.get(
         total,
         limit: parseInt(limit),
         skip: parseInt(skip),
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.patch(
+  "/activity/:id/resolve",
+  activityIdValidation,
+  resolveActivityValidation,
+  async (req, res, next) => {
+    try {
+      const { resolutionNote = null } = req.body || {};
+
+      const activity = await ActivityLog.findById(req.params.id);
+      if (!activity) {
+        throw new NotFoundError("Activity not found");
+      }
+
+      if (activity.type !== "suspicious_password_reset") {
+        throw new BadRequestError("Only suspicious password reset alerts can be resolved");
+      }
+
+      activity.reviewStatus = "resolved";
+      activity.resolvedAt = new Date();
+      activity.resolvedBy = req.user._id;
+      activity.resolutionNote = resolutionNote || null;
+      await activity.save();
+
+      res.json({
+        success: true,
+        message: "Alert marked as resolved",
+        activity,
       });
     } catch (error) {
       next(error);

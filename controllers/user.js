@@ -3,8 +3,14 @@ const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const validator = require("validator");
 const User = require("../models/User");
-const { JWT_SECRET } = require("../utils/config");
-const { RECENT_VIEWS_MAX, RECENT_VIEWS_TTL_DAYS } = require("../utils/config");
+const ActivityLog = require("../models/ActivityLog");
+const {
+  JWT_SECRET,
+  RECENT_VIEWS_MAX,
+  RECENT_VIEWS_TTL_DAYS,
+  FRONTEND_URL,
+  ADMIN_EMAILS,
+} = require("../utils/config");
 const Listing = require("../models/Listing");
 const { isAdminEmail } = require("../utils/adminCheck");
 const { syncAdminProvisioning } = require("../utils/adminProvisioning");
@@ -14,6 +20,7 @@ const {
   sendEmail,
   utils: notificationUtils,
   sendWelcomeEmail,
+  sendPasswordChangedEmail,
   sendPasswordResetEmail,
 } = require("../utils/notifications");
 const {
@@ -27,6 +34,12 @@ const {
 const OTP_TTL_MS = 10 * 60 * 1000;
 const OTP_RESEND_COOLDOWN_MS = 30 * 1000;
 const OTP_MAX_ATTEMPTS = 5;
+const PASSWORD_RESET_ALERT_WINDOW_MS = 15 * 60 * 1000;
+const PASSWORD_RESET_ALERT_COOLDOWN_MS = 60 * 60 * 1000;
+const PASSWORD_RESET_EMAIL_THRESHOLD = 3;
+const PASSWORD_RESET_IP_THRESHOLD = 5;
+const PASSWORD_RESET_IP_LOCK_THRESHOLD = 8;
+const PASSWORD_RESET_IP_LOCKOUT_MS = 30 * 60 * 1000;
 
 const createReferralCode = () => crypto.randomBytes(5).toString("hex").toUpperCase();
 const findReferrer = (code) => {
@@ -64,6 +77,141 @@ const safeHexEqual = (a, b) => {
 
 const getAuthSessionVersion = (user) => Number(user?.authSessionVersion) || 0;
 
+const getAdminRecipients = () =>
+  Array.from(new Set((Array.isArray(ADMIN_EMAILS) ? ADMIN_EMAILS : []).filter(Boolean)));
+
+const escapeHtml = (value) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+const buildSuspiciousResetAlertEmail = ({
+  email,
+  user,
+  loginDetails,
+  reasons,
+  recentEmailAttempts,
+  recentIpAttempts,
+}) => {
+  const adminUrl = `${String(FRONTEND_URL || "").replace(/\/$/, "")}/admin`;
+  const userLabel = user
+    ? `${user.name || "Unknown User"} (${user.email})`
+    : `Unknown account (${email})`;
+  const reasonItems = reasons.map((reason) => `<li>${escapeHtml(reason)}</li>`).join("");
+
+  return {
+    subject: `Suspicious password reset activity detected for ${email}`,
+    html: `
+      <h2>Suspicious Password Reset Activity</h2>
+      <p>The forgot-password flow detected activity that crossed the alert threshold.</p>
+      <p><strong>Account:</strong> ${escapeHtml(userLabel)}</p>
+      <p><strong>IP:</strong> ${escapeHtml(loginDetails.ip || "Unknown")}</p>
+      <p><strong>Location:</strong> ${escapeHtml(loginDetails.location || "Unknown")}</p>
+      <p><strong>Device:</strong> ${escapeHtml(loginDetails.device || "Unknown")}</p>
+      <p><strong>Recent attempts for this email (last 15 minutes):</strong> ${recentEmailAttempts}</p>
+      <p><strong>Recent attempts from this IP (last 15 minutes):</strong> ${recentIpAttempts}</p>
+      <h3>Why this alert fired</h3>
+      <ul>${reasonItems}</ul>
+      <h3>Recommended admin actions</h3>
+      <ul>
+        <li>Review recent activity in the admin dashboard.</li>
+        <li>Search for this email and confirm the user initiated the reset.</li>
+        <li>If the traffic looks abusive, suspend the account temporarily or block the source IP at the edge.</li>
+      </ul>
+      <p><a href="${escapeHtml(adminUrl)}">Open Admin Dashboard</a></p>
+    `,
+  };
+};
+
+const maybeAlertAdminsOnSuspiciousReset = async ({
+  email,
+  user,
+  req,
+  currentRequestIpAddress = null,
+}) => {
+  const adminRecipients = getAdminRecipients();
+  if (adminRecipients.length === 0) return;
+
+  const loginDetails = notificationUtils.extractLoginDetails(req);
+  const now = Date.now();
+  const windowStart = new Date(now - PASSWORD_RESET_ALERT_WINDOW_MS);
+  const cooldownStart = new Date(now - PASSWORD_RESET_ALERT_COOLDOWN_MS);
+  const ipAddress = currentRequestIpAddress || loginDetails.ip || null;
+
+  const [priorEmailAttempts, priorIpAttempts, recentAlerts] = await Promise.all([
+    ActivityLog.countDocuments({
+      type: "password_reset_requested",
+      userEmail: email,
+      timestamp: { $gte: windowStart },
+    }),
+    ipAddress
+      ? ActivityLog.countDocuments({
+          type: "password_reset_requested",
+          ipAddress,
+          timestamp: { $gte: windowStart },
+        })
+      : Promise.resolve(0),
+    ActivityLog.countDocuments({
+      type: "suspicious_password_reset",
+      userEmail: email,
+      timestamp: { $gte: cooldownStart },
+    }),
+  ]);
+
+  const recentEmailAttempts = priorEmailAttempts + 1;
+  const recentIpAttempts = ipAddress ? priorIpAttempts + 1 : 0;
+
+  const reasons = [];
+  if (recentEmailAttempts >= PASSWORD_RESET_EMAIL_THRESHOLD) {
+    reasons.push(
+      `${recentEmailAttempts} reset requests were made for this email within 15 minutes.`
+    );
+  }
+  if (recentIpAttempts >= PASSWORD_RESET_IP_THRESHOLD) {
+    reasons.push(`${recentIpAttempts} reset requests came from the same IP within 15 minutes.`);
+  }
+  if (user && isAdminEmail(user.email)) {
+    reasons.push("The target account is an admin account.");
+  }
+
+  if (reasons.length === 0 || recentAlerts > 0) return;
+
+  const { subject, html } = buildSuspiciousResetAlertEmail({
+    email,
+    user,
+    loginDetails,
+    reasons,
+    recentEmailAttempts,
+    recentIpAttempts,
+  });
+
+  await logActivity({
+    type: "suspicious_password_reset",
+    description: `Suspicious password reset activity detected for ${email}`,
+    userId: user?._id,
+    userName: user?.name || "Unknown User",
+    userEmail: email,
+    action: "send",
+    targetType: "user",
+    targetId: user?._id,
+    details: {
+      reasons,
+      recentEmailAttempts,
+      recentIpAttempts,
+      location: loginDetails.location,
+      device: loginDetails.device,
+    },
+    ipAddress,
+    userAgent: loginDetails.userAgent || null,
+    reviewStatus: "open",
+  });
+
+  await Promise.all(adminRecipients.map((adminEmail) => sendEmail(adminEmail, subject, html)));
+};
+
 const signAuthToken = (user, extraPayload = {}) =>
   jwt.sign(
     { _id: user._id, sessionVersion: getAuthSessionVersion(user), ...extraPayload },
@@ -75,6 +223,44 @@ const rotateAuthSession = async (user) => {
   user.authSessionVersion = getAuthSessionVersion(user) + 1;
   await user.save();
   return user;
+};
+
+const getPasswordResetIpLockState = async (ipAddress) => {
+  if (!ipAddress) {
+    return { blocked: false, recentIpAttempts: 0, lockAlreadyRecorded: false };
+  }
+
+  const now = Date.now();
+  const lockoutStart = new Date(now - PASSWORD_RESET_IP_LOCKOUT_MS);
+  const activeLock = await ActivityLog.findOne({
+    type: "password_reset_blocked",
+    ipAddress,
+    timestamp: { $gte: lockoutStart },
+  })
+    .sort({ timestamp: -1 })
+    .lean();
+
+  if (activeLock) {
+    return {
+      blocked: true,
+      recentIpAttempts:
+        Number(activeLock.details?.recentIpAttempts) || PASSWORD_RESET_IP_LOCK_THRESHOLD,
+      lockAlreadyRecorded: true,
+    };
+  }
+
+  const windowStart = new Date(now - PASSWORD_RESET_ALERT_WINDOW_MS);
+  const recentIpAttempts = await ActivityLog.countDocuments({
+    type: "password_reset_requested",
+    ipAddress,
+    timestamp: { $gte: windowStart },
+  });
+
+  return {
+    blocked: recentIpAttempts >= PASSWORD_RESET_IP_LOCK_THRESHOLD,
+    recentIpAttempts,
+    lockAlreadyRecorded: false,
+  };
 };
 
 // GET /users/me - Get current user
@@ -433,6 +619,10 @@ const login = (req, res, next) => {
 
   return User.findUserByCredentials(email, password)
     .then(async (user) => {
+      if (user.isActive === false) {
+        throw new Error("Account suspended. Contact support.");
+      }
+
       const previousRole = user.role;
       const previousTier = user.tier;
       const previousProvisionedState = user.adminProvisioned;
@@ -531,8 +721,11 @@ const login = (req, res, next) => {
       });
     })
     .catch((err) => {
-      if (err.message === "Incorrect email or password") {
-        return next(new UnauthorizedError("Incorrect email or password"));
+      if (
+        err.message === "Incorrect email or password" ||
+        err.message === "Account suspended. Contact support."
+      ) {
+        return next(new UnauthorizedError(err.message));
       }
       return next(err);
     });
@@ -562,6 +755,9 @@ const verifyLoginOtp = async (req, res, next) => {
       "+loginOtp.hash name email role tier adminProvisioned tierExpiresAt subscriptionId subscriptionStatus settings loginOtp.expiresAt loginOtp.attempts loginOtp.lastSentAt"
     );
     if (!user) return next(new NotFoundError("User not found"));
+    if (user.isActive === false) {
+      return next(new ForbiddenError("Account suspended. Contact support."));
+    }
     if (!(user.settings && user.settings.twoFactorAuth === true)) {
       return next(new BadRequestError("Two-factor authentication is not enabled for this account"));
     }
@@ -878,6 +1074,32 @@ const forgotPassword = async (req, res, next) => {
       return next(new BadRequestError("Email is required"));
     }
 
+    const resetRequestDetails = notificationUtils.extractLoginDetails(req);
+    const ipLockState = await getPasswordResetIpLockState(resetRequestDetails.ip);
+
+    if (ipLockState.blocked) {
+      if (!ipLockState.lockAlreadyRecorded) {
+        logActivity({
+          type: "password_reset_blocked",
+          description: `Password reset temporarily blocked for ${email}`,
+          userName: "Unknown User",
+          userEmail: email,
+          action: "reject",
+          targetType: "user",
+          details: {
+            recentIpAttempts: ipLockState.recentIpAttempts,
+            reason: "Temporary IP cooldown triggered for repeated password reset requests.",
+          },
+          ipAddress: resetRequestDetails.ip,
+          userAgent: req.headers["user-agent"] || null,
+        });
+      }
+
+      return res.send({
+        message: "If an account with that email exists, a password reset link has been sent.",
+      });
+    }
+
     // Find user by email
     const user = await User.findOne({ email });
 
@@ -891,6 +1113,12 @@ const forgotPassword = async (req, res, next) => {
     // Check if user has a password (OAuth users don't have passwords)
     const userWithPassword = await User.findById(user._id).select("+password");
     if (!userWithPassword.password) {
+      return res.send({
+        message: "If an account with that email exists, a password reset link has been sent.",
+      });
+    }
+
+    if (user.isActive === false) {
       return res.send({
         message: "If an account with that email exists, a password reset link has been sent.",
       });
@@ -924,6 +1152,17 @@ const forgotPassword = async (req, res, next) => {
       action: "request",
       targetType: "user",
       targetId: user._id,
+      ipAddress: resetRequestDetails.ip,
+      userAgent: req.headers["user-agent"] || null,
+    });
+
+    maybeAlertAdminsOnSuspiciousReset({
+      email: user.email,
+      user,
+      req,
+      currentRequestIpAddress: resetRequestDetails.ip,
+    }).catch((error) => {
+      console.error("Failed to evaluate suspicious password reset activity:", error);
     });
 
     return res.send({
@@ -971,7 +1210,12 @@ const resetPassword = async (req, res, next) => {
     user.password = hashedPassword;
     user.passwordResetToken = null;
     user.passwordResetExpires = null;
+    user.authSessionVersion = getAuthSessionVersion(user) + 1;
     await user.save();
+
+    sendPasswordChangedEmail(user).catch((error) => {
+      console.error("Failed to send password changed email:", error);
+    });
 
     logActivity({
       type: "password_reset_completed",

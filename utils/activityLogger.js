@@ -18,6 +18,10 @@ const logActivity = async (activityData) => {
       details = {},
       ipAddress = null,
       userAgent = null,
+      reviewStatus = null,
+      resolvedAt = null,
+      resolvedBy = null,
+      resolutionNote = null,
     } = activityData;
 
     const activity = new ActivityLog({
@@ -32,6 +36,10 @@ const logActivity = async (activityData) => {
       details,
       ipAddress,
       userAgent,
+      reviewStatus,
+      resolvedAt,
+      resolvedBy,
+      resolutionNote,
       timestamp: new Date(),
     });
 

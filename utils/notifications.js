@@ -230,6 +230,35 @@ const emailTemplates = {
     </body></html>`,
   }),
 
+  passwordChanged: ({ user = {} } = {}) => ({
+    subject: `Your ${APP_NAME} password was changed`,
+    html: `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f5f5;">
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
+        <div style="background: linear-gradient(135deg, #27AE60 0%, #2D9CDB 100%); padding: 30px 20px; text-align: center;">
+          <h1 style="color: #ffffff; margin:0; font-size: 32px; font-weight: 700; letter-spacing: 1px;">${APP_NAME}</h1>
+          <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">Security update completed</p>
+        </div>
+        <div style="padding: 20px;">
+          <h2>Password Changed Successfully</h2>
+          <p>Hello ${user.name || "there"},</p>
+          <p>This is a confirmation that the password for <strong>${user.email || "your account"}</strong> was changed successfully.</p>
+          <div style="background: #ecfeff; border-left: 4px solid #06b6d4; padding: 15px; margin: 20px 0;">
+            <p style="margin:0 0 8px 0; font-weight:700;">Didn't make this change?</p>
+            <p style="margin:0;">Reset your password again immediately or <a href="${FRONTEND_URL}/contact" style="color:#0e7490;">contact support</a> so we can help secure your account.</p>
+          </div>
+          <p>Best regards,<br>The ${APP_NAME} Team</p>
+        </div>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#f8f9fa">
+          <tr>
+            <td style="padding: 10px; text-align: center; font-size: 12px; color: #666;">
+              &copy; ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.
+            </td>
+          </tr>
+        </table>
+      </div>
+    </body></html>`,
+  }),
+
   loginNotification: (user, loginDetails) => ({
     subject: `New Login to ${APP_NAME} Account`,
     html: `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f5f5;">
@@ -770,6 +799,11 @@ const notifications = {
     return sendEmail(user.email, "passwordReset", { user, resetToken });
   },
 
+  // Send password changed security email
+  sendPasswordChangedEmail: async (user) => {
+    return sendEmail(user.email, "passwordChanged", { user });
+  },
+
   // Send payment confirmation email
   sendPaymentConfirmation: async (user, payment) => {
     if (isEmailOptedOut(user))
@@ -987,6 +1021,7 @@ module.exports = {
   // Backwards-compatible named exports (some controllers import these directly)
   sendWelcomeEmail: notifications.sendWelcomeEmail,
   sendPasswordResetEmail: notifications.sendPasswordResetEmail,
+  sendPasswordChangedEmail: notifications.sendPasswordChangedEmail,
   sendPaymentConfirmation: notifications.sendPaymentConfirmation,
   sendSubscriptionExpiringWarning: notifications.sendSubscriptionExpiringWarning,
   sendListingApproved: notifications.sendListingApproved,

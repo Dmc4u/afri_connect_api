@@ -6,6 +6,10 @@ const activityLogSchema = new mongoose.Schema(
       type: String,
       enum: [
         "user_registered",
+        "password_reset_requested",
+        "password_reset_completed",
+        "password_reset_blocked",
+        "suspicious_password_reset",
         "listing_created",
         "listing_approved",
         "listing_rejected",
@@ -37,7 +41,17 @@ const activityLogSchema = new mongoose.Schema(
     userEmail: String,
     action: {
       type: String,
-      enum: ["create", "update", "delete", "approve", "reject", "suspend", "verify", "send"],
+      enum: [
+        "create",
+        "request",
+        "update",
+        "delete",
+        "approve",
+        "reject",
+        "suspend",
+        "verify",
+        "send",
+      ],
       required: true,
     },
     targetType: {
@@ -49,6 +63,26 @@ const activityLogSchema = new mongoose.Schema(
     details: mongoose.Schema.Types.Mixed,
     ipAddress: String,
     userAgent: String,
+    reviewStatus: {
+      type: String,
+      enum: ["open", "resolved"],
+      default: null,
+      index: true,
+    },
+    resolvedAt: {
+      type: Date,
+      default: null,
+    },
+    resolvedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    resolutionNote: {
+      type: String,
+      default: null,
+      maxlength: 500,
+    },
     timestamp: {
       type: Date,
       default: Date.now,
