@@ -752,7 +752,7 @@ const verifyLoginOtp = async (req, res, next) => {
 
     // Need the OTP hash (select: false)
     const user = await User.findById(payload._id).select(
-      "+loginOtp.hash name email role tier adminProvisioned tierExpiresAt subscriptionId subscriptionStatus settings loginOtp.expiresAt loginOtp.attempts loginOtp.lastSentAt"
+      "+loginOtp.hash name email role tier adminProvisioned tierExpiresAt subscriptionId subscriptionStatus settings authSessionVersion loginOtp.expiresAt loginOtp.attempts loginOtp.lastSentAt"
     );
     if (!user) return next(new NotFoundError("User not found"));
     if (user.isActive === false) {

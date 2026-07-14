@@ -447,12 +447,13 @@ router.get("/users/recent", async (req, res, next) => {
         { phone: searchRegex },
         { country: searchRegex },
         { location: searchRegex },
+        { accountType: searchRegex },
       ];
     }
 
     const total = await User.countDocuments(query);
     const users = await User.find(query)
-      .select("name email phone tier role createdAt profilePhoto country location")
+      .select("name email phone tier role accountType createdAt profilePhoto country location")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
