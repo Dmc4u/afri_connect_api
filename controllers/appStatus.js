@@ -21,20 +21,13 @@ const getAppStatus = async (req, res, next) => {
 
     const growthMode = !membershipUiEnabled && !membershipRouteEnabled;
     const freeEntryMode = !talentShowcaseEntryFeesEnabled;
-    const latestAndroidVersionCode = toPositiveInt(
-      process.env.APP_ANDROID_LATEST_VERSION_CODE,
-      13,
-    );
+    const latestAndroidVersionCode = toPositiveInt(process.env.APP_ANDROID_LATEST_VERSION_CODE, 15);
     const requiredAndroidVersionCode = toPositiveInt(
       process.env.APP_ANDROID_REQUIRED_VERSION_CODE,
-      0,
+      0
     );
-    const latestAndroidVersionName =
-      process.env.APP_ANDROID_LATEST_VERSION_NAME || "1.12";
-    const androidUpdateEnabled = toBool(
-      process.env.APP_ANDROID_UPDATE_ENABLED,
-      true,
-    );
+    const latestAndroidVersionName = process.env.APP_ANDROID_LATEST_VERSION_NAME || "1.14";
+    const androidUpdateEnabled = toBool(process.env.APP_ANDROID_UPDATE_ENABLED, true);
 
     res.setHeader("Cache-Control", "no-store");
     res.status(200).json({
@@ -61,8 +54,7 @@ const getAppStatus = async (req, res, next) => {
           latestVersionName: latestAndroidVersionName,
           requiredVersionCode: requiredAndroidVersionCode,
           packageName: "com.afrionet.app",
-          storeUrl:
-            "https://play.google.com/store/apps/details?id=com.afrionet.app",
+          storeUrl: "https://play.google.com/store/apps/details?id=com.afrionet.app",
           title: "Update AfriOnet",
           message:
             "New update available. Update now to get the latest AfriOnet improvements from Google Play.",
