@@ -488,11 +488,27 @@ exports.approveTestimony = async (req, res, next) => {
     // Find the testimony
     const testimony = await Testimony.findById(testimonyId);
 
-    if (!testimony || testimony.isDeleted) {
+    if (!testimony) {
       throw new NotFoundError("Testimony not found");
     }
 
-    // Use the model's approve method
+    // A rejected testimony is soft-deleted. It may be restored unless the user
+    // has already submitted a replacement testimony in the meantime.
+    if (testimony.isDeleted) {
+      const replacement = await Testimony.findOne({
+        _id: { $ne: testimony._id },
+        user: testimony.user,
+        isDeleted: false,
+      });
+
+      if (replacement) {
+        throw new BadRequestError(
+          "This user has already submitted a replacement testimony. Approve the replacement instead."
+        );
+      }
+    }
+
+    // The model method also restores a soft-deleted testimony.
     await testimony.approve(adminId);
 
     console.log("[ApproveTestimony] ✅ Testimony approved");

@@ -139,6 +139,9 @@ testimonySchema.virtual("summary").get(function () {
 // Instance methods are available on individual documents
 testimonySchema.methods.approve = async function (adminId) {
   // 'this' refers to the specific testimony document
+  // Approval also restores a previously rejected (soft-deleted) testimony.
+  // This lets an admin recover from an accidental rejection without losing data.
+  this.isDeleted = false;
   this.isApproved = true;
   this.approvedAt = new Date();
   this.approvedBy = adminId;
