@@ -480,6 +480,15 @@ function getFallbackResponse(userMessage) {
   }
 
   if (
+    message.includes("earning") ||
+    message.includes("start earning") ||
+    message.includes("earn revenue") ||
+    message.includes("earning access")
+  ) {
+    return `Go to the Services page, sign in, and click the Start Earning button. Once your request is approved, you can use your earning access to manage supported service activities and earn revenue from qualifying transactions on the platform.`;
+  }
+
+  if (
     message.includes("service") ||
     message.includes("services") ||
     message.includes("platform tools") ||
