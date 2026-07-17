@@ -20,6 +20,7 @@ const auth = require("../middlewares/auth");
 const adminAuth = require("../middlewares/adminAuth");
 const uploadProfile = require("../middlewares/uploadProfile");
 const Announcement = require("../models/Announcement");
+const deleteUserAccount = require("../utils/deleteUserAccount");
 const {
   requireVerifiedBadgeAccess,
   requirePageDesignAccess,
@@ -38,6 +39,17 @@ router.patch("/me/settings", updateUserSettings);
 router.patch("/me/photo", uploadProfile.single("photo"), updateUserPhoto);
 router.post("/me/photo", uploadProfile.single("photo"), updateUserPhoto);
 router.delete("/me/photo", deleteUserPhoto);
+router.delete("/me", async (req, res, next) => {
+  try {
+    await deleteUserAccount(req.user);
+    res.json({
+      success: true,
+      message: "Your account, related data, and all media files were permanently deleted",
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 
 // Pro-tier specific routes
 router.patch("/me/verified-badge", requireVerifiedBadgeAccess, toggleVerifiedBadge);
