@@ -144,7 +144,6 @@ const DEBATE_SETTINGS_FIELDS = [
   "secondPlacePrize",
   "rules",
   "eventStartsAt",
-  "eventEndsAt",
   "firstPlaceMinPoints",
   "secondPlaceMinPoints",
   "openingSeconds",
@@ -366,6 +365,20 @@ async function syncDebateAutoRaffle(event) {
 
 async function syncDebateSchedule(event) {
   const now = Date.now();
+  const votingDeadlineIsFuture = event.votingEndsAt && event.votingEndsAt.getTime() > now;
+
+  // Recover an event that the removed event-end setting prematurely moved to
+  // results. Intentional early closure updates votingEndsAt in the admin handler.
+  if (votingDeadlineIsFuture && event.phase === "results") {
+    event.phase = "voting";
+    event.currentTurnIndex = 0;
+    event.votingOpenedAt = event.votingOpenedAt || new Date();
+    event.votingClosedAt = null;
+    startPhaseTimer(event, getPhaseSeconds(event, "voting"));
+    await event.save();
+    return event;
+  }
+
   if (event.phase === "voting" && event.votingEndsAt && event.votingEndsAt.getTime() <= now) {
     event.phase = "results";
     event.currentTurnIndex = 0;
@@ -386,20 +399,6 @@ async function syncDebateSchedule(event) {
     event.timerEndsAt = event.votingEndsAt;
     event.paused = false;
     event.pausedRemainingSeconds = 0;
-    await event.save();
-    return event;
-  }
-
-  if (
-    event.eventEndsAt &&
-    event.eventEndsAt.getTime() <= now &&
-    !["results", "finished"].includes(event.phase)
-  ) {
-    event.phase = "results";
-    event.currentTurnIndex = 0;
-    event.votingClosedAt = event.votingClosedAt || new Date();
-    calculateResults(event);
-    startPhaseTimer(event, 0);
     await event.save();
     return event;
   }
@@ -561,6 +560,7 @@ function serializeEvent(event, user = null, includePrivate = false) {
   return {
     id: event._id,
     active: event.active,
+    publiclyVisible: event.publiclyVisible !== false,
     title: event.title,
     topic: event.topic,
     openingPrompt: event.openingPrompt,
@@ -592,7 +592,6 @@ function serializeEvent(event, user = null, includePrivate = false) {
       currentParticipant && SPEECH_PHASES.has(event.phase) && !event.timerEndsAt
     ),
     eventStartsAt: event.eventStartsAt,
-    eventEndsAt: event.eventEndsAt,
     firstPlaceMinPoints: event.firstPlaceMinPoints || 0,
     secondPlaceMinPoints: event.secondPlaceMinPoints || 0,
     openingSeconds: event.openingSeconds,
@@ -725,6 +724,7 @@ const createDebateEvent = async (req, res, next) => {
     await DebateEvent.updateMany({ active: true }, { $set: { active: false } });
     const event = new DebateEvent({
       active: true,
+      publiclyVisible: true,
       phase: "scheduled",
       phaseStartedAt: new Date(),
       participants: [],
@@ -813,6 +813,7 @@ const activateDebateEvent = async (req, res, next) => {
 
     await DebateEvent.updateMany({ active: true }, { $set: { active: false } });
     event.active = true;
+    event.publiclyVisible = true;
     await event.save();
 
     return res.json({
@@ -930,6 +931,11 @@ const controlDebateEvent = async (req, res, next) => {
     } else if (action === "results") {
       event.phase = "results";
       event.votingClosedAt = new Date();
+      // Record an intentional early close so schedule synchronization does not
+      // reopen voting merely because the originally configured deadline is later.
+      if (event.votingEndsAt && event.votingEndsAt.getTime() > Date.now()) {
+        event.votingEndsAt = new Date();
+      }
       calculateResults(event);
       startPhaseTimer(event, 0);
     } else if (action === "reset") {
@@ -951,6 +957,8 @@ const controlDebateEvent = async (req, res, next) => {
       });
       await DebateVote.deleteMany({ event: event._id });
       startPhaseTimer(event, 0);
+    } else if (action === "default-view") {
+      event.publiclyVisible = false;
     } else {
       return res.status(400).json({ success: false, message: "Unknown debate control" });
     }
@@ -1000,7 +1008,7 @@ const registerForDebate = async (req, res, next) => {
     const hasStarted = event.eventStartsAt
       ? event.eventStartsAt.getTime() <= Date.now()
       : !["scheduled", "welcome"].includes(event.phase);
-    if (hasStarted) {
+    if (hasRaffleRun(event) || hasStarted) {
       return res.status(409).json({ success: false, message: "Debate registration is closed" });
     }
     const exists = event.participants.some(

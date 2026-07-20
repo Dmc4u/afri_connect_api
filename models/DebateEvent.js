@@ -33,6 +33,7 @@ const participantSchema = new mongoose.Schema(
 const debateEventSchema = new mongoose.Schema(
   {
     active: { type: Boolean, default: true },
+    publiclyVisible: { type: Boolean, default: true },
     title: { type: String, trim: true, default: "AfriOnet Live Debate" },
     topic: { type: String, trim: true, default: "The debate topic will be announced soon." },
     openingPrompt: {
@@ -76,7 +77,6 @@ const debateEventSchema = new mongoose.Schema(
     paused: { type: Boolean, default: false },
     pausedRemainingSeconds: { type: Number, min: 0, default: 0 },
     eventStartsAt: { type: Date, default: null },
-    eventEndsAt: { type: Date, default: null },
     firstPlaceMinPoints: { type: Number, min: 0, default: 0 },
     secondPlaceMinPoints: { type: Number, min: 0, default: 0 },
     openingSeconds: { type: Number, min: 30, max: 1800, default: 120 },

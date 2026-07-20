@@ -98,6 +98,45 @@ async function reloadlyRequest(audienceKey, path, options = {}) {
   return data;
 }
 
+async function purchaseReloadlyGiftCard(payload) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45 * 1000);
+  try {
+    const token = await requestReloadlyToken("giftCards");
+    const response = await fetch(`${getReloadlyBaseUrl("giftCards")}/orders`, {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        Accept: "application/com.reloadly.giftcards-v1+json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    const data = await parseProviderResponse(response);
+    if (!response.ok) {
+      const error = new Error(
+        data.message || data.error || `Provider request failed (${response.status})`
+      );
+      error.statusCode = response.status || 502;
+      error.details = data;
+      throw error;
+    }
+    return data;
+  } catch (error) {
+    if (error.name === "AbortError") {
+      const timeoutError = new Error(
+        "Gift card provider confirmation timed out. The order requires status review."
+      );
+      timeoutError.statusCode = 504;
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function buildReference(prefix) {
   return `${prefix}_${Date.now()}_${crypto.randomBytes(5).toString("hex")}`;
 }
@@ -200,11 +239,7 @@ function createDigitalServicesProvider() {
       });
     },
     purchaseGiftCard(payload) {
-      return reloadlyRequest("giftCards", "/orders", {
-        method: "POST",
-        headers: { Accept: "application/com.reloadly.giftcards-v1+json" },
-        body: JSON.stringify(payload),
-      });
+      return purchaseReloadlyGiftCard(payload);
     },
   };
 }

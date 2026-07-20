@@ -23,8 +23,9 @@ const generalLimiter =
           // general 500/15min limiter. Write endpoints remain protected.
           const isLivePollGet =
             req.method === "GET" &&
-            (/^\/talent-showcase\/[^/]+$/.test(req.path) ||
-              /^\/talent-showcase\/[^/]+\/timeline$/.test(req.path));
+            (/^(?:\/api)?\/talent-showcase\/[^/]+$/.test(req.path) ||
+              /^(?:\/api)?\/talent-showcase\/[^/]+\/timeline$/.test(req.path) ||
+              /^(?:\/api)?\/debate\/(?:event|admin\/events)$/.test(req.path));
 
           return isLivePollGet || pollingEndpoints.some((endpoint) => req.path.includes(endpoint));
         },
