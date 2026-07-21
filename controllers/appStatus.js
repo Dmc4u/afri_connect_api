@@ -1,8 +1,8 @@
 const { getClientFeatureFlags } = require("../utils/appContent");
 
 const CURRENT_ANDROID_RELEASE = {
-  versionCode: 18,
-  versionName: "1.17",
+  versionCode: 19,
+  versionName: "1.18",
 };
 
 const toPositiveInt = (value, fallback) => {
