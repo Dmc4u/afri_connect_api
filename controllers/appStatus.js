@@ -1,5 +1,10 @@
 const { getClientFeatureFlags } = require("../utils/appContent");
 
+const CURRENT_ANDROID_RELEASE = {
+  versionCode: 18,
+  versionName: "1.17",
+};
+
 const toPositiveInt = (value, fallback) => {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
@@ -21,12 +26,26 @@ const getAppStatus = async (req, res, next) => {
 
     const growthMode = !membershipUiEnabled && !membershipRouteEnabled;
     const freeEntryMode = !talentShowcaseEntryFeesEnabled;
-    const latestAndroidVersionCode = toPositiveInt(process.env.APP_ANDROID_LATEST_VERSION_CODE, 17);
+    // Never let a stale deployment variable advertise a release older than the
+    // version that is currently published in Google Play.
+    const configuredLatestAndroidVersionCode = toPositiveInt(
+      process.env.APP_ANDROID_LATEST_VERSION_CODE,
+      CURRENT_ANDROID_RELEASE.versionCode
+    );
+    const latestAndroidVersionCode = Math.max(
+      configuredLatestAndroidVersionCode,
+      CURRENT_ANDROID_RELEASE.versionCode
+    );
     const requiredAndroidVersionCode = toPositiveInt(
       process.env.APP_ANDROID_REQUIRED_VERSION_CODE,
       0
     );
-    const latestAndroidVersionName = process.env.APP_ANDROID_LATEST_VERSION_NAME || "1.16";
+    const configuredLatestAndroidVersionName =
+      process.env.APP_ANDROID_LATEST_VERSION_NAME || CURRENT_ANDROID_RELEASE.versionName;
+    const latestAndroidVersionName =
+      latestAndroidVersionCode === CURRENT_ANDROID_RELEASE.versionCode
+        ? CURRENT_ANDROID_RELEASE.versionName
+        : configuredLatestAndroidVersionName;
     const androidUpdateEnabled = toBool(process.env.APP_ANDROID_UPDATE_ENABLED, true);
 
     res.setHeader("Cache-Control", "no-store");

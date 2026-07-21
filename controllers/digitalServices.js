@@ -2022,7 +2022,12 @@ async function purchaseGiftCard(req, res, next) {
       walletCurrency: currency,
       providerDiscountPercent: providerPricing?.discountPercent || 0,
     });
-    const purchaseAmount = pricing.customerAmount;
+    const agentPricing = buildServiceAgentPricing({
+      req,
+      pricing,
+      currency,
+    });
+    const purchaseAmount = agentPricing.purchaseAmount;
     const existingTransaction = await findExistingIdempotentTransaction(req);
     if (existingTransaction) {
       return res.status(200).json({
@@ -2061,6 +2066,7 @@ async function purchaseGiftCard(req, res, next) {
       currency,
       pricing,
       payload,
+      serviceAgent: agentPricing.serviceAgent,
       recipient: { email: recipientEmail, countryCode: normalizedCountryCode },
       product: { id: productId, name: req.body.productName, countryCode: normalizedCountryCode },
     });
