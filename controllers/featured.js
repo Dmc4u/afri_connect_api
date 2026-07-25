@@ -6,6 +6,7 @@ const TalentContestant = require("../models/TalentContestant");
 const { ForbiddenError, BadRequestError } = require("../utils/errors");
 const { autoFeatureWinner } = require("../utils/featuredHelper");
 const { createOrder, captureOrder, getFrontendUrl } = require("../utils/paypal");
+const { isTalentCategory } = require("../utils/categories");
 
 // Pricing configuration & helpers - Matches Advertising Package structure
 const FEATURED_PRICING = {
@@ -273,7 +274,9 @@ exports.activePlacements = async (req, res, next) => {
       (placement) => placement.placementKind !== "talent-admin-fallback"
     );
     const activeTalentEndAt = primaryDocs
-      .filter((placement) => placement.listingId?.category === "Talent")
+      .filter((placement) =>
+        isTalentCategory(placement.listingId?.category)
+      )
       .map((placement) => placement.endAt)
       .sort((left, right) => new Date(right) - new Date(left))[0];
     const defaultFallbackEndAt = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);
@@ -640,7 +643,7 @@ exports.adminToggleTalentFallback = async (req, res, next) => {
       "owner category status mediaFiles"
     );
     if (!listing) throw new BadRequestError("Talent listing not found");
-    if (listing.category !== "Talent") {
+    if (!isTalentCategory(listing.category)) {
       throw new BadRequestError("Only Talent listings can be added to Talented Showcase");
     }
     if (listing.status !== "active") {
@@ -683,7 +686,7 @@ exports.adminToggleTalentFallback = async (req, res, next) => {
       .populate("listingId", "category")
       .sort({ endAt: -1 });
     const activeTalentPlacement = activePlacements.find(
-      (item) => item.listingId?.category === "Talent"
+      (item) => isTalentCategory(item.listingId?.category)
     );
     const endAt = activeTalentPlacement?.endAt || defaultEndAt;
     const placement = await FeaturedPlacement.findOneAndUpdate(
