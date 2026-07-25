@@ -10,6 +10,18 @@ const featuredPlacementSchema = new mongoose.Schema(
     status: { type: String, enum: ["pending", "approved", "rejected"], default: "pending" },
     notes: { type: String, default: "" },
     approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+    placementKind: {
+      type: String,
+      enum: ["standard", "talent-admin-fallback"],
+      default: "standard",
+      index: true,
+    },
+    featuredMedia: {
+      mediaId: { type: mongoose.Schema.Types.ObjectId, default: null },
+      type: { type: String, enum: ["video", "youtube"], default: undefined },
+      url: { type: String, default: "" },
+      thumbnail: { type: String, default: "" },
+    },
     // Simple engagement metrics
     impressions: { type: Number, default: 0 },
     clicks: { type: Number, default: 0 },

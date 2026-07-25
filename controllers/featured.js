@@ -265,10 +265,37 @@ exports.activePlacements = async (req, res, next) => {
       })
       .sort({ startAt: 1 });
 
+    // Admin-selected talent videos are fallbacks, not regular/winner placements.
+    const fallbackDocs = docs.filter(
+      (placement) => placement.placementKind === "talent-admin-fallback"
+    );
+    const primaryDocs = docs.filter(
+      (placement) => placement.placementKind !== "talent-admin-fallback"
+    );
+    const activeTalentEndAt = primaryDocs
+      .filter((placement) => placement.listingId?.category === "Talent")
+      .map((placement) => placement.endAt)
+      .sort((left, right) => new Date(right) - new Date(left))[0];
+    const defaultFallbackEndAt = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);
+    const fallbackEndAt = activeTalentEndAt || defaultFallbackEndAt;
+    const excessiveFallbackEndAt = new Date(now.getTime() + 6 * 24 * 60 * 60 * 1000);
+
+    await Promise.all(
+      fallbackDocs
+        .filter((placement) => placement.endAt > excessiveFallbackEndAt)
+        .map(async (placement) => {
+          placement.endAt = fallbackEndAt;
+          await FeaturedPlacement.updateOne(
+            { _id: placement._id },
+            { $set: { endAt: fallbackEndAt } }
+          );
+        })
+    );
+
     // Filter showcase winner placements until their winner is public and vote-backed.
     const filteredDocs = [];
 
-    for (const placement of docs) {
+    for (const placement of primaryDocs) {
       // If this placement has a showcaseId (it's a winner placement)
       if (placement.showcaseId) {
         // Check if the showcase winner is public yet.
@@ -302,6 +329,11 @@ exports.activePlacements = async (req, res, next) => {
         filteredDocs.push(placement);
       }
     }
+
+    // Admin selections supplement genuine placements. The client deduplicates by
+    // listing, so a winner/paid placement still wins when the same listing was
+    // also selected manually.
+    filteredDocs.push(...fallbackDocs);
 
     res.json({ ok: true, placements: filteredDocs });
   } catch (e) {
@@ -577,6 +609,116 @@ exports.adminList = async (req, res, next) => {
     res.json({ ok: true, placements: docs });
   } catch (e) {
     next(e);
+  }
+};
+
+exports.adminListTalentFallbacks = async (req, res, next) => {
+  try {
+    if (req.user.role !== "admin") throw new ForbiddenError("Admin only");
+    const placements = await FeaturedPlacement.find({
+      placementKind: "talent-admin-fallback",
+      status: "approved",
+    })
+      .select("listingId featuredMedia createdAt")
+      .sort({ createdAt: -1 })
+      .lean();
+    res.json({ ok: true, placements });
+  } catch (e) {
+    next(e);
+  }
+};
+
+exports.adminToggleTalentFallback = async (req, res, next) => {
+  try {
+    if (req.user.role !== "admin") throw new ForbiddenError("Admin only");
+    const { listingId, mediaId, mediaUrl } = req.body || {};
+    if (!listingId || !mediaUrl) {
+      throw new BadRequestError("listingId and mediaUrl are required");
+    }
+
+    const listing = await Listing.findById(listingId).select(
+      "owner category status mediaFiles"
+    );
+    if (!listing) throw new BadRequestError("Talent listing not found");
+    if (listing.category !== "Talent") {
+      throw new BadRequestError("Only Talent listings can be added to Talented Showcase");
+    }
+    if (listing.status !== "active") {
+      throw new BadRequestError("Only active Talent listings can be displayed");
+    }
+
+    const selectedMedia = (listing.mediaFiles || []).find((media) => {
+      const idMatches = mediaId && String(media._id) === String(mediaId);
+      return idMatches || String(media.url || "") === String(mediaUrl);
+    });
+    if (!selectedMedia || !["video", "youtube"].includes(selectedMedia.type)) {
+      throw new BadRequestError("Select a video that belongs to this Talent listing");
+    }
+
+    const existing = await FeaturedPlacement.findOne({
+      placementKind: "talent-admin-fallback",
+      listingId: listing._id,
+    });
+    const isSameVideo =
+      existing &&
+      String(existing.featuredMedia?.url || "") === String(selectedMedia.url || "");
+
+    if (isSameVideo) {
+      await existing.deleteOne();
+      return res.json({
+        ok: true,
+        active: false,
+        message: "Video removed from the homepage fallback showcase",
+      });
+    }
+
+    const now = new Date();
+    const defaultEndAt = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);
+    const activePlacements = await FeaturedPlacement.find({
+      placementKind: { $ne: "talent-admin-fallback" },
+      status: "approved",
+      startAt: { $lte: now },
+      endAt: { $gte: now },
+    })
+      .populate("listingId", "category")
+      .sort({ endAt: -1 });
+    const activeTalentPlacement = activePlacements.find(
+      (item) => item.listingId?.category === "Talent"
+    );
+    const endAt = activeTalentPlacement?.endAt || defaultEndAt;
+    const placement = await FeaturedPlacement.findOneAndUpdate(
+      {
+        placementKind: "talent-admin-fallback",
+        listingId: listing._id,
+      },
+      {
+        ownerId: listing.owner,
+        listingId: listing._id,
+        startAt: now,
+        endAt,
+        status: "approved",
+        approvedBy: req.user._id,
+        placementKind: "talent-admin-fallback",
+        featuredMedia: {
+          mediaId: selectedMedia._id,
+          type: selectedMedia.type,
+          url: selectedMedia.url,
+          thumbnail: selectedMedia.thumbnail || "",
+        },
+        notes: "Admin-selected fallback for the homepage Talented Showcase",
+        paymentProvider: "none",
+      },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
+
+    return res.json({
+      ok: true,
+      active: true,
+      placement,
+      message: "Video added to the homepage fallback showcase",
+    });
+  } catch (e) {
+    return next(e);
   }
 };
 

@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { ACTIVITY_RETENTION_SECONDS } = require("../utils/activityRetention");
 
 const activityLogSchema = new mongoose.Schema(
   {
@@ -87,7 +88,7 @@ const activityLogSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
       index: true,
-      expires: 2592000, // Auto-delete after 30 days
+      expires: ACTIVITY_RETENTION_SECONDS,
     },
   },
   { collection: "activity_logs" }

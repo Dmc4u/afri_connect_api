@@ -638,6 +638,7 @@ async function getSerializedDebateEvents(user) {
 
 const getDebateEvent = async (req, res, next) => {
   try {
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
     const event = await syncDebateResults(
       await syncDebateTimer(
         await syncDebateAutoRaffle(await syncDebateSchedule(await getActiveEvent()))
@@ -963,7 +964,15 @@ const controlDebateEvent = async (req, res, next) => {
       return res.status(400).json({ success: false, message: "Unknown debate control" });
     }
     await event.save();
-    return res.json({ success: true, event: serializeEvent(event, req.user, true) });
+    return res.json({
+      success: true,
+      event: serializeEvent(event, req.user, true),
+      events: await getSerializedDebateEvents(req.user),
+      message:
+        action === "default-view"
+          ? "The default debate page is now shown to visitors."
+          : "Debate event updated.",
+    });
   } catch (error) {
     return next(error);
   }

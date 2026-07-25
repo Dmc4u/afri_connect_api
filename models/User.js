@@ -249,6 +249,13 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    // Updated by auth middleware (at most once every five minutes) so the
+    // admin dashboard can report users who actually used the application.
+    lastActiveAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
     // Subscription fields for 2Checkout integration
     subscriptionId: {
       type: String, // 2Checkout subscription reference

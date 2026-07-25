@@ -60,6 +60,10 @@ const { bulkCorrectLegacyAutoProUsers } = require("./utils/adminProvisioning");
 // Event scheduler - automatically starts events at scheduled time
 const { startScheduler } = require("./utils/eventScheduler");
 const { startAdMediaCleanupJob } = require("./utils/adMediaCleanup");
+const {
+  ACTIVITY_RETENTION_DAYS,
+  ensureActivityRetentionIndex,
+} = require("./utils/activityRetention");
 
 const app = express();
 const httpServer = createServer(app);
@@ -119,6 +123,12 @@ mongoose
   .connect(MONGO_URL)
   .then(async () => {
     console.log("✅ Connected to MongoDB");
+    try {
+      await ensureActivityRetentionIndex(mongoose);
+      console.log(`✅ Activity logs configured for ${ACTIVITY_RETENTION_DAYS}-day retention`);
+    } catch (error) {
+      console.error("❌ Failed to configure activity log retention:", error);
+    }
     // Initialize default pricing settings
     await initializeDefaultPricing();
     const correctedUsers = await bulkCorrectLegacyAutoProUsers();

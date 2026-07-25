@@ -3,6 +3,8 @@ const User = require("../models/User");
 const { JWT_SECRET } = require("../utils/config");
 const { UnauthorizedError } = require("../utils/errors");
 
+const ACTIVE_TIMESTAMP_WRITE_INTERVAL_MS = 5 * 60 * 1000;
+
 module.exports = async (req, res, next) => {
   try {
     const { authorization } = req.headers;
@@ -50,6 +52,20 @@ module.exports = async (req, res, next) => {
 
     console.log("[Auth] ✅ User authenticated:", user.email, "tier:", user.tier);
     req.user = user; // 👈 now req.user has _id, email, tier, etc.
+    const now = new Date();
+    const lastActiveAt = user.lastActiveAt ? new Date(user.lastActiveAt).getTime() : 0;
+    if (now.getTime() - lastActiveAt >= ACTIVE_TIMESTAMP_WRITE_INTERVAL_MS) {
+      User.updateOne(
+        { _id: user._id },
+        { $set: { lastActiveAt: now } },
+        { timestamps: false }
+      ).catch((error) => {
+        // Activity tracking must never prevent an otherwise valid request.
+        console.error("[Auth] Failed to update user activity:", error.message);
+      });
+      user.lastActiveAt = now;
+    }
+
     next();
   } catch (err) {
     console.error("[Auth] Error:", err.message);

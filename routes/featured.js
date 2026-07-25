@@ -8,6 +8,8 @@ const {
   adminList,
   adminUpdateStatus,
   adminDelete,
+  adminListTalentFallbacks,
+  adminToggleTalentFallback,
   trackImpression,
   trackClick,
   availability,
@@ -35,6 +37,8 @@ router.post("/webhook/paypal", paypalWebhook); // webhook should not require aut
 
 // Admin: list and update
 router.get("/admin", auth, adminList);
+router.get("/admin/talent-fallbacks", auth, adminListTalentFallbacks);
+router.post("/admin/talent-fallbacks/toggle", auth, adminToggleTalentFallback);
 router.patch("/admin/:id", auth, adminUpdateStatus);
 router.delete("/admin/:id", auth, adminDelete);
 

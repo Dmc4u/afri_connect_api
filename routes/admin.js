@@ -7,6 +7,7 @@ const Payment = require("../models/Payment");
 const ApiKey = require("../models/ApiKey");
 const ApiUsage = require("../models/ApiUsage");
 const ActivityLog = require("../models/ActivityLog");
+const { getActivityRetentionStart } = require("../utils/activityRetention");
 const Announcement = require("../models/Announcement");
 const ForumPost = require("../models/ForumPost");
 const MessageNotification = require("../models/MessageNotification");
@@ -170,6 +171,7 @@ router.get("/stats", async (req, res, next) => {
     const [
       totalUsers,
       newUsersInRange,
+      activeUsersInRange,
       tiersAgg,
       newUsersByTierAgg,
       totalListings,
@@ -185,6 +187,11 @@ router.get("/stats", async (req, res, next) => {
       User.countDocuments({}),
       // Range: Users created in the selected window
       User.countDocuments({ createdAt: { $gte: startDate, $lte: now } }),
+      // Range: unique non-admin users who made an authenticated request
+      User.countDocuments({
+        role: { $ne: "admin" },
+        lastActiveAt: { $gte: startDate, $lte: now },
+      }),
       // Distribution of users by tier (lifetime to show current composition)
       User.aggregate([{ $group: { _id: { $ifNull: ["$tier", "Free"] }, count: { $sum: 1 } } }]),
       // Range: new users by tier
@@ -308,6 +315,7 @@ router.get("/stats", async (req, res, next) => {
     const statistics = {
       overview: {
         totalUsers,
+        activeUsersInRange,
         totalListings,
         pendingListings,
         totalPayments,
@@ -1453,13 +1461,18 @@ router.get(
     try {
       const { limit, skip, type, targetType, range } = req.query;
 
-      const filter = {};
+      const now = new Date();
+      const filter = {
+        timestamp: {
+          $gte: getActivityRetentionStart(now),
+          $lte: now,
+        },
+      };
       if (type) filter.type = type;
       if (targetType) filter.targetType = targetType;
 
       // Optional time range filter
       if (range) {
-        const now = new Date();
         const periodMs = (unit, n) => ({ h: 60 * 60 * 1000, d: 24 * 60 * 60 * 1000 })[unit] * n;
         let windowMs;
         if (range === "24h") windowMs = periodMs("h", 24);
@@ -1467,7 +1480,9 @@ router.get(
         else if (range === "90d") windowMs = periodMs("d", 90);
         else windowMs = periodMs("d", 7);
         const startDate = new Date(now.getTime() - windowMs);
-        filter.timestamp = { $gte: startDate, $lte: now };
+        if (startDate > filter.timestamp.$gte) {
+          filter.timestamp.$gte = startDate;
+        }
       }
 
       const activities = await ActivityLog.find(filter)
