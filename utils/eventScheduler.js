@@ -2,6 +2,7 @@ const ShowcaseEventTimeline = require("../models/ShowcaseEventTimeline");
 const TalentShowcase = require("../models/TalentShowcase");
 const TalentContestant = require("../models/TalentContestant");
 const { performRaffle } = require("./raffleSelection");
+const { deleteContestantVideoMedia } = require("./talentContestantCleanup");
 
 /**
  * Event Auto-Start Scheduler
@@ -833,10 +834,11 @@ async function checkAndExecuteScheduledRaffles() {
         console.log(`🎲 Auto-executing raffle for: ${showcase.title || "Unnamed Showcase"}`);
 
         try {
-          // Get all submitted contestants
+          // Only entries explicitly reviewed and approved by Admin enter the raffle.
           const contestants = await TalentContestant.find({
             showcase: showcase._id,
-            status: { $in: ["submitted", "pending-raffle"] },
+            eligibilityStatus: "eligible",
+            status: { $in: ["submitted", "pending-raffle", "approved"] },
           }).populate("user", "name email country");
 
           console.log(`   Found ${contestants.length} contestants for raffle`);
@@ -891,6 +893,17 @@ async function checkAndExecuteScheduledRaffles() {
 
           // Delete all unselected AND waitlisted contestants
           const selectedIds = raffleResults.selected.map((s) => s.contestant.toString());
+
+          const nonSelectedContestants = await TalentContestant.find({
+            showcase: showcase._id,
+            _id: { $nin: selectedIds },
+          });
+
+          const mediaCleanup =
+            await deleteContestantVideoMedia(nonSelectedContestants);
+          console.log(
+            `🧹 Requested GCS cleanup for ${mediaCleanup.attempted} non-selected contestant video(s)`
+          );
 
           const deleteResult = await TalentContestant.deleteMany({
             showcase: showcase._id,

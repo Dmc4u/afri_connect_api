@@ -24,6 +24,7 @@ const {
   adminResolveTransaction,
   adminDeleteTransactionEntry,
   adminSetServiceAgent,
+  adminRemoveServiceAgentFromMonitor,
   adminAdjustServiceAgentWallet,
   adminCreditWallet,
   adminWithdrawRevenue,
@@ -106,6 +107,14 @@ router.post(
   digitalServicesPurchaseUserLimiter,
   adminAuth,
   adminSetServiceAgent
+);
+router.delete(
+  "/admin/digital-services/agents/:userId/monitor",
+  digitalServicesPurchaseIpLimiter,
+  auth,
+  digitalServicesPurchaseUserLimiter,
+  adminAuth,
+  adminRemoveServiceAgentFromMonitor
 );
 router.post(
   "/admin/digital-services/agents/wallet",

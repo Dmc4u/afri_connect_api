@@ -2298,6 +2298,7 @@ async function listAdminServiceAgents(req, res, next) {
 
     const [serviceUsers, recentTransactions, recentLedger] = await Promise.all([
       User.find({
+        "serviceAgent.monitorHiddenAt": null,
         $or: [
           { isServiceAgent: true },
           { role: "serviceAgent" },
@@ -2335,7 +2336,10 @@ async function listAdminServiceAgents(req, res, next) {
     const missingAgentIds = Array.from(agentIds).filter((id) => !knownUserIds.has(id));
     const extraUsers =
       missingAgentIds.length > 0
-        ? await User.find({ _id: { $in: missingAgentIds } })
+        ? await User.find({
+            _id: { $in: missingAgentIds },
+            "serviceAgent.monitorHiddenAt": null,
+          })
             .select("name fullName email phone role isServiceAgent serviceAgent digitalWallet digitalWallets")
             .lean()
         : [];
@@ -2737,7 +2741,11 @@ async function adminSetServiceAgent(req, res, next) {
       },
     };
     if (enabled) {
-      update.$unset = { "serviceAgent.requestedAt": "" };
+      update.$unset = {
+        "serviceAgent.requestedAt": "",
+        "serviceAgent.monitorHiddenAt": "",
+        "serviceAgent.monitorHiddenBy": "",
+      };
     }
 
     const user = await User.findByIdAndUpdate(
@@ -2758,6 +2766,33 @@ async function adminSetServiceAgent(req, res, next) {
     }
 
     res.json({ success: true, user });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function adminRemoveServiceAgentFromMonitor(req, res, next) {
+  try {
+    const user = await User.findById(req.params.userId).select(
+      "name email role isServiceAgent serviceAgent"
+    );
+    if (!user) {
+      throw new NotFoundError("User not found");
+    }
+
+    user.isServiceAgent = false;
+    if (user.role === "serviceAgent") user.role = "user";
+    user.serviceAgent.status = "inactive";
+    user.serviceAgent.activatedAt = null;
+    user.serviceAgent.activatedBy = null;
+    user.serviceAgent.monitorHiddenAt = new Date();
+    user.serviceAgent.monitorHiddenBy = req.user._id;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: "User removed from Sales Monitor. Their account and financial history were preserved.",
+    });
   } catch (error) {
     next(error);
   }
@@ -2909,6 +2944,7 @@ module.exports = {
   adminResolveTransaction,
   adminDeleteTransactionEntry,
   adminSetServiceAgent,
+  adminRemoveServiceAgentFromMonitor,
   adminAdjustServiceAgentWallet,
   adminCreditWallet,
   adminWithdrawRevenue,

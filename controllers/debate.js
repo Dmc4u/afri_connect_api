@@ -639,9 +639,32 @@ async function getSerializedDebateEvents(user) {
 const getDebateEvent = async (req, res, next) => {
   try {
     res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    const activeEvent = await getActiveEvent();
+
+    // The default public page is a real display mode, not another event.
+    // Do not expose or advance the hidden event for ordinary visitors.
+    if (activeEvent.publiclyVisible === false && req.user?.role !== "admin") {
+      return res.json({
+        success: true,
+        event: {
+          id: null,
+          active: false,
+          publiclyVisible: false,
+          defaultView: true,
+          title: "AfriOnet Live Debate",
+          topic:
+            "No debate event is currently scheduled. Please check back for the next event.",
+          serverNow: new Date(),
+          remainingSeconds: 0,
+          participants: [],
+        },
+        currentUserVote: null,
+      });
+    }
+
     const event = await syncDebateResults(
       await syncDebateTimer(
-        await syncDebateAutoRaffle(await syncDebateSchedule(await getActiveEvent()))
+        await syncDebateAutoRaffle(await syncDebateSchedule(activeEvent))
       )
     );
     const existingVote = req.user

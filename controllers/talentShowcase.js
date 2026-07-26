@@ -11,6 +11,52 @@ const fs = require("fs").promises;
 const { v4: uuidv4 } = require("uuid");
 const gcs = require("../utils/gcs");
 const { stripCloudinaryUrl } = require("../utils/mediaSanitize");
+const {
+  deleteContestantVideoMedia,
+} = require("../utils/talentContestantCleanup");
+
+const MIN_SHOWCASE_VIDEO_SECONDS = 60;
+const MAX_SHOWCASE_VIDEO_SECONDS = 180;
+
+function getVideoDurationRejectionReason(duration) {
+  const seconds = Number(duration);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return "We could not verify the video duration. Please upload a video between 1 and 3 minutes.";
+  }
+  if (seconds < MIN_SHOWCASE_VIDEO_SECONDS) {
+    return `Your video is ${seconds} seconds long. Showcase videos must be at least 1 minute and no longer than 3 minutes.`;
+  }
+  if (seconds > MAX_SHOWCASE_VIDEO_SECONDS) {
+    return `Your video is ${Math.floor(seconds / 60)}m ${seconds % 60}s long. Showcase videos must be between 1 and 3 minutes.`;
+  }
+  return "";
+}
+
+async function sendShowcaseEligibilityMessage({ userId, reason }) {
+  try {
+    const ContactMessage = require("../models/ContactMessage");
+    const MessageNotification = require("../models/MessageNotification");
+    const contactMessage = await ContactMessage.create({
+      senderName: "AfriOnet Talent Showcase",
+      senderEmail: process.env.ADMIN_EMAIL || "support@afrionet.com",
+      message: `${reason} You may replace the video and re-register while registration is open.`,
+      businessOwner: userId,
+      sender: null,
+    });
+    await MessageNotification.create({
+      user: userId,
+      conversation: null,
+      message: contactMessage._id,
+      sender: null,
+      type: "contact-form",
+      title: "Talent Showcase video not eligible",
+      body: reason.slice(0, 100),
+      isRead: false,
+    });
+  } catch (error) {
+    console.warn("Showcase eligibility notification failed:", error.message);
+  }
+}
 
 function parseBoolEnv(value) {
   if (value === undefined || value === null) return null;
@@ -1240,8 +1286,11 @@ exports.registerContestant = async (req, res) => {
     });
 
     if (existing) {
-      // Allow editing only if not yet approved (status is pending)
-      if (existing.status === "pending") {
+      // Pending and rejected applicants can replace their video and resubmit.
+      if (
+        ["submitted", "pending", "rejected"].includes(existing.status) ||
+        existing.eligibilityStatus === "ineligible"
+      ) {
         return res.status(200).json({
           success: true,
           message: "You have already registered for this showcase. You can edit your registration.",
@@ -1256,6 +1305,44 @@ exports.registerContestant = async (req, res) => {
           canEdit: false,
         });
       }
+    }
+
+    const durationRejectionReason = getVideoDurationRejectionReason(videoDuration);
+    if (durationRejectionReason) {
+      const rejectedContestant = await TalentContestant.create({
+        showcase: showcaseId,
+        user: req.user._id,
+        listing: listingId,
+        performanceTitle,
+        performanceDescription,
+        themeTitle,
+        themeCreator,
+        country,
+        videoUrl,
+        videoGcsObjectName: req.body.videoGcsObjectName || null,
+        videoCloudinaryId: videoCloudinaryId || null,
+        videoDuration: Number(videoDuration) || 0,
+        thumbnailUrl,
+        socialMedia,
+        status: "rejected",
+        eligibilityStatus: "ineligible",
+        rejectionReason: durationRejectionReason,
+        eligibilityReviewedAt: new Date(),
+      });
+      await TalentShowcase.updateOne(
+        { _id: showcaseId },
+        { $addToSet: { contestants: rejectedContestant._id } }
+      );
+      await sendShowcaseEligibilityMessage({
+        userId: req.user._id,
+        reason: durationRejectionReason,
+      });
+      return res.status(422).json({
+        success: false,
+        message: `${durationRejectionReason} You can upload another video and re-register while registration is open.`,
+        contestant: rejectedContestant,
+        canEdit: true,
+      });
     }
 
     // Prepare entry fee data
@@ -1401,6 +1488,9 @@ exports.registerContestant = async (req, res) => {
       thumbnailUrl,
       socialMedia,
       entryFee: entryFeeData,
+      status: "submitted",
+      eligibilityStatus: "pending",
+      rejectionReason: "",
     });
 
     await contestant.save();
@@ -1459,7 +1549,7 @@ exports.registerContestant = async (req, res) => {
       success: true,
       message: hasEntryFee
         ? "Payment received! Your registration has been submitted for review."
-        : "Successfully registered for showcase",
+        : "Registration submitted for Admin eligibility review.",
       contestant,
     });
   } catch (error) {
@@ -1831,8 +1921,11 @@ exports.updateContestantRegistration = async (req, res) => {
       });
     }
 
-    // Only allow editing if status is pending
-    if (contestant.status !== "pending") {
+    // Pending and rejected applicants may edit and re-register.
+    if (
+      !["submitted", "pending", "rejected"].includes(contestant.status) &&
+      contestant.eligibilityStatus !== "ineligible"
+    ) {
       return res.status(400).json({
         success: false,
         message: `Cannot edit registration with status "${contestant.status}". Contact admin if you need to make changes.`,
@@ -1855,9 +1948,9 @@ exports.updateContestantRegistration = async (req, res) => {
       });
     }
 
-    // Update contestant details
-    // videoDuration is stored in seconds. Do not hard-cap it here; the live event schedule
-    // depends on the stored duration matching the actual uploaded media duration.
+    const nextDuration =
+      videoDuration !== undefined ? Number(videoDuration) : Number(contestant.videoDuration);
+    const durationRejectionReason = getVideoDurationRejectionReason(nextDuration);
 
     if (videoGcsObjectName !== undefined) {
       contestant.videoGcsObjectName = videoGcsObjectName || null;
@@ -1881,8 +1974,26 @@ exports.updateContestantRegistration = async (req, res) => {
     }
     contestant.thumbnailUrl = thumbnailUrl || contestant.thumbnailUrl;
     if (socialMedia) contestant.socialMedia = socialMedia;
+    contestant.status = durationRejectionReason ? "rejected" : "submitted";
+    contestant.eligibilityStatus = durationRejectionReason ? "ineligible" : "pending";
+    contestant.rejectionReason = durationRejectionReason;
+    contestant.eligibilityReviewedAt = durationRejectionReason ? new Date() : null;
+    contestant.eligibilityReviewedBy = null;
 
     await contestant.save();
+
+    if (durationRejectionReason) {
+      await sendShowcaseEligibilityMessage({
+        userId: contestant.user,
+        reason: durationRejectionReason,
+      });
+      return res.status(422).json({
+        success: false,
+        message: `${durationRejectionReason} You can upload another video and re-register while registration is open.`,
+        contestant,
+        canEdit: true,
+      });
+    }
 
     res.json({
       success: true,
@@ -1903,11 +2014,40 @@ exports.updateContestantRegistration = async (req, res) => {
 exports.updateContestantStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status } = req.body;
+    const { status, rejectionReason = "" } = req.body;
+
+    if (!["approved", "rejected"].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Status must be approved or rejected",
+      });
+    }
+
+    const existingContestant = await TalentContestant.findById(id);
+    if (!existingContestant) {
+      return res.status(404).json({ success: false, message: "Contestant not found" });
+    }
+
+    const durationReason = getVideoDurationRejectionReason(existingContestant.videoDuration);
+    if (status === "approved" && durationReason) {
+      return res.status(400).json({
+        success: false,
+        message: `This contestant cannot be approved. ${durationReason}`,
+      });
+    }
 
     const contestant = await TalentContestant.findByIdAndUpdate(
       id,
-      { status },
+      {
+        status,
+        eligibilityStatus: status === "approved" ? "eligible" : "ineligible",
+        rejectionReason:
+          status === "approved"
+            ? ""
+            : rejectionReason.trim() || "The entry did not meet the showcase eligibility requirements.",
+        eligibilityReviewedAt: new Date(),
+        eligibilityReviewedBy: req.user._id,
+      },
       { new: true }
     ).populate("showcase");
 
@@ -1915,6 +2055,13 @@ exports.updateContestantStatus = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: "Contestant not found",
+      });
+    }
+
+    if (status === "rejected") {
+      await sendShowcaseEligibilityMessage({
+        userId: contestant.user,
+        reason: contestant.rejectionReason,
       });
     }
 
@@ -2707,16 +2854,18 @@ exports.executeRaffle = async (req, res) => {
       });
     }
 
-    // Get all submitted contestants (status: 'submitted' or 'pending-raffle')
+    // Only entries explicitly reviewed and approved by Admin enter the raffle.
     const contestants = await TalentContestant.find({
       showcase: showcaseId,
-      status: { $in: ["submitted", "pending-raffle"] },
+      eligibilityStatus: "eligible",
+      status: { $in: ["submitted", "pending-raffle", "approved"] },
     }).populate("user", "name email country");
 
     if (contestants.length === 0) {
       return res.status(400).json({
         success: false,
-        message: "No contestants have registered for this showcase",
+        message:
+          "No eligible contestants are ready. Review and approve applicants before running the raffle.",
       });
     }
 
@@ -2780,6 +2929,11 @@ exports.executeRaffle = async (req, res) => {
         `   - Deleting: ${c.user?.name || "Unknown"} (${c.user?.email || "No email"}) - Status: ${c.status}`
       );
     });
+
+    const mediaCleanup = await deleteContestantVideoMedia(nonSelectedContestants);
+    console.log(
+      `🧹 Requested GCS cleanup for ${mediaCleanup.attempted} non-selected contestant video(s)`
+    );
 
     // Permanently delete all contestants except selected ones
     const deleteResult = await TalentContestant.deleteMany({

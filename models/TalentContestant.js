@@ -73,6 +73,22 @@ const talentContestantSchema = new mongoose.Schema(
       ],
       default: "submitted",
     },
+    eligibilityStatus: {
+      type: String,
+      enum: ["pending", "eligible", "ineligible"],
+      default: "pending",
+      index: true,
+    },
+    rejectionReason: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    eligibilityReviewedAt: Date,
+    eligibilityReviewedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
     raffleStatus: {
       type: String,
       enum: ["pending", "selected", "waitlisted", "not-selected"],

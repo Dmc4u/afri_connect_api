@@ -182,6 +182,14 @@ const validateContestantRegistration = [
     })
     .withMessage("Invalid video URL"),
 
+  // The controller applies the 60–180 second eligibility rule so it can
+  // return the dedicated rejection response and notification.
+  body("videoDuration")
+    .notEmpty()
+    .withMessage("Video duration is required")
+    .isFloat({ gt: 0 })
+    .withMessage("Video duration must be a positive number of seconds"),
+
   body("thumbnailUrl").optional({ checkFalsy: true }).isURL().withMessage("Invalid thumbnail URL"),
 
   body("socialMedia")
@@ -206,6 +214,14 @@ const validateContestantRegistration = [
 
   body("listingId").optional().isMongoId().withMessage("Invalid listing ID"),
 
+  validate,
+];
+
+const validateContestantUpdate = [
+  body("videoDuration")
+    .optional()
+    .isFloat({ gt: 0 })
+    .withMessage("Video duration must be a positive number of seconds"),
   validate,
 ];
 
@@ -347,6 +363,7 @@ const validateTimeAdjustment = [
 module.exports = {
   validateShowcaseCreation,
   validateContestantRegistration,
+  validateContestantUpdate,
   validateVote,
   validateShowcaseQuery,
   validateShowcaseId,

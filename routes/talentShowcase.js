@@ -10,6 +10,7 @@ const { paymentCreateLimiter } = require("../middlewares/rateLimiter");
 const {
   validateShowcaseCreation,
   validateContestantRegistration,
+  validateContestantUpdate,
   validateVote,
   validateShowcaseQuery,
   validateShowcaseId,
@@ -99,6 +100,7 @@ router.put(
   "/contestant/:id",
   authenticateToken,
   validateContestantId,
+  validateContestantUpdate,
   showcaseController.updateContestantRegistration
 );
 

@@ -1,8 +1,8 @@
 const { getClientFeatureFlags } = require("../utils/appContent");
 
 const CURRENT_ANDROID_RELEASE = {
-  versionCode: 19,
-  versionName: "1.18",
+  versionCode: 20,
+  versionName: "1.19",
 };
 
 const toPositiveInt = (value, fallback) => {
@@ -75,7 +75,7 @@ const getAppStatus = async (req, res, next) => {
           packageName: "com.afrionet.app",
           storeUrl: "https://play.google.com/store/apps/details?id=com.afrionet.app",
           title: "Update AfriOnet",
-          message: "A new version of AfriOnet is available. ",
+          message: "A new version of AfriOnet is available.",
         },
       },
     });
