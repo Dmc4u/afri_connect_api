@@ -9,6 +9,13 @@ const fs = require("fs").promises;
 const gcs = require("../utils/gcs");
 const { recordEngagementReward } = require("../utils/rewards");
 
+const escapeRegExp = (value) =>
+  String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const TALENT_CATEGORY_PATTERNS = TALENT_CATEGORIES.map(
+  (category) => new RegExp(`^\\s*${escapeRegExp(category)}\\s*$`, "i")
+);
+
 // --- Slug helpers (mirror model logic) ---
 function slugify(text = "") {
   return String(text)
@@ -82,7 +89,7 @@ const getAllListings = async (req, res, next) => {
     // Talent directory (/discover-talent) should include all talent contestants
     if (excludeWinners === "true") {
       // Exclude ALL talent categories from business listings page
-      query.category = { $nin: TALENT_CATEGORIES };
+      query.category = { $nin: TALENT_CATEGORY_PATTERNS };
 
       // Also exclude listings that are associated with talent showcase contestants
       const TalentContestant = require("../models/TalentContestant");
