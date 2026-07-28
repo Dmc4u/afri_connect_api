@@ -8,6 +8,20 @@ const geoip = require("geoip-lite");
 const router = express.Router();
 const RETENTION_MS = 24 * 60 * 60 * 1000;
 let lastRetentionCleanup = 0;
+const SENSITIVE_PARAMETERS = new Set([
+  "access_token",
+  "auth",
+  "code",
+  "id_token",
+  "oauth_token",
+  "refresh_token",
+  "session",
+  "state",
+  "token",
+  "user",
+]);
+const SENSITIVE_QUERY_PATTERN =
+  /[?&](?:access_token|auth|code|id_token|oauth_token|refresh_token|session|state|token|user)=/i;
 
 const cleanText = (value, maxLength) =>
   String(value || "").trim().slice(0, maxLength);
@@ -29,7 +43,11 @@ const normalizePath = (value) => {
     ["fbclid", "gclid", "dclid", "msclkid", "mc_cid", "mc_eid"]
       .forEach((parameter) => url.searchParams.delete(parameter));
     [...url.searchParams.keys()]
-      .filter((parameter) => parameter.toLowerCase().startsWith("utm_"))
+      .filter((parameter) => {
+        const normalizedParameter = parameter.toLowerCase();
+        return normalizedParameter.startsWith("utm_")
+          || SENSITIVE_PARAMETERS.has(normalizedParameter);
+      })
       .forEach((parameter) => url.searchParams.delete(parameter));
     return `${url.pathname}${url.search}${url.hash}`.slice(0, 500);
   } catch {
@@ -66,7 +84,11 @@ const purgeExpiredPageViews = async () => {
   if (now - lastRetentionCleanup < 5 * 60 * 1000) return;
   lastRetentionCleanup = now;
   await PageView.deleteMany({
-    viewedAt: { $lt: new Date(now - RETENTION_MS) },
+    $or: [
+      { viewedAt: { $lt: new Date(now - RETENTION_MS) } },
+      { path: SENSITIVE_QUERY_PATTERN },
+      { referrer: SENSITIVE_QUERY_PATTERN },
+    ],
   });
 };
 
