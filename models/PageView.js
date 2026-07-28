@@ -34,6 +34,16 @@ const pageViewSchema = new mongoose.Schema(
       enum: ["mobile", "tablet", "desktop", "unknown"],
       default: "unknown",
     },
+    location: {
+      city: { type: String, default: "", maxlength: 120 },
+      country: { type: String, default: "", maxlength: 120 },
+      countryCode: {
+        type: String,
+        default: "",
+        maxlength: 2,
+        uppercase: true,
+      },
+    },
     viewedAt: {
       type: Date,
       default: Date.now,
