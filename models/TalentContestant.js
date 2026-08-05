@@ -37,6 +37,11 @@ const talentContestantSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    timeZone: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     videoUrl: {
       type: String,
       required: true,

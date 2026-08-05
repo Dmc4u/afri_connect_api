@@ -5,7 +5,10 @@ const User = require("../models/User");
 const ContactMessage = require("../models/ContactMessage");
 const MessageNotification = require("../models/MessageNotification");
 const { performRaffle } = require("../utils/raffleSelection");
-const { formatOfficialEventDateTime } = require("../utils/eventTime");
+const {
+  formatEventDateTimeForTimeZone,
+  getValidEventTimeZone,
+} = require("../utils/eventTime");
 
 const ZOOM_EVENT_REMINDER =
   "Important Reminder: This event will be held on Zoom. Please make sure you have the Zoom application installed and working on your device before the event date.\n\n" +
@@ -216,15 +219,15 @@ function getOrdinalNumber(number) {
   return `${value}${suffixes[(remainder - 20) % 10] || suffixes[remainder] || suffixes[0]}`;
 }
 
-function getEventStartLabel(event) {
+function getEventStartLabel(event, participant) {
   return event.eventStartsAt
-    ? formatOfficialEventDateTime(event.eventStartsAt)
+    ? formatEventDateTimeForTimeZone(event.eventStartsAt, participant?.timeZone)
     : "the scheduled event time";
 }
 
-function getRaffleTimeLabel(event) {
+function getRaffleTimeLabel(event, participant) {
   return event.raffleRunsAt
-    ? `Raffle time: ${formatOfficialEventDateTime(event.raffleRunsAt)}\n\n`
+    ? `Raffle time: ${formatEventDateTimeForTimeZone(event.raffleRunsAt, participant?.timeZone)}\n\n`
     : "";
 }
 
@@ -235,8 +238,9 @@ async function sendDebateRegistrationMessage(participant, event) {
     body:
       `Hi ${participant.name || "there"},\n\n` +
       `You have registered for ${event.title || "the AfriOnet Live Debate"}.\n\n` +
-      `Event start: ${getEventStartLabel(event)}\n\n${getRaffleTimeLabel(
-        event
+      `Event start: ${getEventStartLabel(event, participant)}\n\n${getRaffleTimeLabel(
+        event,
+        participant
       )}${ZOOM_EVENT_REMINDER}\n\n` +
       `You will receive another message after the raffle if you are selected as a debate participant.\n\n` +
       `Best regards,\nThe AfriOnet Team`,
@@ -270,8 +274,9 @@ async function sendDebateSelectionMessages(participants, event) {
           `Hi ${participant.name || "there"},\n\n` +
           `Congratulations! You were selected for ${event.title || "the AfriOnet Live Debate"}.\n\n` +
           `Your debate position: ${position}.\n\n` +
-          `Event start: ${getEventStartLabel(event)}\n\n${getRaffleTimeLabel(
-            event
+          `Event start: ${getEventStartLabel(event, participant)}\n\n${getRaffleTimeLabel(
+            event,
+            participant
           )}${ZOOM_EVENT_REMINDER}\n\n` +
           `Please be ready on Zoom when your name is called.\n\n` +
           `Best regards,\nThe AfriOnet Team`,
@@ -1056,6 +1061,7 @@ const registerForDebate = async (req, res, next) => {
         position: String(req.body.position || "").trim(),
         country: req.user.country || req.user.location || "",
         profilePhoto: req.user.profilePhoto || req.user.avatar || "",
+        timeZone: getValidEventTimeZone(req.body.timeZone),
         raffleStatus: "registered",
       });
       event.participants.push(participant);
@@ -1316,7 +1322,7 @@ const transferDebateSlot = async (req, res, next) => {
         body:
           `Hi ${replacementParticipant.name || "there"},\n\n` +
           `A selected debate slot has been transferred to you by the event administrator. Your debate position is #${transferredPosition}. Please be ready when your name is called.\n\n` +
-          `Event start: ${getEventStartLabel(event)}\n\n` +
+          `Event start: ${getEventStartLabel(event, replacementParticipant)}\n\n` +
           `${ZOOM_EVENT_REMINDER}\n\n` +
           "Best regards,\nThe AfriOnet Team",
       }),

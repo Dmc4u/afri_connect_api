@@ -3,7 +3,7 @@ const TalentShowcase = require("../models/TalentShowcase");
 const TalentContestant = require("../models/TalentContestant");
 const { performRaffle } = require("./raffleSelection");
 const { deleteContestantVideoMedia } = require("./talentContestantCleanup");
-const { formatOfficialEventDateTime } = require("./eventTime");
+const { formatEventDateTimeForTimeZone } = require("./eventTime");
 
 /**
  * Event Auto-Start Scheduler
@@ -948,14 +948,21 @@ async function checkAndExecuteScheduledRaffles() {
               );
             } else {
               if (selectedUserIds.length > 0) {
-                await Announcement.create({
-                  subject: `🎉 You have been selected for ${showcase.title}!`,
-                  message: `You’ve been selected to compete in the live event! We’re thrilled and proud to showcase your talent.\n\nEvent start: ${formatOfficialEventDateTime(showcase.eventDate)}\n\nNext Steps: Start reaching out to friends, family, and supporters to solicit their votes during the live event. The more support you gather now, the better your chances!`,
-                  sender: senderId,
-                  recipients: { type: "individual", value: selectedUserIds },
-                  priority: "high",
-                  status: "sent",
-                });
+                const selectedContestantsForNotify = contestants.filter((contestant) =>
+                  selectedIdSet.has(contestant._id.toString())
+                );
+                await Promise.all(
+                  selectedContestantsForNotify.map((contestant) =>
+                    Announcement.create({
+                      subject: `🎉 You have been selected for ${showcase.title}!`,
+                      message: `You’ve been selected to compete in the live event! We’re thrilled and proud to showcase your talent.\n\nEvent start: ${formatEventDateTimeForTimeZone(showcase.eventDate, contestant.timeZone)}\n\nNext Steps: Start reaching out to friends, family, and supporters to solicit their votes during the live event. The more support you gather now, the better your chances!`,
+                      sender: senderId,
+                      recipients: { type: "individual", value: [contestant.user._id] },
+                      priority: "high",
+                      status: "sent",
+                    })
+                  )
+                );
               }
 
               if (nonSelectedUserIds.length > 0) {

@@ -11,7 +11,10 @@ const fs = require("fs").promises;
 const { v4: uuidv4 } = require("uuid");
 const gcs = require("../utils/gcs");
 const { stripCloudinaryUrl } = require("../utils/mediaSanitize");
-const { formatOfficialEventDateTime } = require("../utils/eventTime");
+const {
+  formatEventDateTimeForTimeZone,
+  getValidEventTimeZone,
+} = require("../utils/eventTime");
 const {
   deleteContestantVideoMedia,
 } = require("../utils/talentContestantCleanup");
@@ -1254,6 +1257,7 @@ exports.registerContestant = async (req, res) => {
       themeTitle,
       themeCreator,
       country,
+      timeZone,
       videoUrl,
       videoCloudinaryId,
       videoDuration, // Video duration in seconds from upload
@@ -1319,6 +1323,7 @@ exports.registerContestant = async (req, res) => {
         themeTitle,
         themeCreator,
         country,
+        timeZone: getValidEventTimeZone(timeZone),
         videoUrl,
         videoGcsObjectName: req.body.videoGcsObjectName || null,
         videoCloudinaryId: videoCloudinaryId || null,
@@ -1482,6 +1487,7 @@ exports.registerContestant = async (req, res) => {
       themeTitle,
       themeCreator,
       country,
+      timeZone: getValidEventTimeZone(timeZone),
       videoUrl,
       videoGcsObjectName: req.body.videoGcsObjectName || null,
       videoCloudinaryId: videoCloudinaryId || null, // Deprecated, kept for backward compatibility
@@ -3005,17 +3011,18 @@ exports.executeRaffle = async (req, res) => {
 
     // Persistent announcement (shows in Profile -> Announcements)
     if (selectedUserIds.length > 0) {
-      await Announcement.create({
-        subject: `🎉 You have been selected for ${showcase.title}!`,
-        message: `You have been selected to compete in the live event!\n\nEvent start: ${formatOfficialEventDateTime(showcase.eventDate)}\n\nNext Steps: Start reaching out to friends, family, and supporters to solicit their votes during the live event. The more support you gather now, the better your chances!`,
-        sender: req.user._id,
-        recipients: {
-          type: "individual",
-          value: selectedUserIds,
-        },
-        priority: "high",
-        status: "sent",
-      });
+      await Promise.all(
+        selectedContestantsForNotify.map((contestant) =>
+          Announcement.create({
+            subject: `🎉 You have been selected for ${showcase.title}!`,
+            message: `You have been selected to compete in the live event!\n\nEvent start: ${formatEventDateTimeForTimeZone(showcase.eventDate, contestant.timeZone)}\n\nNext Steps: Start reaching out to friends, family, and supporters to solicit their votes during the live event. The more support you gather now, the better your chances!`,
+            sender: req.user._id,
+            recipients: { type: "individual", value: [contestant.user._id] },
+            priority: "high",
+            status: "sent",
+          })
+        )
+      );
     }
 
     // Real-time socket event (immediate popup)

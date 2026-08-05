@@ -7,6 +7,7 @@ const participantSchema = new mongoose.Schema(
     position: { type: String, trim: true, default: "" },
     country: { type: String, trim: true, default: "" },
     profilePhoto: { type: String, trim: true, default: "" },
+    timeZone: { type: String, trim: true, default: "" },
     raffleStatus: {
       type: String,
       enum: ["registered", "selected", "not-selected"],
