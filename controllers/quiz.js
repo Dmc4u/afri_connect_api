@@ -5,6 +5,7 @@ const User = require("../models/User");
 const ContactMessage = require("../models/ContactMessage");
 const MessageNotification = require("../models/MessageNotification");
 const { performRaffle } = require("../utils/raffleSelection");
+const { EVENT_TIME_ZONE, EVENT_TIME_ZONE_LABEL } = require("../utils/eventTime");
 
 const MEETING_JOIN_WINDOW_SECONDS = 5 * 60;
 const MEETING_JOINABLE_PHASES = new Set([
@@ -58,13 +59,13 @@ function normalizeSessionRules(rules) {
 
 function getValidContestantTimeZone(contestant) {
   const timeZone = String(contestant?.timeZone || "").trim();
-  if (!timeZone) return "UTC";
+  if (!timeZone) return EVENT_TIME_ZONE;
 
   try {
     new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
     return timeZone;
   } catch {
-    return "UTC";
+    return EVENT_TIME_ZONE;
   }
 }
 
@@ -80,7 +81,12 @@ function formatEventTimeForMessage(value, contestant) {
     timeStyle: "short",
     timeZone,
   }).format(date);
-  const label = timeZone === "UTC" ? "UTC" : `your local time — ${timeZone}`;
+  const label =
+    timeZone === EVENT_TIME_ZONE
+      ? EVENT_TIME_ZONE_LABEL
+      : timeZone === "UTC"
+        ? "UTC"
+        : `your local time — ${timeZone}`;
   return `${formatted} (${label})`;
 }
 
@@ -2880,7 +2886,7 @@ const replaceSelectedQuizContestant = async (req, res, next) => {
       createQuizProfileMessage({
         contestant: replacementContestant,
         title: "You were selected for the Q/A event",
-        body: `Hi ${replacementContestant.name || "Contestant"},\n\nA selected contestant slot has been transferred to you by the event administrator. Your contestant number is ${transferredPosition}. Please be ready when your number is called.\n\nBest regards,\nThe AfriOnet Team`,
+        body: `Hi ${replacementContestant.name || "Contestant"},\n\nA selected contestant slot has been transferred to you by the event administrator. Your contestant number is ${transferredPosition}. Please be ready when your number is called.\n\nEvent start: ${getEventStartLabel(session, replacementContestant)}\n\nBest regards,\nThe AfriOnet Team`,
       }),
     ]);
 

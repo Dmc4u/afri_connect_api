@@ -3,6 +3,7 @@ const TalentShowcase = require("../models/TalentShowcase");
 const TalentContestant = require("../models/TalentContestant");
 const { performRaffle } = require("./raffleSelection");
 const { deleteContestantVideoMedia } = require("./talentContestantCleanup");
+const { formatOfficialEventDateTime } = require("./eventTime");
 
 /**
  * Event Auto-Start Scheduler
@@ -949,7 +950,7 @@ async function checkAndExecuteScheduledRaffles() {
               if (selectedUserIds.length > 0) {
                 await Announcement.create({
                   subject: `🎉 You have been selected for ${showcase.title}!`,
-                  message: `You’ve been selected to compete in the live event! We’re thrilled and proud to showcase your talent.\n\nNext Steps: Start reaching out to friends, family, and supporters to solicit their votes during the live event. The more support you gather now, the better your chances!`,
+                  message: `You’ve been selected to compete in the live event! We’re thrilled and proud to showcase your talent.\n\nEvent start: ${formatOfficialEventDateTime(showcase.eventDate)}\n\nNext Steps: Start reaching out to friends, family, and supporters to solicit their votes during the live event. The more support you gather now, the better your chances!`,
                   sender: senderId,
                   recipients: { type: "individual", value: selectedUserIds },
                   priority: "high",

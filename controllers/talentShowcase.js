@@ -11,6 +11,7 @@ const fs = require("fs").promises;
 const { v4: uuidv4 } = require("uuid");
 const gcs = require("../utils/gcs");
 const { stripCloudinaryUrl } = require("../utils/mediaSanitize");
+const { formatOfficialEventDateTime } = require("../utils/eventTime");
 const {
   deleteContestantVideoMedia,
 } = require("../utils/talentContestantCleanup");
@@ -3006,7 +3007,7 @@ exports.executeRaffle = async (req, res) => {
     if (selectedUserIds.length > 0) {
       await Announcement.create({
         subject: `🎉 You have been selected for ${showcase.title}!`,
-        message: `Next Steps: Start reaching out to friends, family, and supporters to solicit their votes during the live event. The more support you gather now, the better your chances!`,
+        message: `You have been selected to compete in the live event!\n\nEvent start: ${formatOfficialEventDateTime(showcase.eventDate)}\n\nNext Steps: Start reaching out to friends, family, and supporters to solicit their votes during the live event. The more support you gather now, the better your chances!`,
         sender: req.user._id,
         recipients: {
           type: "individual",
