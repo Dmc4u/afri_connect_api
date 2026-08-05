@@ -16,8 +16,8 @@ const MEETING_JOINABLE_PHASES = new Set([
   "winner",
 ]);
 const DEFAULT_EVENT_RULES = [
-  "Please install or open the Zoom app before the event. Zoom is required to watch the live event, and selected contestants must be ready to share their screen when it is their turn.",
-  "Share the event once it is your turn to pick a number to reveal the next question on Zoom.",
+  "Please install or open the Zoom app before the event. Zoom is required to watch the live event, and selected contestants must join Zoom when it is their turn.",
+  "When it is your turn, stay in Zoom, then pick your question number and submit your answer on the Q/A event page.",
   "Don't look around when answering to keep the event fun and fair for everyone.",
   "You will be disqualified if you cheat.",
   "Choose any available question number.",
@@ -45,7 +45,15 @@ function normalizeSessionRules(rules) {
   if (!savedRules || savedRules.toLowerCase() === LEGACY_RULES_PLACEHOLDER.toLowerCase()) {
     return DEFAULT_EVENT_RULES_TEXT;
   }
-  return savedRules;
+  return savedRules
+    .replace(
+      "Please install or open the Zoom app before the event. Zoom is required to watch the live event, and selected contestants must be ready to share their screen when it is their turn.",
+      "Please install or open the Zoom app before the event. Zoom is required to watch the live event, and selected contestants must join Zoom when it is their turn."
+    )
+    .replace(
+      "Share the event once it is your turn to pick a number to reveal the next question on Zoom.",
+      "When it is your turn, stay in Zoom, then pick your question number and submit your answer on the Q/A event page."
+    );
 }
 
 function getValidContestantTimeZone(contestant) {
@@ -131,7 +139,7 @@ async function sendQuizRegistrationMessage(contestant, session) {
     `Event start: ${eventStart}`,
     raffleTimeLine.trim(),
     ZOOM_EVENT_REMINDER,
-    "Share the event once it is your turn to pick a number to reveal the next question on Zoom.",
+    "When it is your turn, stay in Zoom, then pick your question number and submit your answer on the Q/A event page.",
     "You will receive another message here immediately after the raffle is run if you are selected as a contestant.",
     "If you need any additional information, you can reply to this message here or visit https://afrionet.com/contact.",
     "Best regards,\nThe AfriOnet Team",
@@ -186,7 +194,7 @@ async function sendQuizSelectionMessages(registeredContestants, session) {
         raffleTimeLine.trim(),
         ZOOM_EVENT_REMINDER,
         "Join Zoom when the button opens 5 minutes before the event. Please be ready when your contestant number is called.",
-        "When it is your turn, share your screen on Zoom, then pick a number to reveal the next question.",
+        "When it is your turn, stay in Zoom, then pick a number and submit your answer on the Q/A event page.",
         "If you need any additional information, you can reply to this message here or visit https://afrionet.com/contact.",
         "Best regards,\nThe AfriOnet Team",
       ]

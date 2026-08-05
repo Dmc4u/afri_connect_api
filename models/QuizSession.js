@@ -125,8 +125,8 @@ const quizSessionSchema = new mongoose.Schema(
     rules: {
       type: String,
       default: [
-        "Please install or open the Zoom app before the event. Zoom is required to watch the live event, and selected contestants must be ready to share their screen when it is their turn.",
-        "Share the event once it is your turn to pick a number to reveal the next question on Zoom.",
+        "Please install or open the Zoom app before the event. Zoom is required to watch the live event, and selected contestants must join Zoom when it is their turn.",
+        "When it is your turn, stay in Zoom, then pick your question number and submit your answer on the Q/A event page.",
         "Don't look around when answering to keep the event fun and fair for everyone.",
         "You will be disqualified if you cheat.",
         "Choose any available question number.",
