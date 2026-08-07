@@ -5,7 +5,7 @@ const User = require("../models/User");
 const ContactMessage = require("../models/ContactMessage");
 const MessageNotification = require("../models/MessageNotification");
 const { performRaffle } = require("../utils/raffleSelection");
-const { EVENT_TIME_ZONE, EVENT_TIME_ZONE_LABEL } = require("../utils/eventTime");
+const { EVENT_TIME_ZONE } = require("../utils/eventTime");
 
 const MEETING_JOIN_WINDOW_SECONDS = 5 * 60;
 const MEETING_JOINABLE_PHASES = new Set([
@@ -35,6 +35,23 @@ const ZOOM_EVENT_REMINDER =
   "Important Reminder: This event will be held on Zoom. Please make sure you have the Zoom application installed and working on your device before the event date.\n\n" +
   "To avoid any last-minute issues, we recommend testing Zoom in advance and ensuring you have a stable internet connection.";
 
+const COUNTRY_TIME_ZONES = new Map([
+  ["israel", "Asia/Jerusalem"],
+  ["kenya", "Africa/Nairobi"],
+  ["nigeria", "Africa/Lagos"],
+]);
+
+function getContestantCountryTimeZone(contestant) {
+  const country = String(contestant?.country || "")
+    .trim()
+    .toLowerCase();
+  if (!country) return "";
+  const match = [...COUNTRY_TIME_ZONES.entries()].find(([countryName]) =>
+    country.includes(countryName)
+  );
+  return match?.[1] || "";
+}
+
 const getConfiguredAdminEmails = () =>
   String(process.env.ADMIN_EMAILS || process.env.ADMIN_EMAIL || "")
     .split(",")
@@ -58,7 +75,12 @@ function normalizeSessionRules(rules) {
 }
 
 function getValidContestantTimeZone(contestant) {
-  const timeZone = String(contestant?.timeZone || "").trim();
+  const savedTimeZone = String(contestant?.timeZone || "").trim();
+  const countryTimeZone = getContestantCountryTimeZone(contestant);
+  const timeZone =
+    !savedTimeZone || (savedTimeZone === "UTC" && countryTimeZone)
+      ? countryTimeZone || EVENT_TIME_ZONE
+      : savedTimeZone;
   if (!timeZone) return EVENT_TIME_ZONE;
 
   try {
@@ -81,13 +103,7 @@ function formatEventTimeForMessage(value, contestant) {
     timeStyle: "short",
     timeZone,
   }).format(date);
-  const label =
-    timeZone === EVENT_TIME_ZONE
-      ? EVENT_TIME_ZONE_LABEL
-      : timeZone === "UTC"
-        ? "UTC"
-        : `your local time — ${timeZone}`;
-  return `${formatted} (${label})`;
+  return `${formatted} (${timeZone})`;
 }
 
 function getEventStartLabel(session, contestant) {
@@ -216,6 +232,8 @@ async function sendQuizSelectionMessages(registeredContestants, session) {
   );
 
   // Emit real-time socket event for selected users (immediate popup)
+  // Loaded lazily to avoid initializing the socket module during controller import.
+  // eslint-disable-next-line global-require
   const io = require("../utils/socket").getIO?.();
   if (io && session) {
     const selectedContestants = registeredContestants.filter(
@@ -3110,7 +3128,10 @@ const registerContestant = async (req, res, next) => {
     const profileAvatar = String(
       req.user.profilePhoto || req.user.avatar || profilePhoto || ""
     ).trim();
-    const contestantTimeZone = getValidContestantTimeZone({ timeZone });
+    const contestantTimeZone = getValidContestantTimeZone({
+      timeZone,
+      country: profileCountry,
+    });
     const contestant = session.contestants.find(
       (entry) =>
         (entry.user && entry.user.toString() === req.user._id.toString()) ||

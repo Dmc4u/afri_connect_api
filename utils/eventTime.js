@@ -1,10 +1,6 @@
 const EVENT_TIME_ZONE = process.env.EVENT_TIME_ZONE || "Asia/Jerusalem";
 const EVENT_TIME_ZONE_LABEL = process.env.EVENT_TIME_ZONE_LABEL || "Israel time";
 
-function formatOfficialEventDateTime(value) {
-  return formatEventDateTimeForTimeZone(value, EVENT_TIME_ZONE);
-}
-
 function getValidEventTimeZone(value) {
   const timeZone = String(value || "").trim();
   if (!timeZone) return EVENT_TIME_ZONE;
@@ -34,7 +30,11 @@ function formatEventDateTimeForTimeZone(value, requestedTimeZone) {
     second: "2-digit",
   }).format(date);
 
-  return `${formatted} (your local time — ${timeZone})`;
+  return `${formatted} (${timeZone})`;
+}
+
+function formatOfficialEventDateTime(value) {
+  return formatEventDateTimeForTimeZone(value, EVENT_TIME_ZONE);
 }
 
 module.exports = {

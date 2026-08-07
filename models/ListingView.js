@@ -12,6 +12,10 @@ const listingViewSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
+    engagementAppliedAt: {
+      type: Date,
+      default: undefined,
+    },
   },
   { timestamps: true }
 );

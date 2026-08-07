@@ -15,6 +15,7 @@ const { logActivity } = require("../utils/activityLogger");
 const { sendEmail, emailTemplates, utils: notificationUtils } = require("../utils/notifications");
 const { BadRequestError, NotFoundError, ForbiddenError } = require("../utils/errors");
 const auth = require("../middlewares/auth");
+const { isTalentCategory: isTalentListingCategory } = require("../utils/categories");
 
 const router = express.Router();
 
@@ -464,11 +465,41 @@ router.get("/users/recent", async (req, res, next) => {
       .select("name email phone tier role accountType createdAt profilePhoto country location")
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(limit);
+      .limit(limit)
+      .lean();
+
+    const userIds = users.map((user) => user._id);
+    const listings = userIds.length
+      ? await Listing.find({
+          owner: { $in: userIds },
+          status: { $ne: "deleted" },
+        })
+          .select("owner category")
+          .lean()
+      : [];
+    const listingSummaryByUser = new Map();
+    listings.forEach((listing) => {
+      const ownerId = String(listing.owner);
+      const summary = listingSummaryByUser.get(ownerId) || {
+        businessCount: 0,
+        talentCount: 0,
+      };
+      if (isTalentListingCategory(listing.category)) summary.talentCount += 1;
+      else summary.businessCount += 1;
+      listingSummaryByUser.set(ownerId, summary);
+    });
+
+    const usersWithListings = users.map((user) => ({
+      ...user,
+      listingSummary: listingSummaryByUser.get(String(user._id)) || {
+        businessCount: 0,
+        talentCount: 0,
+      },
+    }));
 
     res.json({
       success: true,
-      users,
+      users: usersWithListings,
       pagination: {
         page,
         limit,

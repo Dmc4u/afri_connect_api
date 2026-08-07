@@ -618,11 +618,14 @@ exports.adminList = async (req, res, next) => {
 exports.adminListTalentFallbacks = async (req, res, next) => {
   try {
     if (req.user.role !== "admin") throw new ForbiddenError("Admin only");
+    const now = new Date();
     const placements = await FeaturedPlacement.find({
       placementKind: "talent-admin-fallback",
       status: "approved",
+      startAt: { $lte: now },
+      endAt: { $gt: now },
     })
-      .select("listingId featuredMedia createdAt")
+      .select("listingId featuredMedia startAt endAt createdAt")
       .sort({ createdAt: -1 })
       .lean();
     res.json({ ok: true, placements });

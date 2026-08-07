@@ -205,24 +205,65 @@ const getListingById = async (req, res, next) => {
       : "";
     let viewWasAdded = false;
 
-    if (shouldTrackView) {
-      if (userId) {
+    if (userId) {
         // Upsert makes repeated requests idempotent even before the unique
         // index rejects a concurrent duplicate.
         try {
           const viewRecord = await ListingView.updateOne(
-            { listing: id, user: userId },
-            { $setOnInsert: { listing: id, user: userId } },
+            {
+              listing: id,
+              user: userId,
+              engagementAppliedAt: { $exists: false },
+            },
+            {
+              $setOnInsert: { listing: id, user: userId },
+              $set: { engagementAppliedAt: new Date() },
+            },
             { upsert: true }
           );
-          if (viewRecord.upsertedCount === 1) {
-            const viewUpdate = await Listing.updateOne({ _id: id }, { $inc: { views: 1 } });
-            viewWasAdded = viewUpdate.modifiedCount === 1;
+          const isNewView = viewRecord.upsertedCount === 1;
+          const shouldApplyViewEngagement = isNewView || viewRecord.modifiedCount === 1;
+          if (shouldApplyViewEngagement) {
+            const engagementCreatedAt = new Date();
+            const [likeUpdate, followUpdate] = await Promise.all([
+              Listing.updateOne(
+                {
+                  _id: id,
+                  owner: { $ne: userId },
+                  "likedBy.user": { $ne: userId },
+                },
+                { $push: { likedBy: { user: userId, createdAt: engagementCreatedAt } } }
+              ),
+              Listing.updateOne(
+                {
+                  _id: id,
+                  owner: { $ne: userId },
+                  "followers.user": { $ne: userId },
+                },
+                { $push: { followers: { user: userId, createdAt: engagementCreatedAt } } }
+              ),
+            ]);
+            if (isNewView && shouldTrackView) {
+              const viewUpdate = await Listing.updateOne({ _id: id }, { $inc: { views: 1 } });
+              viewWasAdded = viewUpdate.modifiedCount === 1;
+            }
+            if (likeUpdate.modifiedCount === 1) {
+              listing.likedBy = [
+                ...(listing.likedBy || []),
+                { user: userId, createdAt: engagementCreatedAt },
+              ];
+            }
+            if (followUpdate.modifiedCount === 1) {
+              listing.followers = [
+                ...(listing.followers || []),
+                { user: userId, createdAt: engagementCreatedAt },
+              ];
+            }
           }
         } catch (error) {
           if (error?.code !== 11000) throw error;
         }
-      } else if (visitorId) {
+    } else if (shouldTrackView && visitorId) {
         // A persistent anonymous visitor ID prevents refreshes, repeat visits,
         // and concurrent tabs from inflating the count.
         try {
@@ -238,7 +279,6 @@ const getListingById = async (req, res, next) => {
         } catch (error) {
           if (error?.code !== 11000) throw error;
         }
-      }
     }
 
     if (viewWasAdded) {

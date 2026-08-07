@@ -8,6 +8,12 @@ const pageViewSchema = new mongoose.Schema(
       index: true,
       maxlength: 120,
     },
+    deviceHash: {
+      type: String,
+      index: true,
+      minlength: 64,
+      maxlength: 64,
+    },
     path: {
       type: String,
       required: true,
@@ -51,7 +57,7 @@ const pageViewSchema = new mongoose.Schema(
       expires: 60 * 60 * 24,
     },
   },
-  { timestamps: false },
+  { timestamps: false }
 );
 
 pageViewSchema.index({ viewedAt: -1, path: 1 });
